@@ -115,6 +115,13 @@ class StudioNotifier extends StateNotifier<StudioState> {
     state = state.copyWith(selectedNodeId: id);
   }
 
+  void setNodes(List<RouteNode> nodes) {
+    state = state.copyWith(
+      nodes: nodes,
+      selectedNodeId: nodes.isNotEmpty ? nodes.first.id : null,
+    );
+  }
+
   void addRouteNode({
     required String path,
     required String title,

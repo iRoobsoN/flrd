@@ -94,6 +94,21 @@ class ProjectsNotifier extends StateNotifier<ProjectsState> {
     );
   }
 
+  void registerProject(RegisteredProject project) {
+    final existingIndex = state.projects.indexWhere(
+      (p) => p.id == project.id || p.path == project.path,
+    );
+    if (existingIndex >= 0) {
+      final updated = List<RegisteredProject>.from(state.projects);
+      updated[existingIndex] = project;
+      state = state.copyWith(projects: updated);
+    } else {
+      state = state.copyWith(
+        projects: [project, ...state.projects],
+      );
+    }
+  }
+
   void removeProject(String id) {
     state = state.copyWith(
       projects: state.projects.where((p) => p.id != id).toList(),

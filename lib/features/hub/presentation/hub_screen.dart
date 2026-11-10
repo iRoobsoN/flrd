@@ -10,6 +10,7 @@ import '../../../core/widgets/donate_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
 import '../../marketplace/presentation/marketplace_view.dart';
 import '../../marketplace/providers/marketplace_provider.dart';
+import '../../projects/presentation/widgets/import_project_dialog.dart';
 import '../../projects/providers/projects_provider.dart';
 import '../../wizard/presentation/wizard_screen.dart';
 import 'widgets/projects_grid_view.dart';
@@ -641,6 +642,36 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary.withOpacity(0.18),
+                foregroundColor: AppColors.primary,
+                side: BorderSide(color: AppColors.primary.withOpacity(0.5)),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: () => ImportProjectDialog.show(context),
+              icon: const Icon(
+                Icons.file_download_outlined,
+                size: 15,
+                color: AppColors.primary,
+              ),
+              label: Text(
+                strings.importProject,
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -841,12 +872,14 @@ class _ActionCardState extends State<_ActionCard> {
               const SizedBox(height: 18),
               Row(
                 children: [
-                  Text(
-                    widget.buttonText,
-                    style: TextStyle(
-                      color: widget.accentColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Text(
+                      widget.buttonText,
+                      style: TextStyle(
+                        color: widget.accentColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ],

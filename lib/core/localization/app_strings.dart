@@ -104,6 +104,12 @@ class AppStrings {
     AppLanguage.es => 'Escanear Carpetas',
   };
 
+  String get importProject => switch (language) {
+    AppLanguage.pt => 'Importar Projeto',
+    AppLanguage.en => 'Import Project',
+    AppLanguage.es => 'Importar Proyecto',
+  };
+
   String get noProjectsTitle => switch (language) {
     AppLanguage.pt => 'Nenhum projeto cadastrado no momento',
     AppLanguage.en => 'No registered projects yet',
