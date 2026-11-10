@@ -17,6 +17,7 @@ dependencies:
   # Desktop Window & Experience
   window_manager: ^0.3.9
   file_picker: ^8.0.0
+  url_launcher: ^6.3.0
 
   # Visuals & Micro-interactions
   flutter_animate: ^4.5.0
