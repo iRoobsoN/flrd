@@ -8,12 +8,21 @@ import '../../../core/localization/language_selector_widget.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/donate_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
+import '../../marketplace/presentation/marketplace_view.dart';
+import '../../marketplace/providers/marketplace_provider.dart';
 import '../../projects/providers/projects_provider.dart';
 import '../../wizard/presentation/wizard_screen.dart';
 import 'widgets/projects_grid_view.dart';
 
-class HubScreen extends ConsumerWidget {
+class HubScreen extends ConsumerStatefulWidget {
   const HubScreen({super.key});
+
+  @override
+  ConsumerState<HubScreen> createState() => _HubScreenState();
+}
+
+class _HubScreenState extends ConsumerState<HubScreen> {
+  int _activeSection = 0; // 0 = Meus Projetos, 1 = Marketplace
 
   Future<void> _openUrl(BuildContext context, String url) async {
     final uri = Uri.parse(url);
@@ -25,8 +34,10 @@ class HubScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final strings = ref.watch(appStringsProvider);
+    final projectsCount = ref.watch(projectsProvider).projects.length;
+    final templatesCount = ref.watch(marketplaceProvider).templates.length;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -59,7 +70,7 @@ class HubScreen extends ConsumerWidget {
                         _buildHeroHeader(context, ref, strings),
                         const SizedBox(height: 32),
 
-                        // Action Tiles (New Project, My Projects, Architecture)
+                        // Action Tiles (New Project, My Projects, Marketplace)
                         _buildActionCards(context, strings),
                         const SizedBox(height: 36),
 
@@ -67,8 +78,46 @@ class HubScreen extends ConsumerWidget {
                         _buildCliBanner(context, strings),
                         const SizedBox(height: 36),
 
-                        // Recognized Projects Workspace Section
-                        _buildRecognizedProjectsSection(context, ref, strings),
+                        // Section Switcher Tabs (Obsidian Glass)
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildSectionTabButton(
+                                index: 0,
+                                title: 'Meus Projetos Locais',
+                                count: '$projectsCount',
+                                icon: Icons.grid_view_rounded,
+                              ),
+                              const SizedBox(width: 4),
+                              _buildSectionTabButton(
+                                index: 1,
+                                title: 'Marketplace de Templates',
+                                badge: 'USD \$ • $templatesCount kits',
+                                icon: Icons.storefront_rounded,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Active View: Recognized Projects or Marketplace View
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          child: _activeSection == 0
+                              ? _buildRecognizedProjectsSection(
+                                  context,
+                                  ref,
+                                  strings,
+                                )
+                              : const MarketplaceView(),
+                        ),
                         const SizedBox(height: 48),
 
                         // Community Footer
@@ -79,6 +128,96 @@ class HubScreen extends ConsumerWidget {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTabButton({
+    required int index,
+    required String title,
+    IconData? icon,
+    String? count,
+    String? badge,
+  }) {
+    final isSelected = _activeSection == index;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => setState(() => _activeSection = index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.surfaceSelected : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary.withOpacity(0.5)
+                : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(
+                icon,
+                size: 14,
+                color: isSelected ? AppColors.primary : AppColors.textMuted,
+              ),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              title,
+              style: TextStyle(
+                color: isSelected
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppColors.primary.withOpacity(0.2)
+                      : AppColors.surfaceCard,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  count,
+                  style: TextStyle(
+                    color: isSelected ? AppColors.secondary : AppColors.textMuted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+            if (badge != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.success.withOpacity(0.3)),
+                ),
+                child: Text(
+                  badge,
+                  style: const TextStyle(
+                    color: AppColors.success,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -293,29 +432,18 @@ class HubScreen extends ConsumerWidget {
           accentColor: AppColors.secondary,
           buttonText: '${strings.myProjectsTitle} →',
           onTap: () {
-            // Scroll to recognized projects section or trigger scan
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '${strings.myProjectsTitle}: Reconhecendo projetos na máquina...',
-                ),
-                backgroundColor: AppColors.surfaceCard,
-              ),
-            );
+            setState(() => _activeSection = 0);
           },
         );
 
-        final docsCard = _ActionCard(
-          title: strings.docsTitle,
-          description: strings.docsDesc,
-          icon: Icons.menu_book_rounded,
+        final marketplaceCard = _ActionCard(
+          title: strings.marketplaceTitle,
+          description: strings.marketplaceDesc,
+          icon: Icons.storefront_rounded,
           accentColor: AppColors.success,
-          buttonText: '${strings.docsTitle} ↗',
+          buttonText: '${strings.marketplaceTitle} →',
           onTap: () {
-            _openUrl(
-              context,
-              'https://github.com/iRoobsoN/flrd/blob/main/ARCHITECTURE.md',
-            );
+            setState(() => _activeSection = 1);
           },
         );
 
@@ -327,7 +455,7 @@ class HubScreen extends ConsumerWidget {
               const SizedBox(width: 16),
               Expanded(child: myProjectsCard),
               const SizedBox(width: 16),
-              Expanded(child: docsCard),
+              Expanded(child: marketplaceCard),
             ],
           );
         } else {
@@ -337,7 +465,7 @@ class HubScreen extends ConsumerWidget {
               const SizedBox(height: 16),
               myProjectsCard,
               const SizedBox(height: 16),
-              docsCard,
+              marketplaceCard,
             ],
           );
         }

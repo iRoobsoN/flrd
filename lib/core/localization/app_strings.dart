@@ -62,6 +62,21 @@ class AppStrings {
       'Gestione, inspeccione y edite las aplicaciones Flutter existentes detectadas en su equipo.',
   };
 
+  String get marketplaceTitle => switch (language) {
+    AppLanguage.pt => 'Marketplace de Templates',
+    AppLanguage.en => 'Template Marketplace',
+    AppLanguage.es => 'Mercado de Plantillas',
+  };
+
+  String get marketplaceDesc => switch (language) {
+    AppLanguage.pt =>
+      'Explore templates prontos da comunidade ou venda os seus em USD com split de 75% no Lemon Squeezy.',
+    AppLanguage.en =>
+      'Explore community templates or sell yours in USD with 75% automated split via Lemon Squeezy.',
+    AppLanguage.es =>
+      'Explore plantillas de la comunidad o venda las suyas en USD con división del 75% vía Lemon Squeezy.',
+  };
+
   String get docsTitle => switch (language) {
     AppLanguage.pt => 'Documentação',
     AppLanguage.en => 'Architecture Docs',

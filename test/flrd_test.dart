@@ -7,6 +7,7 @@ import 'package:flrd/features/generator/injectors/ios_plist_injector.dart';
 import 'package:flrd/core/localization/app_strings.dart';
 import 'package:flrd/features/projects/providers/projects_provider.dart';
 import 'package:flrd/features/studio/providers/studio_provider.dart';
+import 'package:flrd/features/marketplace/providers/marketplace_provider.dart';
 
 void main() {
   group('ProjectConfig Model Tests', () {
@@ -193,6 +194,45 @@ void main() {
       notifier.updateNodePosition('dashboard', const Offset(420, 500));
       final dashboard = notifier.state.nodes.firstWhere((n) => n.id == 'dashboard');
       expect(dashboard.position, const Offset(420, 500));
+    });
+  });
+
+  group('Marketplace Provider Tests', () {
+    test('MarketplaceNotifier initializes with curated community templates', () {
+      final notifier = MarketplaceNotifier();
+      expect(notifier.state.templates.isNotEmpty, isTrue);
+      expect(notifier.state.templates.length, greaterThanOrEqualTo(5));
+    });
+
+    test('Templates carry consistency blueprint and manifest', () {
+      final notifier = MarketplaceNotifier();
+      final fintech = notifier.state.templates.firstWhere((t) => t.id == 'novabank-fintech');
+      expect(fintech.manifest.designSystem.isNotEmpty, isTrue);
+      expect(fintech.manifest.aiPromptRules.isNotEmpty, isTrue);
+      expect(fintech.manifest.screenNames.length, greaterThanOrEqualTo(5));
+      expect(fintech.isFree, isFalse);
+      expect(fintech.priceUsd, 49.0);
+    });
+
+    test('Category filtering filters templates accurately', () {
+      final notifier = MarketplaceNotifier();
+      notifier.setCategory('Fintech');
+      expect(notifier.state.filteredTemplates.every((t) => t.category == 'Fintech'), isTrue);
+
+      notifier.setCategory('Gratuitos');
+      expect(notifier.state.filteredTemplates.every((t) => t.isFree), isTrue);
+    });
+
+    test('Search query filters templates by title or tags', () {
+      final notifier = MarketplaceNotifier();
+      notifier.setSearchQuery('Pix');
+      expect(notifier.state.filteredTemplates.isNotEmpty, isTrue);
+      expect(
+        notifier.state.filteredTemplates.any(
+          (t) => t.tags.contains('Pix') || t.title.contains('Pix'),
+        ),
+        isTrue,
+      );
     });
   });
 }
