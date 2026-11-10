@@ -8,6 +8,7 @@
 [![Dart](https://img.shields.io/badge/Dart-3.x-0175C2?style=for-the-badge&logo=dart&logoColor=white)](https://dart.dev)
 [![CI Pipeline](https://github.com/iRoobsoN/flrd/actions/workflows/ci.yml/badge.svg)](https://github.com/iRoobsoN/flrd/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![Release: v0.1.0](https://img.shields.io/badge/Release-v0.1.0-blueviolet?style=for-the-badge)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
 [![Donate PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=robson.dv14@gmail.com&currency_code=USD)
 [![Donate Pix](https://img.shields.io/badge/Apoie_com-PIX-32BCAD?style=for-the-badge&logo=pix&logoColor=white)](#-support-the-project--apoie-o-projeto)
