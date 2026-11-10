@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../ai/providers/ai_settings_provider.dart';
+import '../../../ai/services/gemini_ai_service.dart';
 import '../../../projects/models/registered_project.dart';
 import '../../providers/studio_provider.dart';
 
@@ -29,73 +31,121 @@ class _AiScreenGeneratorDialogState
     text:
         'Tela de checkout e pagamento com seleção de Pix, Cartão de Crédito e resumo de pedido com gradiente Obsidian.',
   );
+  late final TextEditingController _apiKeyController;
 
   String _parentRouteId = 'dashboard';
   int _selectedMode = 0; // 0 = FLRD Pro Cloud, 1 = BYOK Gemini
   bool _isGenerating = false;
 
   @override
+  void initState() {
+    super.initState();
+    final initialKey = ref.read(aiSettingsProvider).apiKey ?? '';
+    _apiKeyController = TextEditingController(text: initialKey);
+  }
+
+  @override
   void dispose() {
     _pathController.dispose();
     _titleController.dispose();
     _promptController.dispose();
+    _apiKeyController.dispose();
     super.dispose();
   }
 
   Future<void> _generateScreen() async {
     setState(() => _isGenerating = true);
 
-    // Simulate AI generation process with architectural validation
-    await Future.delayed(const Duration(milliseconds: 1200));
+    try {
+      final cleanTitle = _titleController.text.trim().isEmpty
+          ? 'GeneratedScreen'
+          : _titleController.text.trim();
 
-    if (!mounted) return;
+      final aiSettings = ref.read(aiSettingsProvider);
+      final activeApiKey = (_selectedMode == 1)
+          ? (_apiKeyController.text.trim().isNotEmpty
+              ? _apiKeyController.text.trim()
+              : aiSettings.apiKey)
+          : null;
 
-    final studio = ref.read(studioProvider.notifier);
-    final currentNodes = ref.read(studioProvider).nodes;
+      // Update provider if user typed key in BYOK mode
+      if (_selectedMode == 1 && _apiKeyController.text.trim().isNotEmpty) {
+        ref.read(aiSettingsProvider.notifier).setApiKey(_apiKeyController.text.trim());
+      }
 
-    // Calculate layout position for new node
-    final parent = currentNodes.firstWhere(
-      (n) => n.id == _parentRouteId,
-      orElse: () => currentNodes.last,
-    );
+      // 1. Generate code and write physical file via GeminiAiService
+      final result = await GeminiAiService.generateScreen(
+        projectPath: widget.project.path,
+        screenClassName: cleanTitle,
+        routePath: _pathController.text.trim(),
+        prompt: _promptController.text.trim(),
+        preset: widget.project.preset,
+        apiKey: activeApiKey,
+      );
 
-    final newPos = Offset(
-      parent.position.dx + 330,
-      parent.position.dy + 30,
-    );
+      if (!mounted) return;
 
-    final cleanTitle = _titleController.text.trim().isEmpty
-        ? 'GeneratedScreen'
-        : _titleController.text.trim();
+      // 2. Inject RouteNode into Flowchart
+      final studio = ref.read(studioProvider.notifier);
+      final currentNodes = ref.read(studioProvider).nodes;
 
-    studio.addRouteNode(
-      path: _pathController.text.trim(),
-      title: cleanTitle,
-      subtitle: _promptController.text.trim(),
-      icon: Icons.auto_awesome_rounded,
-      isProtected: true,
-      isAIGenerated: true,
-      position: newPos,
-      parentRouteId: _parentRouteId,
-      filePath:
-          'lib/features/${cleanTitle.toLowerCase().replaceAll('screen', '')}/presentation/${cleanTitle.toLowerCase()}.dart',
-    );
+      final parent = currentNodes.firstWhere(
+        (n) => n.id == _parentRouteId,
+        orElse: () => currentNodes.last,
+      );
 
-    Navigator.of(context).pop();
+      final newPos = Offset(
+        parent.position.dx + 330,
+        parent.position.dy + 30,
+      );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded, color: AppColors.success),
-            const SizedBox(width: 10),
-            Text('Tela "$cleanTitle" gerada via IA e injetada no Fluxograma!'),
-          ],
+      studio.addRouteNode(
+        path: _pathController.text.trim(),
+        title: cleanTitle,
+        subtitle: _promptController.text.trim(),
+        icon: Icons.auto_awesome_rounded,
+        isProtected: true,
+        isAIGenerated: true,
+        position: newPos,
+        parentRouteId: _parentRouteId,
+        filePath: result.filePath,
+      );
+
+      Navigator.of(context).pop();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: AppColors.success),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('Tela "$cleanTitle" gerada via IA e injetada no Fluxograma! (${result.filePath})'),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.surfaceSelected,
+          duration: const Duration(seconds: 4),
         ),
-        backgroundColor: AppColors.surfaceSelected,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isGenerating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline_rounded, color: AppColors.danger),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('Falha ao gerar tela com IA: $e'),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.surfaceCard,
+        ),
+      );
+    }
   }
 
   @override
@@ -170,12 +220,15 @@ class _AiScreenGeneratorDialogState
                       color: AppColors.primary,
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      'Contexto do Projeto: ${widget.project.preset.name.toUpperCase()} • Riverpod & Tokens',
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
+                    Expanded(
+                      child: Text(
+                        'Contexto do Projeto: ${widget.project.preset.name.toUpperCase()} • Riverpod & Tokens',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -374,6 +427,50 @@ class _AiScreenGeneratorDialogState
                   ),
                 ],
               ),
+
+              if (_selectedMode == 1) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Chave de API Google Gemini (BYOK)',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _apiKeyController,
+                  obscureText: true,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    color: AppColors.textPrimary,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Cole sua Gemini API Key (ex: AIzaSy...)',
+                    hintStyle: const TextStyle(color: AppColors.textMuted),
+                    prefixIcon: const Icon(
+                      Icons.key_rounded,
+                      size: 16,
+                      color: AppColors.success,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surfaceCard,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  onChanged: (val) {
+                    ref.read(aiSettingsProvider.notifier).setApiKey(val);
+                  },
+                ),
+              ],
             ],
           ),
         ),

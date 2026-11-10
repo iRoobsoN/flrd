@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../config/monetization_config.dart';
 import '../theme/app_colors.dart';
 
 class DonateDialog extends StatelessWidget {
@@ -109,12 +110,12 @@ class DonateDialog extends StatelessWidget {
                       ),
                       onPressed: () {
                         Clipboard.setData(
-                          const ClipboardData(text: 'robson.dv14@gmail.com'),
+                          const ClipboardData(text: MonetizationConfig.pixKey),
                         );
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text(
-                              'Chave Pix copiada: robson.dv14@gmail.com',
+                              'Chave Pix copiada: ${MonetizationConfig.pixKey}',
                             ),
                             backgroundColor: AppColors.success,
                             duration: Duration(seconds: 2),
@@ -138,7 +139,7 @@ class DonateDialog extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 const SelectableText(
-                  'robson.dv14@gmail.com',
+                  MonetizationConfig.pixKey,
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 13,
@@ -157,7 +158,7 @@ class DonateDialog extends StatelessWidget {
               Navigator.of(context).pop();
               _openUrl(
                 context,
-                'https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=robson.dv14@gmail.com&currency_code=USD',
+                MonetizationConfig.payPalUrl,
               );
             },
             child: Container(

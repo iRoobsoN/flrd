@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 import '../localization/language_provider.dart';
 import '../theme/app_colors.dart';
+import '../../features/settings/presentation/settings_and_billing_dialog.dart';
 
 class CustomTitleBar extends ConsumerWidget {
   final bool showBackButton;
@@ -147,6 +148,19 @@ class CustomTitleBar extends ConsumerWidget {
             child: kIsWeb ? titleContent : DragToMoveArea(child: titleContent),
           ),
           if (trailing != null) trailing!,
+          IconButton(
+            tooltip: 'Configurações & Faturamento',
+            icon: const Icon(
+              Icons.settings_rounded,
+              size: 16,
+              color: AppColors.textSecondary,
+            ),
+            splashRadius: 16,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => SettingsAndBillingDialog.show(context),
+          ),
+          const SizedBox(width: 4),
           if (!kIsWeb) ...[
             _WindowActionButton(
               icon: Icons.remove_rounded,

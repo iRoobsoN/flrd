@@ -1,0 +1,971 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../core/config/monetization_config.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../ai/providers/ai_settings_provider.dart';
+
+/// Modal dialog providing centralized settings for Gemini AI API keys,
+/// FLRD Pro subscription & billing via Lemon Squeezy, and open-source donation options.
+class SettingsAndBillingDialog extends ConsumerStatefulWidget {
+  final int initialTabIndex;
+
+  const SettingsAndBillingDialog({
+    super.key,
+    this.initialTabIndex = 0,
+  });
+
+  /// Displays the settings and billing dialog modal.
+  static Future<void> show(BuildContext context, {int initialTabIndex = 0}) {
+    return showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => SettingsAndBillingDialog(initialTabIndex: initialTabIndex),
+    );
+  }
+
+  @override
+  ConsumerState<SettingsAndBillingDialog> createState() =>
+      _SettingsAndBillingDialogState();
+}
+
+class _SettingsAndBillingDialogState
+    extends ConsumerState<SettingsAndBillingDialog>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  late final TextEditingController _apiKeyController;
+  bool _obscureApiKey = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTabIndex.clamp(0, 2),
+    );
+
+    final currentApiKey = ref.read(aiSettingsProvider).apiKey ?? '';
+    _apiKeyController = TextEditingController(text: currentApiKey);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _apiKeyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.parse(url);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Não foi possível abrir o link: $url'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao abrir link: $e'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
+  void _copyPixKey(BuildContext context) {
+    Clipboard.setData(const ClipboardData(text: MonetizationConfig.pixKey));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
+            SizedBox(width: 8),
+            Text('Chave Pix copiada com sucesso: ${MonetizationConfig.pixKey}'),
+          ],
+        ),
+        backgroundColor: AppColors.surfaceSelected,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _saveApiKey() {
+    final key = _apiKeyController.text.trim();
+    ref.read(aiSettingsProvider.notifier).setApiKey(key.isEmpty ? null : key);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              key.isEmpty
+                  ? 'Chave de API removida. Usando gerador padrão sintético.'
+                  : 'Chave Gemini API salva com sucesso!',
+            ),
+          ],
+        ),
+        backgroundColor: AppColors.surfaceSelected,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final aiSettings = ref.watch(aiSettingsProvider);
+
+    return Dialog(
+      backgroundColor: AppColors.backgroundSecondary,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppColors.border),
+      ),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 680,
+          maxHeight: 640,
+          minWidth: 540,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Dialog Header
+            _buildHeader(context),
+            const Divider(height: 1, color: AppColors.borderSubtle),
+
+            // Tab Bar
+            _buildTabBar(),
+            const Divider(height: 1, color: AppColors.borderSubtle),
+
+            // Tab Content
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildAiTab(context, aiSettings),
+                  _buildPlanAndBillingTab(context, aiSettings),
+                  _buildSupportTab(context),
+                ],
+              ),
+            ),
+
+            const Divider(height: 1, color: AppColors.borderSubtle),
+
+            // Dialog Footer Actions
+            _buildFooter(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 16, 14),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: AppColors.primaryGradient,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.settings_suggest_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Configurações & Faturamento',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Gerencie chaves de IA, licença FLRD Pro e apoios ao projeto',
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Fechar',
+            icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textMuted),
+            splashRadius: 18,
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    return Container(
+      color: AppColors.surface,
+      child: TabBar(
+        controller: _tabController,
+        labelColor: AppColors.secondary,
+        unselectedLabelColor: AppColors.textSecondary,
+        indicatorColor: AppColors.secondary,
+        indicatorWeight: 2,
+        labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        unselectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+        tabs: const [
+          Tab(
+            icon: Icon(Icons.psychology_rounded, size: 16),
+            text: 'Inteligência Artificial (IA)',
+          ),
+          Tab(
+            icon: Icon(Icons.workspace_premium_rounded, size: 16),
+            text: 'Plano & Faturamento',
+          ),
+          Tab(
+            icon: Icon(Icons.favorite_rounded, size: 16),
+            text: 'Apoiar Projeto',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiTab(BuildContext context, AiSettingsState aiSettings) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Informational Banner
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceCard,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: AppColors.secondary,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Bring Your Own Key (BYOK) — Google Gemini',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Insira sua chave de API pessoal do Google Gemini para sintetizar telas Flutter de alta complexidade diretamente no seu computador sem intermediários.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Key Status Pill
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: aiSettings.hasApiKey
+                                  ? AppColors.success.withOpacity(0.15)
+                                  : AppColors.warning.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: aiSettings.hasApiKey
+                                    ? AppColors.success.withOpacity(0.4)
+                                    : AppColors.warning.withOpacity(0.4),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  aiSettings.hasApiKey
+                                      ? Icons.check_circle_rounded
+                                      : Icons.info_outline_rounded,
+                                  size: 13,
+                                  color: aiSettings.hasApiKey
+                                      ? AppColors.success
+                                      : AppColors.warning,
+                                ),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    aiSettings.hasApiKey
+                                        ? 'Chave Configurada e Pronta'
+                                        : 'Nenhuma chave ativa (Modo sintético offline)',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: aiSettings.hasApiKey
+                                          ? AppColors.success
+                                          : AppColors.warning,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Google Gemini API Key Input
+          const Text(
+            'Chave de API do Gemini (Google AI Studio)',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _apiKeyController,
+            obscureText: _obscureApiKey,
+            style: const TextStyle(
+              fontSize: 13,
+              fontFamily: 'monospace',
+              color: AppColors.textPrimary,
+            ),
+            decoration: InputDecoration(
+              hintText: 'AIzaSy...',
+              hintStyle: const TextStyle(color: AppColors.textMuted),
+              filled: true,
+              fillColor: AppColors.surfaceCard,
+              prefixIcon: const Icon(Icons.vpn_key_rounded, size: 16, color: AppColors.secondary),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      _obscureApiKey ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+                      size: 16,
+                      color: AppColors.textMuted,
+                    ),
+                    onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
+                    tooltip: _obscureApiKey ? 'Mostrar Chave' : 'Ocultar Chave',
+                  ),
+                  if (_apiKeyController.text.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.clear_rounded, size: 16, color: AppColors.textMuted),
+                      onPressed: () {
+                        setState(() {
+                          _apiKeyController.clear();
+                        });
+                        ref.read(aiSettingsProvider.notifier).clearApiKey();
+                      },
+                      tooltip: 'Limpar',
+                    ),
+                ],
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: AppColors.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: AppColors.secondary, width: 1.5),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Action row: Save Button & Link to Google AI Studio
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            children: [
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.secondary,
+                  foregroundColor: AppColors.background,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: _saveApiKey,
+                icon: const Icon(Icons.save_rounded, size: 15),
+                label: const Text('Salvar Chave de API', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textPrimary,
+                  side: const BorderSide(color: AppColors.border),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () => _openUrl(MonetizationConfig.googleAiStudioUrl),
+                icon: const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.secondary),
+                label: const Text('Obter Chave Gratuita no Google AI Studio', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Helper callout
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.shield_outlined, size: 15, color: AppColors.textMuted),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Sua chave de API é mantida de forma segura em memória/local na sua máquina e nunca é compartilhada com servidores de terceiros.',
+                    style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 11,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlanAndBillingTab(BuildContext context, AiSettingsState aiSettings) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Obsidian Glass Card for "FLRD Pro"
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceCard,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.secondary.withOpacity(0.35)),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.secondary.withOpacity(0.08),
+                  AppColors.surfaceCard,
+                  AppColors.backgroundSecondary,
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.secondary.withOpacity(0.05),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.secondary.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.diamond_rounded,
+                            color: AppColors.secondary,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'FLRD Pro',
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            Text(
+                              'Obsidian Enterprise Suite',
+                              style: TextStyle(
+                                color: AppColors.secondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    // Price tag
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            r'$19 / mês',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            r'ou $49 vitalício',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Eleve sua produtividade a nível industrial com compilação remota instantânea, geração ilimitada de arquitetura com IA e canal de suporte exclusivo.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Benefits Checklist
+                _buildBenefitItem('Nuvem rápida para renderização e preview de fluxogramas'),
+                const SizedBox(height: 8),
+                _buildBenefitItem('Telas ilimitadas geradas por IA com Clean Architecture'),
+                const SizedBox(height: 8),
+                _buildBenefitItem('Suporte VIP com engenheiros core e acesso antecipado a novos presets'),
+                const SizedBox(height: 8),
+                _buildBenefitItem('Acesso ilimitado ao Marketplace de templates & componentes curados'),
+                const SizedBox(height: 20),
+
+                // CTA Button
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.secondary,
+                        foregroundColor: AppColors.background,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 2,
+                      ),
+                      onPressed: () => _openUrl(MonetizationConfig.lemonSqueezyProCheckoutUrl),
+                      icon: const Icon(Icons.bolt_rounded, size: 18),
+                      label: const Text(
+                        'Assinar FLRD Pro via Lemon Squeezy',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: AppColors.border),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _openUrl(MonetizationConfig.lemonSqueezyStoreUrl),
+                      icon: const Icon(Icons.storefront_rounded, size: 16, color: AppColors.secondary),
+                      label: const Text('Loja Oficial', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Pro status toggle card
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  aiSettings.isProActive ? Icons.verified_rounded : Icons.lock_outline_rounded,
+                  color: aiSettings.isProActive ? AppColors.success : AppColors.textMuted,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        aiSettings.isProActive
+                            ? 'Status da Licença: FLRD Pro Ativo'
+                            : 'Status da Licença: Versão FLRD Community',
+                        style: TextStyle(
+                          color: aiSettings.isProActive ? AppColors.success : AppColors.textPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        aiSettings.isProActive
+                            ? 'Todos os recursos avançados e geradores em nuvem estão desbloqueados.'
+                            : 'Insira sua chave Lemon Squeezy ou ative a licença para liberar recursos Pro.',
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    ref.read(aiSettingsProvider.notifier).toggleProActive();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          !aiSettings.isProActive
+                              ? 'Licença Pro ativada!'
+                              : 'Licença revertida para Community.',
+                        ),
+                        backgroundColor: AppColors.surfaceSelected,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    aiSettings.isProActive ? 'Desativar Pro' : 'Ativar Licença',
+                    style: const TextStyle(fontSize: 11, color: AppColors.secondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBenefitItem(String text) {
+    return Row(
+      children: [
+        const Icon(
+          Icons.check_circle_rounded,
+          size: 15,
+          color: AppColors.secondary,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSupportTab(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Open source description
+          const Text(
+            'Apoie o Desenvolvimento Independente',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'O FLRD é um projeto independente de código aberto desenvolvido por Robson David (@iRoobsoN) para acelerar a criação de aplicações Flutter profissionais. '
+            'Seu apoio financia o desenvolvimento de novos templates, presets arquiteturais e melhorias contínuas.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // Pix Card (Brasil)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceCard,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'PIX (Brasil)',
+                        style: TextStyle(
+                          color: AppColors.success,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success.withOpacity(0.2),
+                        foregroundColor: AppColors.success,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                      onPressed: () => _copyPixKey(context),
+                      icon: const Icon(Icons.copy_rounded, size: 13),
+                      label: const Text(
+                        'Copiar Chave',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const SelectableText(
+                  MonetizationConfig.pixKey,
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // PayPal Card (Global)
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => _openUrl(MonetizationConfig.payPalUrl),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceCard,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.payment_rounded,
+                    color: AppColors.secondary,
+                    size: 22,
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'PayPal (Global)',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Apoie internacionalmente com cartão de crédito via PayPal.',
+                          style: TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.open_in_new_rounded,
+                    size: 16,
+                    color: AppColors.textMuted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // GitHub Sponsors Card
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => _openUrl(MonetizationConfig.githubSponsorsUrl),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceCard,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.volunteer_activism_rounded,
+                    color: Colors.pinkAccent,
+                    size: 22,
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'GitHub Sponsors (@iRoobsoN)',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Apoio mensal recorrente através da plataforma oficial do GitHub.',
+                          style: TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.open_in_new_rounded,
+                    size: 16,
+                    color: AppColors.textMuted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFooter(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.textMuted,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            onPressed: () => _openUrl('https://github.com/iRoobsoN/flrd'),
+            icon: const Icon(Icons.star_rounded, size: 16, color: Colors.amber),
+            label: const Text('Deixar Estrela no GitHub', style: TextStyle(fontSize: 11)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.surface,
+              foregroundColor: AppColors.textPrimary,
+              elevation: 0,
+              side: const BorderSide(color: AppColors.border),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Fechar', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
