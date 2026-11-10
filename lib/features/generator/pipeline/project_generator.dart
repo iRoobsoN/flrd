@@ -3,6 +3,8 @@ import 'package:process_run/process_run.dart';
 import '../../wizard/models/project_config.dart';
 import '../injectors/android_manifest_injector.dart';
 import '../injectors/ios_plist_injector.dart';
+import '../presets/saas_preset.dart';
+import '../services/permission_service_template.dart';
 
 class ProjectGenerator {
   final ProjectConfig config;
@@ -79,9 +81,23 @@ class ProjectGenerator {
       onLog('✅ Dependencies resolved and added.');
 
       // Step 4: Synthesize Lib & Theme
-      onLog('🎨 Step 4/5: Synthesizing navigation shell & smart contrast theme...');
-      await _writeCustomMain(targetPath);
-      onLog('✅ Custom templates applied.');
+      onLog('🎨 Step 4/5: Synthesizing architecture presets & GoRouter guards...');
+      
+      // Synthesize permission helper if permissions are enabled
+      if (config.permissions.isNotEmpty) {
+        await PermissionServiceTemplate.synthesize(targetPath, config.permissions);
+      }
+
+      // Synthesize preset files
+      switch (config.preset) {
+        case PresetType.saas:
+          await SaasPreset.synthesize(targetPath, config);
+          break;
+        default:
+          await SaasPreset.synthesize(targetPath, config);
+          break;
+      }
+      onLog('✅ Full architectural preset with auth guards applied.');
 
       onLog('🎉 Step 5/5: FLRD scaffolding complete! Opening project...');
       return true;
