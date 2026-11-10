@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] - 2026-11-10
+
+### 🛡️ Marketplace Guardian Suite & Anti-Plagiarism Engine
+
+This release introduces the **Marketplace Guardian Suite**, protecting the developer ecosystem from market prostitution, low-effort clones, and security leaks.
+
+#### ✨ Highlights
+* **Category Price Floors (`isPriceFloorValid`)**:
+  * Enforces mandatory price minimums across template categories: Micro-Modules (\$15 USD), Starter Kits (\$29 USD), and Full Apps (\$49 USD) to eradicate race-to-the-bottom pricing.
+* **AST Structural Fingerprinting & Anti-Plagiarism (`TemplateFingerprint`)**:
+  * Deconstructs projects into class hierarchies, custom widgets, routes, and file topologies.
+  * Calculates Jaccard similarity index; automatically flags and blocks candidate submissions that exceed 70% structural similarity with existing catalog templates.
+* **Security & Secret Leak Audit (`auditSecurity`)**:
+  * Scans project files prior to packaging, blocking `.env` files, `.pem` keys, and hardcoded Google API or Stripe tokens.
+* **Creator Submission Suite (`PublishTemplateDialog`)**:
+  * Interactive publishing dialog accessible from the Marketplace and App Studio.
+  * Real-time 75% creator / 25% platform revenue split calculator.
+  * 1-click automated security & anti-plagiarism verification checklist.
+  * Generates signed `.flrd/manifest.json` with cryptographic provenance.
+* **Test Suite Expansion**: Added 7 automated tests for the Guardian Suite; all 66 tests passing.
+
+---
+
 ## [0.2.0] - 2026-11-10
 
 ### 🚀 Major Release: The Complete App Studio & Ecosystem Suite

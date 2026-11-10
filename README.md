@@ -7,7 +7,7 @@
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.x-0175C2?style=for-the-badge&logo=dart&logoColor=white)](https://dart.dev)
 [![CI Pipeline](https://github.com/iRoobsoN/flrd/actions/workflows/ci.yml/badge.svg)](https://github.com/iRoobsoN/flrd/actions/workflows/ci.yml)
-[![Release: v0.2.0](https://img.shields.io/badge/Release-v0.2.0-blueviolet?style=for-the-badge)](https://github.com/iRoobsoN/flrd/releases/tag/v0.2.0)
+[![Release: v0.2.1](https://img.shields.io/badge/Release-v0.2.1-blueviolet?style=for-the-badge)](https://github.com/iRoobsoN/flrd/releases/tag/v0.2.1)
 [![Download Windows x64](https://img.shields.io/badge/Download-Windows_x64_(.zip)-28a745?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/iRoobsoN/flrd/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
