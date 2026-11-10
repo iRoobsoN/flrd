@@ -19,6 +19,10 @@
   Conceived by <strong>Robson David</strong> (<strong>FL</strong>utter <strong>R</strong>obson <strong>D</strong>avid / <strong>F</strong>lutter <strong>R</strong>apid <strong>D</strong>eployment)
 </p>
 
+<p align="center">
+  <img src="assets/screenshots/preview.jpg" alt="FLRD Desktop Interface" width="100%" style="border-radius: 10px;" />
+</p>
+
 [Features](#-key-features) • [Why FLRD?](#-why-flrd-over-alternatives) • [Supported Stacks](#-curated-stack-presets) • [Architecture](#-architecture--anti-obsolescence) • [Getting Started](#-getting-started) • [Contributing](#-contributing) • [Donate](#-support-the-project--apoie-o-projeto)
 
 </div>
@@ -100,33 +104,13 @@ FLRD comes packed with opinionated recipes designed for velocity:
 
 ---
 
-## 🖥️ Application Preview (Concept)
+## 🖥️ Application Preview
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│  ⚡ FLRD - Flutter Rapid Deployment (by Robson David)                     [—] [口] [X]   │
-├──────────────────────┬─────────────────────────────────────────────────────────────────┤
-│  WIZARD STEPS        │  [1. Project]  [2. Navigation]  [3. Theme]  [4. Permissions]    │
-│                      │                                                                 │
-│  📁 1. Project Info  │  SMART PERMISSION WIZARD                                        │
-│  🧭 2. Navigation    │  Select the device capabilities your app will require:          │
-│  🎨 3. Theme & Colors│                                                                 │
-│  🛡️ 4. Permissions   │  [✓] Camera               (Adds NSCameraUsageDescription)       │
-│  ⚙️ 5. Native Config │  [✓] Location (GPS)       (Configures Android & iOS background) │
-│                      │  [✓] Push Notifications   (Pre-wires permission handler & token)│
-│  PRESET:             │  [✓] Photos / Gallery     (Ready for image picker)              │
-│  [ SaaS / Indie ▾ ]  │  [✓] Biometrics           (Face ID / Fingerprint Auth)          │
-│                      │                                                                 │
-│  NAVIGATION STYLE:   │  NATIVE PLATFORM CONFIG                                         │
-│  (●) Modern Tabs     │  Android Min SDK: [ 24 ▾ ]  | MultiDex: [✓] Enabled             │
-│  ( ) Drawer / Menu   │  iOS Target:     [ 15.0 ▾ ] | Swift/Kotlin: [✓] Latest          │
-│  ( ) Adaptive Rail   │                                                                 │
-│                      │  SMART CONTRAST THEME ENGINE                                    │
-│                      │  Seed: [ #6366F1 ]  | Contrast Ratio: 7.2:1 (AAA Compliant ✨)  │
-├──────────────────────┴─────────────────────────────────────────────────────────────────┤
-│  Target: C:/Projects/my_awesome_app                 [ PREVIEW APP ]  [ GENERATE & OPEN 🚀 ]│
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="assets/screenshots/preview.jpg" alt="FLRD Desktop Interface by Robson David" width="100%" />
+</p>
+
+> *The Obsidian Glass desktop interface: 6-step guided wizard, preset cards, WCAG AAA theme contrast calculator, and frameless window.*
 
 ---
 
