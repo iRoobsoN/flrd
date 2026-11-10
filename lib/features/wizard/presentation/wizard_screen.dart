@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/window/custom_titlebar.dart';
 import 'controllers/wizard_controller.dart';
@@ -192,13 +191,17 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: _isComplete
-                        ? AppColors.success.withOpacity(0.15)
+                        ? (_isSuccess ? AppColors.success.withOpacity(0.15) : AppColors.danger.withOpacity(0.15))
                         : AppColors.primary.withOpacity(0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    _isComplete ? Icons.check_circle_rounded : Icons.bolt_rounded,
-                    color: _isComplete ? AppColors.success : AppColors.primary,
+                    _isComplete
+                        ? (_isSuccess ? Icons.check_circle_rounded : Icons.error_outline_rounded)
+                        : Icons.bolt_rounded,
+                    color: _isComplete
+                        ? (_isSuccess ? AppColors.success : AppColors.danger)
+                        : AppColors.primary,
                     size: 24,
                   ),
                 ),
@@ -208,7 +211,9 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _isComplete ? 'Project Successfully Generated!' : 'Generating Flutter Project...',
+                        _isComplete
+                            ? (_isSuccess ? 'Project Successfully Generated!' : 'Generation Encountered Errors')
+                            : 'Generating Flutter Project...',
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 16,
@@ -218,7 +223,9 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
                       const SizedBox(height: 2),
                       Text(
                         _isComplete
-                            ? 'All templates, permissions and configs have been applied.'
+                            ? (_isSuccess
+                                ? 'All templates, permissions and configs have been applied.'
+                                : 'Please review the error logs below.')
                             : 'Please wait while FLRD scaffolds your application.',
                         style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                       ),

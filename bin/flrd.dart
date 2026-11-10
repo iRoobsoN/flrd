@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:args/args.dart';
-import 'package:flutter/material.dart';
 import 'package:flrd/features/generator/pipeline/project_generator.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 
