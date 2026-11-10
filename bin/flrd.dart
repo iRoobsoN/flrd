@@ -49,11 +49,11 @@ void main(List<String> arguments) async {
     }
 
     stdout.writeln('\n\x1B[1;36m⚙️  Executing FLRD Scaffolding Pipeline...\x1B[0m');
-    stdout.writeln('   Project: \x1B[32m\${config.projectName}\x1B[0m');
-    stdout.writeln('   Org ID:  \x1B[32m\${config.orgId}\x1B[0m');
-    stdout.writeln('   Preset:  \x1B[35m\${config.preset.name}\x1B[0m');
-    stdout.writeln('   Nav:     \x1B[33m\${config.navigationStyle.title}\x1B[0m');
-    stdout.writeln('   Target:  \x1B[34m\${config.outputPath}/\${config.projectName}\x1B[0m\n');
+    stdout.writeln('   Project: \x1B[32m${config.projectName}\x1B[0m');
+    stdout.writeln('   Org ID:  \x1B[32m${config.orgId}\x1B[0m');
+    stdout.writeln('   Preset:  \x1B[35m${config.preset.name}\x1B[0m');
+    stdout.writeln('   Nav:     \x1B[33m${config.navigationStyle.title}\x1B[0m');
+    stdout.writeln('   Target:  \x1B[34m${config.outputPath}/${config.projectName}\x1B[0m\n');
 
     final generator = ProjectGenerator(
       config: config,
@@ -95,7 +95,7 @@ Commands:
   create <app_name>     Scaffold a new production-ready Flutter app
 
 Options:
-\${parser.usage}
+${parser.usage}
 
 Examples:
   flrd create my_saas_app --preset=saas --nav=tabs
@@ -222,14 +222,14 @@ Future<ProjectConfig> _runInteractiveWizard(String? prefillName) async {
 }
 
 void _printSuccessBox(ProjectConfig config) {
-  final target = '\${config.outputPath}/\${config.projectName}';
+  final target = '${config.outputPath}/${config.projectName}';
   stdout.writeln('''
 \x1B[1;32m┌─────────────────────────────────────────────────────────────┐
 │  🎉 PROJECT SCAFFOLDED SUCCESSFULLY WITH FLRD! ⚡           │
 ├─────────────────────────────────────────────────────────────┤\x1B[0m
   Location: \x1B[34m$target\x1B[0m
-  Preset:   \x1B[35m\${config.preset.name}\x1B[0m
-  Nav:      \x1B[33m\${config.navigationStyle.title}\x1B[0m
+  Preset:   \x1B[35m${config.preset.name}\x1B[0m
+  Nav:      \x1B[33m${config.navigationStyle.title}\x1B[0m
 
   \x1B[1mNext Steps:\x1B[0m
     \x1B[36mcd $target\x1B[0m
