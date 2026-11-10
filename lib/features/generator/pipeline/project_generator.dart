@@ -100,9 +100,6 @@ class ProjectGenerator {
         case PresetType.offline:
           await OfflinePreset.synthesize(targetPath, config);
           break;
-        default:
-          await SaasPreset.synthesize(targetPath, config);
-          break;
       }
       onLog('✅ Full architectural preset with auth guards applied.');
 
