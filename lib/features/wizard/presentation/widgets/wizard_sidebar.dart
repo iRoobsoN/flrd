@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/localization/language_provider.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/donate_dialog.dart';
 import '../controllers/wizard_controller.dart';
 
 class WizardSidebar extends ConsumerWidget {
@@ -12,6 +13,7 @@ class WizardSidebar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(wizardProvider);
     final notifier = ref.read(wizardProvider.notifier);
+    final strings = ref.watch(appStringsProvider);
 
     return Container(
       width: 250,
@@ -27,7 +29,7 @@ class WizardSidebar extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             child: Text(
-              'CONFIGURATION STEPS',
+              strings.configurationSteps,
               style: TextStyle(
                 color: AppColors.textMuted.withOpacity(0.8),
                 fontSize: 10,
@@ -67,7 +69,7 @@ class WizardSidebar extends ConsumerWidget {
   }
 }
 
-class _AuthorSponsorCard extends StatelessWidget {
+class _AuthorSponsorCard extends ConsumerWidget {
   const _AuthorSponsorCard();
 
   Future<void> _openUrl(BuildContext context, String url) async {
@@ -75,246 +77,14 @@ class _AuthorSponsorCard extends StatelessWidget {
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Não foi possível abrir o link: $url')),
-          );
-        }
       }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao abrir link: $e')),
-        );
-      }
-    }
-  }
-
-  void _showDonateDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.backgroundSecondary,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: AppColors.borderSubtle),
-        ),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.favorite_rounded,
-                color: Colors.pinkAccent,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'Apoiar o Projeto FLRD',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'FLRD é um projeto open-source mantido por Robson David (@iRoobsoN). '
-              'Se esta ferramenta está ajudando sua produtividade, deixe uma estrela no repositório ou envie um apoio!',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 13,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 18),
-            // Pix Card
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceCard,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.borderSubtle),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'PIX (Brasil)',
-                          style: TextStyle(
-                            color: AppColors.success,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        onPressed: () {
-                          Clipboard.setData(
-                            const ClipboardData(text: 'robson.dv14@gmail.com'),
-                          );
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Chave Pix copiada: robson.dv14@gmail.com',
-                              ),
-                              backgroundColor: AppColors.success,
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                        icon: const Icon(
-                          Icons.copy_rounded,
-                          size: 14,
-                          color: AppColors.primary,
-                        ),
-                        label: const Text(
-                          'Copiar Chave',
-                          style: TextStyle(
-                            color: AppColors.primary,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  const SelectableText(
-                    'robson.dv14@gmail.com',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 13,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            // PayPal Card
-            InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _openUrl(
-                  context,
-                  'https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=robson.dv14@gmail.com&currency_code=USD',
-                );
-              },
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceCard,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.borderSubtle),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(
-                      Icons.payment_rounded,
-                      color: AppColors.secondary,
-                      size: 20,
-                    ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'PayPal (Global)',
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            'Doação segura via cartão de crédito',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      Icons.open_in_new_rounded,
-                      size: 16,
-                      color: AppColors.textMuted,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text(
-              'Fechar',
-              style: TextStyle(color: AppColors.textMuted),
-            ),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              _openUrl(context, 'https://github.com/iRoobsoN/flrd');
-            },
-            icon: const Icon(
-              Icons.star_rounded,
-              size: 16,
-              color: Colors.amber,
-            ),
-            label: const Text('Deixar Estrela ⭐'),
-          ),
-        ],
-      ),
-    );
+    } catch (_) {}
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = ref.watch(appStringsProvider);
+
     return Container(
       margin: const EdgeInsets.all(12),
       padding: const EdgeInsets.all(12),
@@ -339,7 +109,7 @@ class _AuthorSponsorCard extends StatelessWidget {
               Container(
                 width: 32,
                 height: 32,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   gradient: AppColors.primaryGradient,
                   shape: BoxShape.circle,
                 ),
@@ -392,18 +162,18 @@ class _AuthorSponsorCard extends StatelessWidget {
               color: AppColors.primary.withOpacity(0.12),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(
+                const Icon(
                   Icons.auto_awesome_rounded,
                   size: 12,
                   color: AppColors.secondary,
                 ),
-                SizedBox(width: 6),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Gostou do FLRD? Apoie!',
-                    style: TextStyle(
+                    strings.sponsorBannerText,
+                    style: const TextStyle(
                       color: AppColors.secondary,
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -440,9 +210,9 @@ class _AuthorSponsorCard extends StatelessWidget {
                     size: 13,
                     color: Colors.amber,
                   ),
-                  label: const Text(
-                    'Star',
-                    style: TextStyle(
+                  label: Text(
+                    strings.starButton,
+                    style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -466,15 +236,15 @@ class _AuthorSponsorCard extends StatelessWidget {
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  onPressed: () => _showDonateDialog(context),
+                  onPressed: () => DonateDialog.show(context),
                   icon: const Icon(
                     Icons.favorite_rounded,
                     size: 12,
                     color: Colors.pinkAccent,
                   ),
-                  label: const Text(
-                    'Donate',
-                    style: TextStyle(
+                  label: Text(
+                    strings.donateButton,
+                    style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),

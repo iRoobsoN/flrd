@@ -1,17 +1,64 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
+import '../localization/language_provider.dart';
 import '../theme/app_colors.dart';
 
-class CustomTitleBar extends StatelessWidget {
-  const CustomTitleBar({super.key});
+class CustomTitleBar extends ConsumerWidget {
+  final bool showBackButton;
+  final VoidCallback? onBack;
+  final Widget? trailing;
+
+  const CustomTitleBar({
+    super.key,
+    this.showBackButton = false,
+    this.onBack,
+    this.trailing,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = ref.watch(appStringsProvider);
+
     Widget titleContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
+          if (showBackButton) ...[
+            InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: onBack ?? () => Navigator.of(context).maybePop(),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                margin: const EdgeInsets.only(right: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.borderSubtle),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.arrow_back_rounded,
+                      size: 14,
+                      color: AppColors.textPrimary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      strings.backToHub,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           // Brand Icon & Name
           Container(
             padding: const EdgeInsets.all(5),
@@ -73,9 +120,9 @@ class CustomTitleBar extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                const Text(
-                  'Engine Ready',
-                  style: TextStyle(
+                Text(
+                  strings.engineStatus,
+                  style: const TextStyle(
                     color: AppColors.success,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
@@ -99,7 +146,7 @@ class CustomTitleBar extends StatelessWidget {
           Expanded(
             child: kIsWeb ? titleContent : DragToMoveArea(child: titleContent),
           ),
-
+          if (trailing != null) trailing!,
           if (!kIsWeb) ...[
             _WindowActionButton(
               icon: Icons.remove_rounded,

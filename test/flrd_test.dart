@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 import 'package:flrd/features/generator/injectors/android_manifest_injector.dart';
 import 'package:flrd/features/generator/injectors/ios_plist_injector.dart';
+import 'package:flrd/core/localization/app_strings.dart';
 
 void main() {
   group('ProjectConfig Model Tests', () {
@@ -90,6 +91,32 @@ void main() {
       final content = await plistFile.readAsString();
       expect(content.contains('NSCameraUsageDescription'), isTrue);
       expect(content.contains('This app requires camera access'), isTrue);
+    });
+  });
+
+  group('Localization Provider Tests', () {
+    test('Default language is pt and returns correct strings', () {
+      const stringsPt = AppStrings(AppLanguage.pt);
+      expect(stringsPt.hubTitle, 'FLRD Studio');
+      expect(stringsPt.newProjectTitle, 'Criar Novo Projeto');
+      expect(stringsPt.myProjectsTitle, 'Meus Projetos');
+      expect(stringsPt.engineStatus, 'Engine Pronta');
+    });
+
+    test('English language returns correct localized strings', () {
+      const stringsEn = AppStrings(AppLanguage.en);
+      expect(stringsEn.hubTitle, 'FLRD Studio');
+      expect(stringsEn.newProjectTitle, 'Create New Project');
+      expect(stringsEn.myProjectsTitle, 'My Projects');
+      expect(stringsEn.engineStatus, 'Engine Ready');
+    });
+
+    test('Spanish language returns correct localized strings', () {
+      const stringsEs = AppStrings(AppLanguage.es);
+      expect(stringsEs.hubTitle, 'FLRD Studio');
+      expect(stringsEs.newProjectTitle, 'Crear Nuevo Proyecto');
+      expect(stringsEs.myProjectsTitle, 'Mis Proyectos');
+      expect(stringsEs.engineStatus, 'Motor Listo');
     });
   });
 }

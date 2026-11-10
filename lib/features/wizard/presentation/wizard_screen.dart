@@ -52,8 +52,11 @@ class WizardScreen extends ConsumerWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // Frameless Desktop Titlebar
-            const CustomTitleBar(),
+            // Frameless Desktop Titlebar with Navigation
+            CustomTitleBar(
+              showBackButton: true,
+              onBack: () => Navigator.of(context).maybePop(),
+            ),
 
             // Main Workspace (Sidebar + Dynamic Tab Canvas)
             Expanded(

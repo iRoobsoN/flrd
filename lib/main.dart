@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 import 'core/theme/app_theme.dart';
-import 'features/wizard/presentation/wizard_screen.dart';
+import 'features/hub/presentation/hub_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +45,7 @@ class FLRDApp extends StatelessWidget {
       title: 'FLRD - Flutter Rapid Deployment',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const WizardScreen(),
+      home: const HubScreen(),
     );
   }
 }
