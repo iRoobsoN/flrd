@@ -130,12 +130,25 @@ FLRD comes packed with opinionated recipes designed for velocity:
 
 ## 🚀 Getting Started
 
-### Prerequisites
-* Flutter SDK (3.16+ recommended)
-* Dart SDK (3.2+)
-* Your preferred IDE (VS Code, Android Studio, or Cursor)
+You can use **FLRD** in two ways: via the sleek **Desktop GUI** or via the **Companion CLI**.
 
-### Running from source
+### Option A: Companion CLI (Fast Terminal Scaffolding)
+
+1. Run directly or activate globally:
+   ```bash
+   # Quick interactive wizard:
+   dart run bin/flrd.dart
+
+   # Or scaffold via direct flags:
+   dart run bin/flrd.dart create my_saas_app --preset=saas --nav=tabs
+
+   # Enterprise Clean-Lite scaffold:
+   dart run bin/flrd.dart create my_corp_app --preset=clean-lite --nav=adaptive --org=com.company
+   ```
+
+---
+
+### Option B: Native Desktop GUI
 
 1. Clone the repository:
    ```bash
@@ -185,7 +198,7 @@ FLRD is designed from the ground up to avoid the classic "scaffolding rot" that 
   - [x] Preset 1: SaaS / Indie Hacker (Riverpod + Supabase + Auth Router Guards)
   - [x] Preset 2: Clean-Lite (BLoC + Dio + GetIt service locator)
   - [ ] Preset 3: Offline-First (Drift / SQLite + SharedPreferences)
-- [ ] Companion CLI Mode (`bin/flrd.dart` for terminal lovers)
+- [x] Companion CLI Mode (`bin/flrd.dart` for terminal lovers)
 - [ ] GitHub Actions Canary CI/CD pipeline
 - [ ] Custom community template plugins / bricks support
 

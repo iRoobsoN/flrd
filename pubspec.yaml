@@ -23,12 +23,16 @@ dependencies:
   google_fonts: ^6.2.1
 
   # Scaffolding & Parsers
+  args: ^2.5.0
   xml: ^6.5.0
   yaml: ^3.1.2
   yaml_edit: ^2.2.1
   path: ^1.9.0
   http: ^1.2.1
   process_run: ^1.1.0
+
+executables:
+  flrd: flrd
 
 dev_dependencies:
   flutter_test:
