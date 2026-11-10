@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -22,7 +23,17 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
     final config = ref.read(wizardProvider).config;
     _nameController = TextEditingController(text: config.projectName);
     _orgController = TextEditingController(text: config.orgId);
-    _pathController = TextEditingController(text: config.outputPath);
+    
+    final initialPath = config.outputPath.isNotEmpty
+        ? config.outputPath
+        : (kIsWeb ? 'C:/Projects' : '');
+    _pathController = TextEditingController(text: initialPath);
+
+    if (config.outputPath.isEmpty && initialPath.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(wizardProvider.notifier).updateConfig((c) => c.copyWith(outputPath: initialPath));
+      });
+    }
   }
 
   @override
@@ -34,14 +45,34 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
   }
 
   Future<void> _pickFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Select Project Parent Directory',
-    );
-    if (result != null) {
-      _pathController.text = result;
-      ref.read(wizardProvider.notifier).updateConfig(
-            (c) => c.copyWith(outputPath: result),
-          );
+    if (kIsWeb) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.surfaceCard,
+            duration: Duration(seconds: 4),
+            content: Text(
+              'No navegador (Chrome), selecione um dos atalhos abaixo ou digite o caminho (ex: C:/Projects). A janela nativa de pastas funciona no app Desktop.',
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      final result = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select Project Parent Directory',
+      );
+      if (result != null) {
+        _pathController.text = result;
+        ref.read(wizardProvider.notifier).updateConfig(
+              (c) => c.copyWith(outputPath: result),
+            );
+      }
+    } catch (_) {
+      // Gracefully ignored on platforms without directory picker
     }
   }
 
@@ -147,6 +178,35 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
               const Text(
                 'A new subfolder with your project name will be created in this location.',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  ActionChip(
+                    label: const Text('C:/Projects'),
+                    avatar: const Icon(Icons.flash_on_rounded, size: 14, color: AppColors.secondary),
+                    backgroundColor: AppColors.surface,
+                    side: const BorderSide(color: AppColors.border),
+                    labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                    onPressed: () {
+                      _pathController.text = 'C:/Projects';
+                      notifier.updateConfig((c) => c.copyWith(outputPath: 'C:/Projects'));
+                    },
+                  ),
+                  ActionChip(
+                    label: const Text('C:/Users/Rob/Desktop'),
+                    avatar: const Icon(Icons.desktop_windows_rounded, size: 14, color: AppColors.primary),
+                    backgroundColor: AppColors.surface,
+                    side: const BorderSide(color: AppColors.border),
+                    labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                    onPressed: () {
+                      _pathController.text = 'C:/Users/Rob/Desktop';
+                      notifier.updateConfig((c) => c.copyWith(outputPath: 'C:/Users/Rob/Desktop'));
+                    },
+                  ),
+                ],
               ),
             ],
           ),
