@@ -6,6 +6,7 @@
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.x-0175C2?style=for-the-badge&logo=dart&logoColor=white)](https://dart.dev)
+[![CI Pipeline](https://github.com/iRoobsoN/flrd/actions/workflows/ci.yml/badge.svg)](https://github.com/iRoobsoN/flrd/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
 [![Donate PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=robson.dv14@gmail.com&currency_code=USD)
@@ -199,7 +200,7 @@ FLRD is designed from the ground up to avoid the classic "scaffolding rot" that 
   - [x] Preset 2: Clean-Lite (BLoC + Dio + GetIt service locator)
   - [ ] Preset 3: Offline-First (Drift / SQLite + SharedPreferences)
 - [x] Companion CLI Mode (`bin/flrd.dart` for terminal lovers)
-- [ ] GitHub Actions Canary CI/CD pipeline
+- [x] GitHub Actions Canary CI/CD pipeline
 - [ ] Custom community template plugins / bricks support
 
 ---
