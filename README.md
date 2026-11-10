@@ -198,7 +198,7 @@ FLRD is designed from the ground up to avoid the classic "scaffolding rot" that 
 - [x] Production-Ready Code Presets:
   - [x] Preset 1: SaaS / Indie Hacker (Riverpod + Supabase + Auth Router Guards)
   - [x] Preset 2: Clean-Lite (BLoC + Dio + GetIt service locator)
-  - [ ] Preset 3: Offline-First (Drift / SQLite + SharedPreferences)
+  - [x] Preset 3: Offline-First (SQLite / Drift + SharedPreferences)
 - [x] Companion CLI Mode (`bin/flrd.dart` for terminal lovers)
 - [x] GitHub Actions Canary CI/CD pipeline
 - [ ] Custom community template plugins / bricks support

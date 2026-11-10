@@ -4,6 +4,7 @@ import '../injectors/android_manifest_injector.dart';
 import '../injectors/ios_plist_injector.dart';
 import '../presets/saas_preset.dart';
 import '../presets/clean_lite_preset.dart';
+import '../presets/offline_preset.dart';
 import '../services/permission_service_template.dart';
 
 class ProjectGenerator {
@@ -65,7 +66,7 @@ class ProjectGenerator {
           packagesToAdd.addAll(['flutter_bloc', 'dio', 'get_it']);
           break;
         case PresetType.offline:
-          packagesToAdd.addAll(['provider', 'shared_preferences']);
+          packagesToAdd.addAll(['sqflite', 'path', 'provider', 'shared_preferences']);
           break;
       }
 
@@ -95,6 +96,9 @@ class ProjectGenerator {
           break;
         case PresetType.cleanLite:
           await CleanLitePreset.synthesize(targetPath, config);
+          break;
+        case PresetType.offline:
+          await OfflinePreset.synthesize(targetPath, config);
           break;
         default:
           await SaasPreset.synthesize(targetPath, config);
