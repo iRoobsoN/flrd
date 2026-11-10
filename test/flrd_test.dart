@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 import 'package:flrd/features/generator/injectors/android_manifest_injector.dart';
 import 'package:flrd/features/generator/injectors/ios_plist_injector.dart';
 import 'package:flrd/core/localization/app_strings.dart';
+import 'package:flrd/features/projects/providers/projects_provider.dart';
+import 'package:flrd/features/studio/providers/studio_provider.dart';
 
 void main() {
   group('ProjectConfig Model Tests', () {
@@ -117,6 +120,79 @@ void main() {
       expect(stringsEs.newProjectTitle, 'Crear Nuevo Proyecto');
       expect(stringsEs.myProjectsTitle, 'Mis Proyectos');
       expect(stringsEs.engineStatus, 'Motor Listo');
+    });
+  });
+
+  group('Projects & Workspace Tests', () {
+    test('ProjectsNotifier initializes with starter projects', () {
+      final notifier = ProjectsNotifier();
+      expect(notifier.state.projects.isNotEmpty, isTrue);
+      expect(notifier.state.projects.length, greaterThanOrEqualTo(3));
+    });
+
+    test('addProject inserts a new registered project at the top', () {
+      final notifier = ProjectsNotifier();
+      notifier.addProject(
+        name: 'flutter_fintech',
+        orgId: 'com.fintech.app',
+        path: 'C:/Projects/flutter_fintech',
+        preset: PresetType.saas,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: {DevicePermission.biometrics},
+      );
+
+      expect(notifier.state.projects.first.name, 'flutter_fintech');
+      expect(notifier.state.projects.first.orgId, 'com.fintech.app');
+    });
+
+    test('removeProject removes project by id', () {
+      final notifier = ProjectsNotifier();
+      final initialCount = notifier.state.projects.length;
+      final firstId = notifier.state.projects.first.id;
+
+      notifier.removeProject(firstId);
+      expect(notifier.state.projects.length, initialCount - 1);
+      expect(notifier.state.projects.any((p) => p.id == firstId), isFalse);
+    });
+  });
+
+  group('Studio & Route Flowchart Tests', () {
+    test('StudioNotifier initializes with default core routes', () {
+      final notifier = StudioNotifier();
+      expect(notifier.state.nodes.length, greaterThanOrEqualTo(5));
+      expect(notifier.state.nodes.any((n) => n.path == '/'), isTrue);
+      expect(notifier.state.nodes.any((n) => n.path == '/dashboard'), isTrue);
+    });
+
+    test('addRouteNode inserts a new route node into flowchart', () {
+      final notifier = StudioNotifier();
+      final initialCount = notifier.state.nodes.length;
+
+      notifier.addRouteNode(
+        path: '/checkout/payment',
+        title: 'PaymentScreen',
+        subtitle: 'Pix and Credit Card',
+        icon: Icons.payment_rounded,
+        isAIGenerated: true,
+        position: const Offset(900, 300),
+        filePath: 'lib/features/payment/presentation/payment_screen.dart',
+        parentRouteId: 'dashboard',
+      );
+
+      expect(notifier.state.nodes.length, initialCount + 1);
+      expect(notifier.state.selectedNodeId, 'paymentscreen');
+      final created = notifier.state.selectedNode;
+      expect(created, isNotNull);
+      expect(created?.isAIGenerated, isTrue);
+      expect(created?.path, '/checkout/payment');
+      expect(created?.parentRouteId, 'dashboard');
+    });
+
+    test('updateNodePosition changes node coordinates', () {
+      final notifier = StudioNotifier();
+      notifier.updateNodePosition('dashboard', const Offset(420, 500));
+      final dashboard = notifier.state.nodes.firstWhere((n) => n.id == 'dashboard');
+      expect(dashboard.position, const Offset(420, 500));
     });
   });
 }

@@ -8,7 +8,9 @@ import '../../../core/localization/language_selector_widget.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/donate_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
+import '../../projects/providers/projects_provider.dart';
 import '../../wizard/presentation/wizard_screen.dart';
+import 'widgets/projects_grid_view.dart';
 
 class HubScreen extends ConsumerWidget {
   const HubScreen({super.key});
@@ -66,7 +68,7 @@ class HubScreen extends ConsumerWidget {
                         const SizedBox(height: 36),
 
                         // Recognized Projects Workspace Section
-                        _buildRecognizedProjectsSection(context, strings),
+                        _buildRecognizedProjectsSection(context, ref, strings),
                         const SizedBox(height: 48),
 
                         // Community Footer
@@ -440,8 +442,11 @@ class HubScreen extends ConsumerWidget {
 
   Widget _buildRecognizedProjectsSection(
     BuildContext context,
+    WidgetRef ref,
     AppStrings strings,
   ) {
+    final isScanning = ref.watch(projectsProvider).isScanning;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -468,23 +473,40 @@ class HubScreen extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      '${strings.scanProjects}: Varredura pronta para integração do GridView na Etapa 2!',
+              onPressed: isScanning
+                  ? null
+                  : () async {
+                      await ref
+                          .read(projectsProvider.notifier)
+                          .scanWorkspace();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Varredura concluída: 3 projetos Flutter reconhecidos na máquina!',
+                            ),
+                            backgroundColor: AppColors.surfaceSelected,
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
+              icon: isScanning
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.primary,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.refresh_rounded,
+                      size: 14,
+                      color: AppColors.primary,
                     ),
-                    backgroundColor: AppColors.surfaceCard,
-                  ),
-                );
-              },
-              icon: const Icon(
-                Icons.refresh_rounded,
-                size: 14,
-                color: AppColors.primary,
-              ),
               label: Text(
-                strings.scanProjects,
+                isScanning ? 'Escaneando...' : strings.scanProjects,
                 style: const TextStyle(
                   color: AppColors.textPrimary,
                   fontSize: 12,
@@ -495,84 +517,8 @@ class HubScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
 
-        // Obsidian Glass Workspace Empty / Preview State
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceCard,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.borderSubtle),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.2)),
-                ),
-                child: const Icon(
-                  Icons.folder_open_rounded,
-                  size: 28,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                strings.noProjectsTitle,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: Text(
-                  strings.noProjectsSubtitle,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const WizardScreen()),
-                  );
-                },
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: Text(
-                  strings.newProjectTitle,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        // GridView of Recognized Projects
+        const ProjectsGridView(),
       ],
     );
   }
