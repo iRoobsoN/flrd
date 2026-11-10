@@ -183,7 +183,7 @@ FLRD is designed from the ground up to avoid the classic "scaffolding rot" that 
 - [x] Native AST Injectors (Semantic AndroidManifest & iOS Info.plist mutation)
 - [x] Production-Ready Code Presets:
   - [x] Preset 1: SaaS / Indie Hacker (Riverpod + Supabase + Auth Router Guards)
-  - [ ] Preset 2: Clean-Lite (BLoC + Dio + GetIt service locator)
+  - [x] Preset 2: Clean-Lite (BLoC + Dio + GetIt service locator)
   - [ ] Preset 3: Offline-First (Drift / SQLite + SharedPreferences)
 - [ ] Companion CLI Mode (`bin/flrd.dart` for terminal lovers)
 - [ ] GitHub Actions Canary CI/CD pipeline

@@ -4,6 +4,7 @@ import '../../wizard/models/project_config.dart';
 import '../injectors/android_manifest_injector.dart';
 import '../injectors/ios_plist_injector.dart';
 import '../presets/saas_preset.dart';
+import '../presets/clean_lite_preset.dart';
 import '../services/permission_service_template.dart';
 
 class ProjectGenerator {
@@ -92,6 +93,9 @@ class ProjectGenerator {
       switch (config.preset) {
         case PresetType.saas:
           await SaasPreset.synthesize(targetPath, config);
+          break;
+        case PresetType.cleanLite:
+          await CleanLitePreset.synthesize(targetPath, config);
           break;
         default:
           await SaasPreset.synthesize(targetPath, config);
