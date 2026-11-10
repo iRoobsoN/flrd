@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../wizard/models/project_config.dart';
 import '../models/marketplace_template.dart';
+import '../models/template_submission.dart';
 
 class MarketplaceState {
   final List<MarketplaceTemplate> templates;
@@ -286,4 +287,127 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
 final marketplaceProvider =
     StateNotifierProvider<MarketplaceNotifier, MarketplaceState>((ref) {
   return MarketplaceNotifier();
+});
+
+final marketplaceKnownFingerprintsProvider =
+    Provider<List<TemplateFingerprint>>((ref) {
+  return [
+    const TemplateFingerprint(
+      templateId: 'NovaBank - Fintech & Crypto MVP',
+      classDeclarations: {
+        'NovaBankApp',
+        'HomeScreen',
+        'TransactionDetailsScreen',
+        'TransferPixScreen',
+        'CryptoPortfolioScreen',
+        'CardManagementScreen',
+        'BiometricLockService',
+      },
+      widgetDeclarations: {
+        'BalanceCardWidget',
+        'QuickPixActionGrid',
+        'TransactionListItem',
+        'CryptoTickerPill',
+      },
+      routePaths: {'/home', '/pix', '/crypto', '/cards', '/statement'},
+      relativeFilePaths: {
+        'lib/main.dart',
+        'lib/features/home/home_screen.dart',
+        'lib/features/pix/pix_screen.dart',
+        'lib/features/crypto/crypto_screen.dart',
+      },
+    ),
+    const TemplateFingerprint(
+      templateId: 'SaaSHero - B2B Subscription Boilerplate',
+      classDeclarations: {
+        'SaaSHeroApp',
+        'AnalyticsDashboardScreen',
+        'SubscriptionPlansScreen',
+        'TeamMembersScreen',
+        'BillingHistoryScreen',
+        'StripeCheckoutBridge',
+      },
+      widgetDeclarations: {
+        'MetricsKpiCard',
+        'PricingPlanCard',
+        'MemberRoleRow',
+        'InvoiceDownloadPill',
+      },
+      routePaths: {'/dashboard', '/plans', '/team', '/billing', '/settings'},
+      relativeFilePaths: {
+        'lib/main.dart',
+        'lib/features/dashboard/dashboard_screen.dart',
+        'lib/features/billing/plans_screen.dart',
+      },
+    ),
+    const TemplateFingerprint(
+      templateId: 'FoodDelivery Pro - Multi-restaurant Logistics',
+      classDeclarations: {
+        'FoodApp',
+        'RestaurantListScreen',
+        'DishDetailsScreen',
+        'CartCheckoutScreen',
+        'LiveDriverTrackingScreen',
+        'OrderNotifier',
+      },
+      widgetDeclarations: {
+        'RestaurantHeroCard',
+        'CartItemRow',
+        'LiveGpsTrackerMap',
+        'EstimatedDeliveryPill',
+      },
+      routePaths: {'/feed', '/restaurant', '/cart', '/tracking'},
+      relativeFilePaths: {
+        'lib/main.dart',
+        'lib/features/feed/feed_screen.dart',
+        'lib/features/checkout/cart_screen.dart',
+      },
+    ),
+    const TemplateFingerprint(
+      templateId: 'OfflineVault - Encrypted Local Storage',
+      classDeclarations: {
+        'OfflineVaultApp',
+        'VaultHomeScreen',
+        'SecureNoteEditorScreen',
+        'CategoryManagerScreen',
+        'BackupRestoreScreen',
+        'SqlCipherDatabaseHelper',
+      },
+      widgetDeclarations: {
+        'EncryptedNoteCard',
+        'CategoryChipList',
+        'PasswordStrengthMeter',
+      },
+      routePaths: {'/vault', '/editor', '/categories', '/backup'},
+      relativeFilePaths: {
+        'lib/main.dart',
+        'lib/features/vault/vault_screen.dart',
+        'lib/features/editor/editor_screen.dart',
+      },
+    ),
+    const TemplateFingerprint(
+      templateId: 'FitPulse - AI Fitness & Workout Tracker',
+      classDeclarations: {
+        'FitPulseApp',
+        'WorkoutDashboardScreen',
+        'ExerciseListScreen',
+        'ActiveWorkoutScreen',
+        'AiDietCoachScreen',
+        'MacroTrackerScreen',
+        'BodyProgressScreen',
+      },
+      widgetDeclarations: {
+        'WorkoutTimerWidget',
+        'MacroProgressBar',
+        'ExerciseSetRow',
+        'AiCoachInsightPill',
+      },
+      routePaths: {'/workout', '/exercises', '/coach', '/macros', '/progress'},
+      relativeFilePaths: {
+        'lib/main.dart',
+        'lib/features/workout/dashboard_screen.dart',
+        'lib/features/coach/ai_coach_screen.dart',
+      },
+    ),
+  ];
 });

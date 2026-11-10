@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/window/custom_titlebar.dart';
+import '../../marketplace/presentation/widgets/publish_template_dialog.dart';
 import '../../projects/models/registered_project.dart';
 import '../models/route_node.dart';
 import '../providers/studio_provider.dart';
@@ -261,6 +262,37 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                     label: const Text(
                       'Abrir VS Code',
                       style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.secondary),
+                      backgroundColor: AppColors.surface,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    onPressed: () => PublishTemplateDialog.show(
+                      context,
+                      projectPath: widget.project.path,
+                    ),
+                    icon: const Icon(
+                      Icons.verified_user_outlined,
+                      size: 14,
+                      color: AppColors.secondary,
+                    ),
+                    label: const Text(
+                      'Publicar',
+                      style: TextStyle(
+                        color: AppColors.secondary,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
