@@ -8,6 +8,7 @@ import '../../projects/models/registered_project.dart';
 import '../models/route_node.dart';
 import '../providers/studio_provider.dart';
 import 'widgets/ai_screen_generator_dialog.dart';
+import 'widgets/embedded_code_viewer.dart';
 import 'widgets/route_connector_painter.dart';
 import 'widgets/route_node_card.dart';
 
@@ -15,6 +16,42 @@ class AppStudioScreen extends ConsumerStatefulWidget {
   final RegisteredProject project;
 
   const AppStudioScreen({super.key, required this.project});
+
+  /// Opens a 750px wide code dialog displaying EmbeddedCodeViewer for the given node.
+  static Future<void> showFullscreenCodeModal(
+    BuildContext context, {
+    required String projectPath,
+    required RouteNode node,
+  }) {
+    return showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.7),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: AppColors.border),
+          ),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: SizedBox(
+            width: 750,
+            height: 650,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: EmbeddedCodeViewer(
+                projectPath: projectPath,
+                node: node,
+                isExpanded: true,
+                onToggleExpand: () => Navigator.of(dialogContext).pop(),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   ConsumerState<AppStudioScreen> createState() => _AppStudioScreenState();
@@ -25,6 +62,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   late TabController _tabController;
   final TransformationController _transformationController =
       TransformationController();
+  int _inspectorTabIndex = 0; // 0: Detalhes da Rota, 1: Ver Código Dart
 
   @override
   void initState() {
@@ -435,7 +473,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
         // Node Inspector Sidebar (When a node is selected)
         if (selectedNode != null) ...[
           Container(
-            width: 300,
+            width: 440,
             decoration: const BoxDecoration(
               color: AppColors.backgroundSecondary,
               border: Border(
@@ -449,9 +487,17 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     );
   }
 
+  Future<void> _showFullscreenCodeModal(BuildContext context, RouteNode node) {
+    return AppStudioScreen.showFullscreenCodeModal(
+      context,
+      projectPath: widget.project.path,
+      node: node,
+    );
+  }
+
   Widget _buildNodeInspector(RouteNode node, StudioNotifier notifier) {
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -483,115 +529,245 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
-          // Route Path
-          const Text(
-            'Caminho no GoRouter',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: AppColors.borderSubtle),
-            ),
-            child: Text(
-              node.path,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                color: AppColors.secondary,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
+          // Segmented Switcher: [⚙️ Detalhes da Rota] vs [💻 Ver Código Dart]
+          _buildInspectorSwitcher(),
           const SizedBox(height: 14),
 
-          // File Path
-          const Text(
-            'Arquivo Fonte',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-            ),
+          // Inspector Tab Body
+          Expanded(
+            child: _inspectorTabIndex == 0
+                ? _buildRouteDetailsContent(node, notifier)
+                : _buildDartCodeContent(node),
           ),
-          const SizedBox(height: 4),
-          Text(
-            node.filePath,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              color: AppColors.textSecondary,
-              fontSize: 11,
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // Protection Badge
-          Row(
-            children: [
-              Icon(
-                node.isProtected ? Icons.lock_rounded : Icons.lock_open_rounded,
-                size: 14,
-                color: node.isProtected ? AppColors.primary : AppColors.textMuted,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                node.isProtected ? 'Protegida por Auth Guard' : 'Rota Pública',
-                style: TextStyle(
-                  color:
-                      node.isProtected ? AppColors.textPrimary : AppColors.textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-
-          // Node Actions
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: AppColors.border),
-                backgroundColor: AppColors.surface,
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              onPressed: _openVsCode,
-              icon: const Icon(Icons.code_rounded, size: 14),
-              label: const Text(
-                'Abrir Arquivo no VS Code',
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 11),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (node.id != 'root')
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.danger,
-                ),
-                onPressed: () => notifier.removeNode(node.id),
-                icon: const Icon(Icons.delete_outline_rounded, size: 14),
-                label: const Text('Remover Rota do Grafo', style: TextStyle(fontSize: 11)),
-              ),
-            ),
         ],
       ),
+    );
+  }
+
+  Widget _buildInspectorSwitcher() {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildSegmentButton(
+              title: '⚙️ Detalhes da Rota',
+              isSelected: _inspectorTabIndex == 0,
+              onTap: () => setState(() => _inspectorTabIndex = 0),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _buildSegmentButton(
+              title: '💻 Ver Código Dart',
+              isSelected: _inspectorTabIndex == 1,
+              onTap: () => setState(() => _inspectorTabIndex = 1),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSegmentButton({
+    required String title,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary.withOpacity(0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary.withOpacity(0.5)
+                : Colors.transparent,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          title,
+          style: TextStyle(
+            color: isSelected ? AppColors.textPrimary : AppColors.textMuted,
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRouteDetailsContent(RouteNode node, StudioNotifier notifier) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Route Path
+        const Text(
+          'Caminho no GoRouter',
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: Text(
+            node.path,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              color: AppColors.secondary,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // File Path
+        const Text(
+          'Arquivo Fonte',
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          node.filePath,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            color: AppColors.textSecondary,
+            fontSize: 11,
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Protection Badge
+        Row(
+          children: [
+            Icon(
+              node.isProtected ? Icons.lock_rounded : Icons.lock_open_rounded,
+              size: 14,
+              color: node.isProtected ? AppColors.primary : AppColors.textMuted,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              node.isProtected ? 'Protegida por Auth Guard' : 'Rota Pública',
+              style: TextStyle(
+                color: node.isProtected
+                    ? AppColors.textPrimary
+                    : AppColors.textMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        const Spacer(),
+
+        // Node Actions
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppColors.border),
+              backgroundColor: AppColors.surface,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: _openVsCode,
+            icon: const Icon(Icons.code_rounded, size: 14),
+            label: const Text(
+              'Abrir Arquivo no VS Code',
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 11),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (node.id != 'root')
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.danger,
+              ),
+              onPressed: () => notifier.removeNode(node.id),
+              icon: const Icon(Icons.delete_outline_rounded, size: 14),
+              label: const Text('Remover Rota do Grafo',
+                  style: TextStyle(fontSize: 11)),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDartCodeContent(RouteNode node) {
+    return Column(
+      children: [
+        Expanded(
+          child: EmbeddedCodeViewer(
+            projectPath: widget.project.path,
+            node: node,
+            isExpanded: false,
+            onToggleExpand: () => _showFullscreenCodeModal(context, node),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppColors.border),
+              backgroundColor: AppColors.surface,
+              padding: const EdgeInsets.symmetric(vertical: 9),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => _showFullscreenCodeModal(context, node),
+            icon: const Icon(
+              Icons.fullscreen_rounded,
+              size: 15,
+              color: AppColors.secondary,
+            ),
+            label: const Text(
+              'Abrir em Modal Completo',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
