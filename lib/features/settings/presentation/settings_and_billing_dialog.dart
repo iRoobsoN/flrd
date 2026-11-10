@@ -619,27 +619,31 @@ class _SettingsAndBillingDialogState
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.secondary,
                         foregroundColor: AppColors.background,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         elevation: 2,
                       ),
-                      onPressed: () => _openUrl(MonetizationConfig.lemonSqueezyProCheckoutUrl),
+                      onPressed: () => _openUrl(MonetizationConfig.stripeProMonthlyCheckoutUrl),
                       icon: const Icon(Icons.bolt_rounded, size: 18),
                       label: const Text(
-                        'Assinar FLRD Pro via Lemon Squeezy',
+                        'Assinar Pro (\$19/mês)',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                       ),
                     ),
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textPrimary,
-                        side: const BorderSide(color: AppColors.border),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 2,
                       ),
-                      onPressed: () => _openUrl(MonetizationConfig.lemonSqueezyStoreUrl),
-                      icon: const Icon(Icons.storefront_rounded, size: 16, color: AppColors.secondary),
-                      label: const Text('Loja Oficial', style: TextStyle(fontSize: 12)),
+                      onPressed: () => _openUrl(MonetizationConfig.stripeProLifetimeCheckoutUrl),
+                      icon: const Icon(Icons.workspace_premium_rounded, size: 18),
+                      label: const Text(
+                        'Licença Vitalícia (\$49)',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
                     ),
                   ],
                 ),

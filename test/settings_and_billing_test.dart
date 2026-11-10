@@ -159,9 +159,9 @@ void main() {
         findsOneWidget,
       );
 
-      // Verify Lemon Squeezy checkout button
-      expect(find.text('Assinar FLRD Pro via Lemon Squeezy'), findsOneWidget);
-      expect(find.text('Loja Oficial'), findsOneWidget);
+      // Verify Stripe checkout buttons
+      expect(find.text('Assinar Pro (\$19/mês)'), findsOneWidget);
+      expect(find.text('Licença Vitalícia (\$49)'), findsOneWidget);
 
       // Test Pro status toggle
       expect(container.read(aiSettingsProvider).isProActive, isFalse);
