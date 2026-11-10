@@ -88,6 +88,10 @@ To turn that into a real application, you spend the next **2 to 3 hours** doing 
 
 ## 🗺️ Visual App Studio & Route Flowchart
 
+<p align="center">
+  <img src="assets/screenshots/studio_showcase.jpg" alt="FLRD Visual App Studio Showcase" width="100%" style="border-radius: 10px;" />
+</p>
+
 FLRD provides an interactive visual studio where developers can visually inspect, connect, and configure their entire application flow:
 
 ```mermaid
