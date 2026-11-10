@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0] - 2026-11-10
+
+### 🚀 Major Release: The Complete App Studio & Ecosystem Suite
+
+Version 0.2.0 transforms **FLRD** from a project scaffolding wizard into a complete, visual **Flutter App Studio**, featuring an interactive route canvas, embedded code editor, real Google Gemini 1.5 Flash AI generation, existing project reverse engineering, a curated templates marketplace with anti-drift consistency manifests, and a native Windows cloud release pipeline.
+
+### ✨ What's New in v0.2.0
+
+#### 🌐 FLRD Studio Hub & Multi-language Support (i18n)
+* **Interactive Home Hub (`HubScreen`)**:
+  * Hero banner with dynamic welcome and fast status pill.
+  * Anti-obsolescence pillar highlights explaining the native AST and host SDK philosophy.
+  * Quick action launchpad: **Novo Projeto**, **Importar Projeto Existente**, and **Explorar Marketplace**.
+  * Integrated CLI terminal quick-copy command banner.
+  * Recognized projects section and community footer with creator links.
+* **Instant Reactive i18n (`LanguageSelectorWidget`)**:
+  * Real-time language switching without restart: Português (🇧🇷), English (🇺🇸), and Español (🇪🇸).
+  * Backed by `LanguageNotifier` and central `AppStrings` dictionary.
+
+#### 🗺️ Interactive Route Flowchart Canvas (`AppStudioScreen`)
+* **Visual Route Architecture Map**:
+  * Interactive canvas with infinite panning, smooth zoom in/out, and reset/center controls powered by `InteractiveViewer`.
+  * Custom Bézier connector painter (`RouteConnectorPainter`) with directional arrows and obsidian blueprint dot grid.
+  * Draggable `RouteNodeCard` components displaying route paths, `AuthGuard` status pills, `AI Gen` badges, and required native permissions.
+* **App Studio Multi-Tab Workspace**:
+  * **Fluxo de Rotas**: Visual route canvas and node inspector.
+  * **Permissões Nativas**: Real-time permission audit with direct `AndroidManifest.xml` & `Info.plist` synchronization.
+  * **Arquitetura & Pacotes**: Active dependencies and structural inspection.
+
+#### 💻 Embedded Code Viewer & Editor (`EmbeddedCodeViewer`)
+* **Glassmorphic Inspector Panel**:
+  * 440px wide slide-in panel with segmented switcher: `[⚙️ Detalhes da Rota]` and `[💻 Ver Código Dart]`.
+  * Monospace line numbers gutter and real-time Dart token syntax highlighting matching Obsidian Glass dark theme.
+  * Automatic disk file loading with fallback template synthesis when files are yet to be generated.
+  * **Salvar no Disco**: Direct atomic disk write (`File.writeAsString(..., flush: true)`).
+  * **Copiar Código**: One-click clipboard copy (`Clipboard.setData`).
+  * **Modal Fullscreen Dialog**: 750px wide high-resolution code viewer modal (`_showFullscreenCodeModal`) with dark elevated chrome.
+
+#### 🧠 Real AI Screen Studio (Google Gemini 1.5 Flash)
+* **Gemini REST Engine (`GeminiAiService`)**:
+  * Direct Google Gemini 1.5 Flash REST integration (`gemini-1.5-flash:generateContent`).
+  * BYOK (Bring Your Own Key) architecture with local secure key storage.
+  * Strict architectural prompt conditioning enforcing Material 3, clean code guidelines, and Obsidian Glass tokens.
+  * Automated markdown extraction, code cleaning, and physical `.dart` file creation on disk with parent folder scaffolding.
+  * Resilient offline fallback generator for guaranteed continuity without network access.
+  * Dynamic insertion of generated screens into the active route flowchart.
+
+#### 🛍️ Community Templates Marketplace & Manifest Engine
+* **Curated Template Showcase (`MarketplaceView`)**:
+  * Category filters (SaaS, FinTech, Delivery, Offline, Health) with real-time text search.
+  * 5 launch kits: **NovaBank** (Digital banking), **SaaSHero** (Subscription SaaS), **FoodDelivery Pro** (Logistics), **OfflineVault** (Encrypted local storage), and **FitPulse** (Health tracking).
+* **Anti-Drift Consistency Manifest (`.flrd/manifest.json`)**:
+  * `TemplateManifestContext` locks design tokens, state management rules, and AI prompt conditioning.
+  * Protects generated and customized projects from visual and architectural fragmentation over time.
+* **Creator Monetization**:
+  * Integrated 75% creator / 25% FLRD platform revenue split model for community creators.
+
+#### 📂 Reverse Engineering & Project Ingestion
+* **Deep Project Scanner (`ProjectAnalyzerService`)**:
+  * Analyzes any pre-existing Flutter project on disk containing `pubspec.yaml`.
+  * Detects active architecture (Riverpod, BLoC, SQLite, Provider).
+  * Scans `AndroidManifest.xml` and `Info.plist` to extract configured permissions.
+  * Recursively scans `lib/` for `*_screen.dart` and `*_page.dart`, constructing visual `RouteNode` graphs.
+  * Synthesizes `.flrd/manifest.json` ensuring full compatibility with FLRD Studio features.
+* **Import Modal Dialog (`ImportProjectDialog`)**:
+  * 1-click import with directory picker and quick path shortcut chips.
+
+#### 💰 Monetization & Financial Suite
+* **Centralized Configuration (`MonetizationConfig`)**:
+  * Official Lemon Squeezy checkout integration.
+  * Community support gateways: Pix (`robson.dv14@gmail.com`) and PayPal donation links.
+  * FLRD Pro subscription options: $19/mo or $49 lifetime license.
+* **Global Settings Modal (`SettingsAndBillingDialog`)**:
+  * 3 dedicated tabs: **IA / Gemini BYOK**, **Plano & Faturamento**, and **Apoie a Comunidade**.
+  * Quick-access settings icon in `CustomTitleBar`.
+
+#### ⚙️ Automated Windows Native Build & Cloud Release
+* **GitHub Actions Release Pipeline (`.github/workflows/release.yml`)**:
+  * Automated Windows x64 compilation on `windows-latest` runners upon pushing `v*` tags.
+  * Runs lint analysis, test suite, and generates `flrd-windows-x64.zip`.
+  * Publishes binary assets directly to GitHub Releases with auto-generated release notes.
+
+---
+
 ## [0.1.0] - 2026-11-10
 
 ### 🚀 Initial Public Release
