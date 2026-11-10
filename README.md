@@ -179,11 +179,14 @@ FLRD is designed from the ground up to avoid the classic "scaffolding rot" that 
 ## 🗺️ Roadmap
 
 - [x] Initial project identity and architecture design
-- [ ] Desktop UI MVP (Project configuration & preset selector)
-- [ ] Template engine with live code synthesis
-- [ ] Preset 1: SaaS / Supabase + Riverpod
-- [ ] Preset 2: Clean-Lite BLoC + Dio
-- [ ] Companion CLI mode (`flrd create`)
+- [x] Premium Desktop UI Shell (Obsidian Glass, custom titlebar & 6-step wizard)
+- [x] Native AST Injectors (Semantic AndroidManifest & iOS Info.plist mutation)
+- [ ] Production-Ready Code Presets:
+  - [ ] Preset 1: SaaS / Indie Hacker (Riverpod + Supabase + Auth Router Guards)
+  - [ ] Preset 2: Clean-Lite (BLoC + Dio + GetIt service locator)
+  - [ ] Preset 3: Offline-First (Drift / SQLite + SharedPreferences)
+- [ ] Companion CLI Mode (`bin/flrd.dart` for terminal lovers)
+- [ ] GitHub Actions Canary CI/CD pipeline
 - [ ] Custom community template plugins / bricks support
 
 ---
