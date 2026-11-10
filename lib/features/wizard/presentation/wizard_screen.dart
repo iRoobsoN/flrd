@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:process_run/process_run.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/window/custom_titlebar.dart';
 import 'controllers/wizard_controller.dart';
@@ -296,7 +298,21 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
                   ElevatedButton.icon(
                     onPressed: () {
                       Navigator.of(context).pop();
-                      // Launch code .
+                      final config = ref.read(wizardProvider).config;
+                      final targetPath = '${config.outputPath}/${config.projectName}';
+                      if (!kIsWeb) {
+                        runExecutableArguments('code', [targetPath]);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            backgroundColor: AppColors.surfaceCard,
+                            content: Text(
+                              'Abra o projeto no terminal: code $targetPath',
+                              style: const TextStyle(color: AppColors.textPrimary),
+                            ),
+                          ),
+                        );
+                      }
                     },
                     icon: const Icon(Icons.code_rounded, size: 16),
                     label: const Text('Open in VS Code'),
