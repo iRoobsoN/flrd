@@ -256,4 +256,25 @@ class AppStrings {
     AppLanguage.en => 'Re-check System',
     AppLanguage.es => 'Verificar Nuevamente',
   };
+
+  String get missingSdkBannerTitle => switch (language) {
+    AppLanguage.pt => 'Flutter SDK não detectado no sistema',
+    AppLanguage.en => 'Flutter SDK not found on system',
+    AppLanguage.es => 'Flutter SDK no encontrado en el sistema',
+  };
+
+  String get missingSdkBannerDesc => switch (language) {
+    AppLanguage.pt =>
+      'O FLRD requer o Flutter SDK instalado no PATH para compilar e gerar projetos reais no disco. Você pode explorar os templates e o estúdio, mas precisará do SDK para construir novos apps.',
+    AppLanguage.en =>
+      'FLRD requires the Flutter SDK in your system PATH to generate and compile real projects on disk. You can explore templates and the studio, but will need the SDK to build new apps.',
+    AppLanguage.es =>
+      'FLRD requiere el Flutter SDK en el PATH para compilar y generar proyectos reales en el disco. Puedes explorar plantillas y el estudio, pero necesitarás el SDK para crear nuevas apps.',
+  };
+
+  String get missingSdkBannerCta => switch (language) {
+    AppLanguage.pt => 'Configurar Flutter SDK',
+    AppLanguage.en => 'Setup Flutter SDK',
+    AppLanguage.es => 'Configurar Flutter SDK',
+  };
 }

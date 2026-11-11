@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,8 +6,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/localization/app_strings.dart';
 import '../../../core/localization/language_provider.dart';
 import '../../../core/localization/language_selector_widget.dart';
+import '../../../core/services/flutter_sdk_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/donate_dialog.dart';
+import '../../../core/widgets/flutter_sdk_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
 import '../../marketplace/presentation/marketplace_view.dart';
 import '../../marketplace/providers/marketplace_provider.dart';
@@ -25,6 +28,7 @@ class HubScreen extends ConsumerStatefulWidget {
 
 class _HubScreenState extends ConsumerState<HubScreen> {
   late int _activeSection;
+  bool _dismissedSdkBanner = false;
 
   @override
   void initState() {
@@ -44,6 +48,7 @@ class _HubScreenState extends ConsumerState<HubScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = ref.watch(appStringsProvider);
+    final sdkStatus = ref.watch(flutterSdkProvider);
     final projectsCount = ref.watch(projectsProvider).projects.length;
     final templatesCount = ref.watch(marketplaceProvider).templates.length;
 
@@ -74,6 +79,15 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Missing Flutter SDK Pre-Flight Banner on Startup
+                        if (!kIsWeb &&
+                            !sdkStatus.isInstalled &&
+                            !sdkStatus.isChecking &&
+                            !_dismissedSdkBanner) ...[
+                          _buildMissingSdkBanner(context, strings),
+                          const SizedBox(height: 24),
+                        ],
+
                         // Hero Header Section
                         _buildHeroHeader(context, ref, strings),
                         const SizedBox(height: 32),
@@ -779,6 +793,115 @@ class _HubScreenState extends ConsumerState<HubScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMissingSdkBanner(BuildContext context, AppStrings strings) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warning.withOpacity(0.35)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 720;
+          final content = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppColors.warning,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      strings.missingSdkBannerTitle,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      strings.missingSdkBannerDesc,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Dismiss / Fechar',
+                icon: const Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: AppColors.textMuted,
+                ),
+                splashRadius: 18,
+                onPressed: () {
+                  setState(() {
+                    _dismissedSdkBanner = true;
+                  });
+                },
+              ),
+            ],
+          );
+
+          final ctaButton = ElevatedButton.icon(
+            onPressed: () => FlutterSdkDialog.show(context),
+            icon: const Icon(Icons.build_circle_rounded, size: 16),
+            label: Text(strings.missingSdkBannerCta),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.warning,
+              foregroundColor: Colors.black87,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              textStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          );
+
+          if (isCompact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                content,
+                const SizedBox(height: 12),
+                ctaButton,
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: content),
+              const SizedBox(width: 12),
+              ctaButton,
+            ],
+          );
+        },
       ),
     );
   }

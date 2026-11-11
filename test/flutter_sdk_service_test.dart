@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flrd/core/services/flutter_sdk_service.dart';
 import 'package:flrd/core/widgets/flutter_sdk_dialog.dart';
 import 'package:flrd/core/window/custom_titlebar.dart';
+import 'package:flrd/features/hub/presentation/hub_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -197,6 +198,98 @@ void main() {
       // Verify guide dialog opened
       expect(find.byType(FlutterSdkDialog), findsOneWidget);
       expect(find.text('Download Flutter SDK (Official)'), findsOneWidget);
+    });
+  });
+
+  group('HubScreen Missing SDK Banner Integration Tests', () {
+    testWidgets('Renders missing SDK banner on Hub when Flutter is not installed', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            flutterSdkProvider.overrideWith(
+              (ref) => _MockFlutterSdkNotifier(
+                FlutterSdkStatus.missing(error: 'Not found in PATH'),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: HubScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Banner title and CTA are visible
+      expect(find.text('Flutter SDK not found on system'), findsOneWidget);
+      expect(find.text('Setup Flutter SDK'), findsOneWidget);
+
+      // Tap on CTA button opens FlutterSdkDialog
+      await tester.tap(find.text('Setup Flutter SDK'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FlutterSdkDialog), findsOneWidget);
+      expect(find.text('3-Step Quick Setup Guide:'), findsOneWidget);
+    });
+
+    testWidgets('Dismiss button closes the missing SDK banner', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            flutterSdkProvider.overrideWith(
+              (ref) => _MockFlutterSdkNotifier(
+                FlutterSdkStatus.missing(error: 'Not found in PATH'),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: HubScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Flutter SDK not found on system'), findsOneWidget);
+
+      // Tap dismiss icon
+      await tester.tap(find.byTooltip('Dismiss / Fechar'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Flutter SDK not found on system'), findsNothing);
+    });
+
+    testWidgets('Does not render banner when Flutter is detected', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            flutterSdkProvider.overrideWith(
+              (ref) => _MockFlutterSdkNotifier(
+                FlutterSdkStatus.detected(
+                  version: 'v3.24.5',
+                  sdkPath: 'C:\\flutter\\bin\\flutter.bat',
+                ),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: HubScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Flutter SDK not found on system'), findsNothing);
     });
   });
 }
