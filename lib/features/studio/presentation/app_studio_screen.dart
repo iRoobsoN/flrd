@@ -66,6 +66,39 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   final TransformationController _transformationController =
       TransformationController();
   int _inspectorTabIndex = 0; // 0: Route Details, 1: View Dart Code, 2: Device Screen Emulator
+  bool _isDraggingNode = false;
+
+  void _onNodeDragStart() {
+    if (!mounted) return;
+    if (!_isDraggingNode) {
+      setState(() {
+        _isDraggingNode = true;
+      });
+    }
+  }
+
+  void _onNodeDragEnd() {
+    if (!mounted) return;
+    if (_isDraggingNode) {
+      setState(() {
+        _isDraggingNode = false;
+      });
+    }
+  }
+
+  void _onNodeDragUpdate(String nodeId, Offset delta) {
+    final scale = _transformationController.value
+        .getMaxScaleOnAxis()
+        .clamp(0.2, 5.0);
+    final canvasDelta = delta / scale;
+    final studio = ref.read(studioProvider);
+    final nodeIndex = studio.nodes.indexWhere((n) => n.id == nodeId);
+    if (nodeIndex == -1) return;
+    final currentPos = studio.nodes[nodeIndex].position;
+    final newX = (currentPos.dx + canvasDelta.dx).clamp(20.0, 1800.0 - 270.0);
+    final newY = (currentPos.dy + canvasDelta.dy).clamp(20.0, 900.0 - 120.0);
+    ref.read(studioProvider.notifier).updateNodePosition(nodeId, Offset(newX, newY));
+  }
 
   @override
   void initState() {
@@ -421,6 +454,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                   // Zoomable & Pannable Canvas
                   InteractiveViewer(
                     transformationController: _transformationController,
+                    panEnabled: !_isDraggingNode,
                     minScale: 0.4,
                     maxScale: 2.2,
                     boundaryMargin: const EdgeInsets.all(800),
@@ -449,8 +483,10 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                                 node: node,
                                 isSelected: node.id == studio.selectedNodeId,
                                 onTap: () => notifier.selectNode(node.id),
-                                onDrag: (newPos) =>
-                                    notifier.updateNodePosition(node.id, newPos),
+                                onDragStart: _onNodeDragStart,
+                                onDragUpdate: (delta) =>
+                                    _onNodeDragUpdate(node.id, delta),
+                                onDragEnd: _onNodeDragEnd,
                               ),
                             );
                           }),

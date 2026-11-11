@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../models/route_node.dart';
 
@@ -6,14 +7,20 @@ class RouteNodeCard extends StatefulWidget {
   final RouteNode node;
   final bool isSelected;
   final VoidCallback onTap;
-  final Function(Offset newPos) onDrag;
+  final Function(Offset newPos)? onDrag;
+  final VoidCallback? onDragStart;
+  final void Function(Offset delta)? onDragUpdate;
+  final VoidCallback? onDragEnd;
 
   const RouteNodeCard({
     super.key,
     required this.node,
     required this.isSelected,
     required this.onTap,
-    required this.onDrag,
+    this.onDrag,
+    this.onDragStart,
+    this.onDragUpdate,
+    this.onDragEnd,
   });
 
   @override
@@ -22,55 +29,99 @@ class RouteNodeCard extends StatefulWidget {
 
 class _RouteNodeCardState extends State<RouteNodeCard> {
   bool _isHovered = false;
+  bool _isDragging = false;
 
   @override
   Widget build(BuildContext context) {
     final node = widget.node;
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
+      cursor: _isDragging ? SystemMouseCursors.grabbing : SystemMouseCursors.grab,
+      onEnter: (_) {
+        if (mounted) setState(() => _isHovered = true);
+      },
+      onExit: (_) {
+        if (mounted) setState(() => _isHovered = false);
+      },
       child: GestureDetector(
         onTap: widget.onTap,
+        onPanStart: (details) {
+          if (mounted) {
+            setState(() => _isDragging = true);
+          }
+          try {
+            HapticFeedback.selectionClick();
+          } catch (_) {}
+          widget.onDragStart?.call();
+        },
         onPanUpdate: (details) {
-          widget.onDrag(node.position + details.delta);
+          widget.onDrag?.call(node.position + details.delta);
+          widget.onDragUpdate?.call(details.delta);
+        },
+        onPanEnd: (details) {
+          if (mounted) {
+            setState(() => _isDragging = false);
+          }
+          widget.onDragEnd?.call();
+        },
+        onPanCancel: () {
+          if (mounted) {
+            setState(() => _isDragging = false);
+          }
+          widget.onDragEnd?.call();
         },
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: _isDragging ? Duration.zero : const Duration(milliseconds: 150),
           width: 260,
           height: 110,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: widget.isSelected
                 ? AppColors.surfaceSelected
-                : (_isHovered ? AppColors.surfaceHover : AppColors.surfaceCard),
+                : (_isDragging || _isHovered ? AppColors.surfaceHover : AppColors.surfaceCard),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: widget.isSelected
                   ? AppColors.primary
-                  : (_isHovered
-                      ? AppColors.secondary.withOpacity(0.6)
-                      : (node.isAIGenerated
-                          ? AppColors.secondary.withOpacity(0.4)
-                          : AppColors.border)),
-              width: widget.isSelected ? 1.8 : 1.0,
+                  : (_isDragging
+                      ? AppColors.secondary
+                      : (_isHovered
+                          ? AppColors.secondary.withOpacity(0.6)
+                          : (node.isAIGenerated
+                              ? AppColors.secondary.withOpacity(0.4)
+                              : AppColors.border))),
+              width: widget.isSelected || _isDragging ? 1.8 : 1.0,
             ),
-            boxShadow: widget.isSelected
+            boxShadow: _isDragging
                 ? [
                     BoxShadow(
-                      color: AppColors.primary.withOpacity(0.3),
+                      color: (widget.isSelected ? AppColors.primary : AppColors.secondary).withOpacity(0.35),
+                      blurRadius: 24,
+                      spreadRadius: 2,
+                      offset: const Offset(0, 8),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
                       blurRadius: 16,
                       offset: const Offset(0, 4),
                     ),
                   ]
-                : (_isHovered
+                : (widget.isSelected
                     ? [
                         BoxShadow(
-                          color: AppColors.secondary.withOpacity(0.12),
-                          blurRadius: 12,
+                          color: AppColors.primary.withOpacity(0.3),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
                         ),
                       ]
-                    : []),
+                    : (_isHovered
+                        ? [
+                            BoxShadow(
+                              color: AppColors.secondary.withOpacity(0.12),
+                              blurRadius: 12,
+                            ),
+                          ]
+                        : [])),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
