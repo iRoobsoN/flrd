@@ -355,7 +355,7 @@ dependencies:
       expect(find.text('Routes Flowchart'), findsOneWidget);
     });
 
-    testWidgets('AppStudioScreen inspector switcher displays 3 tabs and renders DeviceScreenEmulator on tab 2',
+    testWidgets('AppStudioScreen inspector switcher displays 2 tabs and renders DeviceScreenEmulator in anchored preview pane',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 900);
       tester.view.devicePixelRatio = 1.0;
@@ -390,27 +390,30 @@ dependencies:
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      // Verify all 3 tabs are present in inspector switcher
+      // Verify 2 tabs are present in inspector switcher and Emulate tab is removed
       expect(find.text('⚙️ Details'), findsOneWidget);
       expect(find.text('💻 Code'), findsOneWidget);
-      expect(find.text('📱 Emulate'), findsOneWidget);
+      expect(find.text('📱 Emulate'), findsNothing);
 
       // Initially on tab 0 (Details)
       expect(find.text('GoRouter Route Path'), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsNothing);
+
+      // Verify DeviceScreenEmulator is rendered in anchored live preview pane
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('anchored_live_preview_pane')),
+          matching: find.byType(DeviceScreenEmulator),
+        ),
+        findsOneWidget,
+      );
 
       // Switch to tab 1 (Code)
       await tester.tap(find.text('💻 Code'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-
-      // Switch to tab 2 (Emulate)
-      await tester.tap(find.text('📱 Emulate'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-
-      // Verify DeviceScreenEmulator is rendered
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
       expect(find.byType(DeviceScreenEmulator), findsOneWidget);
 
       // Verify no RenderFlex overflow
@@ -418,7 +421,7 @@ dependencies:
       expect(err, isNull);
     });
 
-    testWidgets('AppStudioScreen inspector panel widens to 480px on desktop when in emulate mode',
+    testWidgets('AppStudioScreen inspector panel widens to 500px on desktop when in code mode',
         (tester) async {
       tester.view.physicalSize = const Size(1280, 900);
       tester.view.devicePixelRatio = 1.0;
@@ -453,10 +456,11 @@ dependencies:
       await tester.pump(const Duration(milliseconds: 100));
 
       // When tab 0 is active, sidebar width is 440px
-      // Look for the sidebar Container (which has Border(left: BorderSide(...)))
+      // Look for the sidebar Container (excluding anchored_live_preview_pane)
       final sidebarFinder = find.byWidgetPredicate(
         (widget) =>
             widget is Container &&
+            widget.key != const ValueKey('anchored_live_preview_pane') &&
             widget.decoration is BoxDecoration &&
             (widget.decoration as BoxDecoration).border is Border &&
             ((widget.decoration as BoxDecoration).border as Border).top == BorderSide.none &&
@@ -466,14 +470,21 @@ dependencies:
       RenderBox sidebarBox = tester.renderObject(sidebarFinder);
       expect(sidebarBox.size.width, closeTo(440.0, 1.0));
 
-      // Tap tab 2 (Emulate)
-      await tester.tap(find.text('📱 Emulate'));
+      // Tap tab 1 (Code)
+      await tester.tap(find.text('💻 Code'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      // Sidebar should expand to 480px on desktop
+      // Sidebar should expand to 500px on desktop
       sidebarBox = tester.renderObject(sidebarFinder);
-      expect(sidebarBox.size.width, closeTo(480.0, 1.0));
+      expect(sidebarBox.size.width, closeTo(500.0, 1.0));
+
+      // Tap tab 0 (Details) to return
+      await tester.tap(find.text('⚙️ Details'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      sidebarBox = tester.renderObject(sidebarFinder);
+      expect(sidebarBox.size.width, closeTo(440.0, 1.0));
 
       final err = tester.takeException();
       expect(err, isNull);

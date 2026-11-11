@@ -453,7 +453,7 @@ void main() {
       expect(renderBox.size.width, 440.0);
     });
 
-    testWidgets('Switcher alternates between [⚙️ Details], [💻 Code], and [📱 Emulate]',
+    testWidgets('Switcher alternates between [⚙️ Details] and [💻 Code]',
         (tester) async {
       tester.view.physicalSize = const Size(1920, 1080);
       tester.view.devicePixelRatio = 1.0;
@@ -473,10 +473,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Switcher options exist
+      // Switcher options exist (Details and Code, Emulate is removed)
       expect(find.text('⚙️ Details'), findsOneWidget);
       expect(find.text('💻 Code'), findsOneWidget);
-      expect(find.text('📱 Emulate'), findsOneWidget);
+      expect(find.text('📱 Emulate'), findsNothing);
 
       // Default: Route Details tab is active
       expect(find.text('GoRouter Route Path'), findsOneWidget);

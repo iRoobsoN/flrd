@@ -481,8 +481,8 @@ void main() {
     });
   });
 
-  group('AppStudioScreen - 3-Tab Inspector Switching & Emulate Integration', () {
-    testWidgets('Renders 3 tabs and switches seamlessly between Details, Code and Emulate',
+  group('AppStudioScreen - 2-Tab Inspector & Right-Anchored Live Preview Integration', () {
+    testWidgets('Renders 2 tabs in inspector switcher and right-anchored preview pane when _showLivePreview is active',
         (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
@@ -520,30 +520,25 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      // 1. Verify all 3 segmented tab buttons are present
+      // 1. Verify 2 segmented tab buttons are present and Emulate is removed
       expect(find.text('⚙️ Details'), findsOneWidget);
       expect(find.text('💻 Code'), findsOneWidget);
-      expect(find.text('📱 Emulate'), findsOneWidget);
+      expect(find.text('📱 Emulate'), findsNothing);
 
       // 2. Default tab is Details (Tab 0) - Route details editor is shown
       expect(find.text('GoRouter Route Path'), findsOneWidget);
       expect(find.byType(EmbeddedCodeViewer), findsNothing);
-      expect(find.byType(DeviceScreenEmulator), findsNothing);
 
-      // 3. Switch to Tab 1: Code
-      await tester.tap(find.text('💻 Code'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-
-      expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-
-      // 4. Switch to Tab 2: Emulate
-      await tester.tap(find.text('📱 Emulate'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-
-      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
-      expect(find.byType(EmbeddedCodeViewer), findsNothing);
+      // 3. Right-anchored preview pane is active and contains DeviceScreenEmulator
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
+      expect(find.text('Live Screen Preview'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('anchored_live_preview_pane')),
+          matching: find.byType(DeviceScreenEmulator),
+        ),
+        findsOneWidget,
+      );
 
       // In Code Live Sync mode, renders from code; toggle to Archetype Mock renders mock
       await tester.tap(find.text('🎨 Archetype Mock'));
@@ -552,13 +547,44 @@ void main() {
       // Dashboard archetype inside emulator
       expect(find.text('Welcome back, Alex 👋'), findsOneWidget);
 
-      // 5. Switch back to Tab 0: Details
+      // 4. Switch to Tab 1: Code
+      await tester.tap(find.text('💻 Code'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
+      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+
+      // 5. Hide preview pane via close button
+      final closePreviewBtn = find.byKey(const ValueKey('close_live_preview_pane_button'));
+      expect(closePreviewBtn, findsOneWidget);
+      await tester.tap(closePreviewBtn);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsNothing);
+      expect(find.byType(DeviceScreenEmulator), findsNothing);
+      expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
+
+      // 6. Restore preview pane via inspector toggle button
+      final inspectorToggleBtn = find.byKey(const ValueKey('inspector_toggle_preview_button'));
+      expect(inspectorToggleBtn, findsOneWidget);
+      await tester.tap(inspectorToggleBtn);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
+      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+
+      // 7. Switch back to Tab 0: Details
       await tester.tap(find.text('⚙️ Details'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('GoRouter Route Path'), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsNothing);
+      expect(find.byType(EmbeddedCodeViewer), findsNothing);
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
 
       // No RenderFlex overflow
       expect(tester.takeException(), isNull);
@@ -600,12 +626,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      // Switch to Emulate Tab
-      await tester.tap(find.text('📱 Emulate'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-
-      // Profile screen content is shown
+      // Live preview pane is anchored on the right showing Profile screen content
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
       expect(find.text('My Profile'), findsOneWidget);
       expect(find.text('FLRD PRO TIER'), findsOneWidget);
 
@@ -629,7 +651,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('Inspector sidebar expands to 480px on desktop when in emulate mode and shrinks back',
+    testWidgets('Inspector sidebar expands to 500px on desktop when in code mode and shrinks back',
         (tester) async {
       tester.view.physicalSize = const Size(1280, 900);
       tester.view.devicePixelRatio = 1.0;
@@ -666,6 +688,7 @@ void main() {
       final sidebarFinder = find.byWidgetPredicate(
         (widget) =>
             widget is Container &&
+            widget.key != const ValueKey('anchored_live_preview_pane') &&
             widget.decoration is BoxDecoration &&
             (widget.decoration as BoxDecoration).border is Border &&
             ((widget.decoration as BoxDecoration).border as Border).top == BorderSide.none &&
@@ -677,14 +700,14 @@ void main() {
       RenderBox sidebarBox = tester.renderObject(sidebarFinder);
       expect(sidebarBox.size.width, closeTo(440.0, 1.0));
 
-      // Switch to Emulate Tab (Tab 2)
-      await tester.tap(find.text('📱 Emulate'));
+      // Switch to Code Tab (Tab 1)
+      await tester.tap(find.text('💻 Code'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
-      // In Emulate mode: width widens to 480px
+      // In Code mode: width widens to 500px
       sidebarBox = tester.renderObject(sidebarFinder);
-      expect(sidebarBox.size.width, closeTo(480.0, 1.0));
+      expect(sidebarBox.size.width, closeTo(500.0, 1.0));
 
       // Switch back to Details Tab (Tab 0)
       await tester.tap(find.text('⚙️ Details'));
@@ -694,6 +717,12 @@ void main() {
       // Returns to 440px
       sidebarBox = tester.renderObject(sidebarFinder);
       expect(sidebarBox.size.width, closeTo(440.0, 1.0));
+
+      // Also verify right-anchored preview pane is present
+      final previewFinder = find.byKey(const ValueKey('anchored_live_preview_pane'));
+      expect(previewFinder, findsOneWidget);
+      final RenderBox previewBox = tester.renderObject(previewFinder);
+      expect(previewBox.size.width, closeTo(420.0, 1.0));
 
       expect(tester.takeException(), isNull);
     });

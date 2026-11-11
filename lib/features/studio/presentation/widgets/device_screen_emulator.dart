@@ -254,8 +254,8 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
                 final deviceW = _selectedDevice.width + (_selectedDevice.bezelWidth * 2);
                 final deviceH = _selectedDevice.height + (_selectedDevice.bezelWidth * 2);
 
-                final availableW = constraints.maxWidth - 24;
-                final availableH = constraints.maxHeight - 24;
+                final availableW = constraints.maxWidth - 20;
+                final availableH = constraints.maxHeight - 20;
 
                 // Determine scale factor
                 double scale;
@@ -264,7 +264,14 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
                 } else {
                   final scaleX = availableW / deviceW;
                   final scaleY = availableH / deviceH;
-                  scale = math.min(scaleX, scaleY).clamp(0.2, 1.0);
+                  final fitScale = math.min(scaleX, scaleY);
+                  // When displayed in full vertical studio workspace (~750-850px height),
+                  // provide natural comfortable scale ~90-100% without looking far away.
+                  if (constraints.maxHeight >= 680 && scaleX >= 0.88 && fitScale < 0.90) {
+                    scale = math.min(scaleX, 0.92).clamp(0.90, 1.0);
+                  } else {
+                    scale = fitScale.clamp(0.2, 1.0);
+                  }
                 }
 
                 return Center(
@@ -273,7 +280,7 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
                     child: SingleChildScrollView(
                       scrollDirection: Axis.vertical,
                       child: Padding(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(8),
                         child: Transform.scale(
                           scale: scale,
                           alignment: Alignment.center,
@@ -301,15 +308,15 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
 
   Widget _buildToolbar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: const BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
         border: Border(bottom: BorderSide(color: AppColors.borderSubtle)),
       ),
       child: Wrap(
-        spacing: 8,
-        runSpacing: 6,
+        spacing: 6,
+        runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         alignment: WrapAlignment.spaceBetween,
         children: [
@@ -318,7 +325,7 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(6),
@@ -330,10 +337,10 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
                       _selectedDevice == EmulatorDevice.iphone15Pro
                           ? Icons.phone_iphone_rounded
                           : Icons.phone_android_rounded,
-                      size: 14,
+                      size: 13,
                       color: AppColors.primary,
                     ),
-                    const SizedBox(width: 5),
+                    const SizedBox(width: 4),
                     DropdownButtonHideUnderline(
                       child: DropdownButton<EmulatorDevice>(
                         value: _selectedDevice,
@@ -341,11 +348,11 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
                         dropdownColor: AppColors.surfaceCard,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
                         icon: const Icon(Icons.arrow_drop_down_rounded,
-                            size: 16, color: AppColors.textSecondary),
+                            size: 15, color: AppColors.textSecondary),
                         items: EmulatorDevice.values.map((device) {
                           return DropdownMenuItem<EmulatorDevice>(
                             value: device,
@@ -362,10 +369,10 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               if (widget.node != null) ...[
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                   decoration: BoxDecoration(
                     color: AppColors.surfaceHover,
                     borderRadius: BorderRadius.circular(6),
@@ -374,13 +381,13 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(widget.node!.icon, size: 12, color: AppColors.secondary),
+                      Icon(widget.node!.icon, size: 11, color: AppColors.secondary),
                       const SizedBox(width: 4),
                       Text(
                         widget.node!.path,
                         style: const TextStyle(
                           color: AppColors.textSecondary,
-                          fontSize: 11,
+                          fontSize: 10,
                           fontFamily: 'monospace',
                         ),
                       ),
@@ -395,45 +402,56 @@ class _DeviceScreenEmulatorState extends State<DeviceScreenEmulator>
           _buildModeTogglePill(),
 
           // Scale & Theme & Action Controls
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Theme Toggle (Dark / Light)
-              IconButton(
-                tooltip: _isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode',
-                icon: Icon(
-                  _isDarkMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                  size: 16,
-                  color: _isDarkMode ? AppColors.secondary : Colors.amber,
-                ),
-                onPressed: () => setState(() => _isDarkMode = !_isDarkMode),
-              ),
-
-              // Scale Presets
-              _buildScaleButton('Fit', null),
-              _buildScaleButton('75%', 0.75),
-              _buildScaleButton('100%', 1.0),
-
-              // Reset Interactive Simulation
-              IconButton(
-                tooltip: 'Reset Screen Simulation',
-                icon: const Icon(Icons.refresh_rounded, size: 16, color: AppColors.textMuted),
-                onPressed: _resetSimulation,
-              ),
-
-              // Fullscreen Modal Toggle (if provided)
-              if (widget.onToggleExpand != null) ...[
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Theme Toggle (Dark / Light)
                 IconButton(
-                  tooltip: widget.isExpanded ? 'Exit Fullscreen' : 'Expand Emulator',
+                  tooltip: _isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode',
                   icon: Icon(
-                    widget.isExpanded ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-                    size: 17,
-                    color: AppColors.textPrimary,
+                    _isDarkMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                    size: 15,
+                    color: _isDarkMode ? AppColors.secondary : Colors.amber,
                   ),
-                  onPressed: widget.onToggleExpand,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                  onPressed: () => setState(() => _isDarkMode = !_isDarkMode),
                 ),
+                const SizedBox(width: 2),
+
+                // Scale Presets
+                _buildScaleButton('Fit', null),
+                _buildScaleButton('75%', 0.75),
+                _buildScaleButton('100%', 1.0),
+                const SizedBox(width: 2),
+
+                // Reset Interactive Simulation
+                IconButton(
+                  tooltip: 'Reset Screen Simulation',
+                  icon: const Icon(Icons.refresh_rounded, size: 15, color: AppColors.textMuted),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                  onPressed: _resetSimulation,
+                ),
+
+                // Fullscreen Modal Toggle (if provided)
+                if (widget.onToggleExpand != null) ...[
+                  IconButton(
+                    tooltip: widget.isExpanded ? 'Exit Fullscreen' : 'Expand Emulator',
+                    icon: Icon(
+                      widget.isExpanded ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                      size: 16,
+                      color: AppColors.textPrimary,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                    onPressed: widget.onToggleExpand,
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ],
       ),

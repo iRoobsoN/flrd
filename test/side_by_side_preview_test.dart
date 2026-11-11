@@ -322,9 +322,24 @@ class CheckoutScreen extends StatelessWidget {
       await tester.tap(codeTabFinder);
       await tester.pumpAndSettle();
 
-      // 2. Both EmbeddedCodeViewer and DeviceScreenEmulator are present side-by-side
+      // 2. Both EmbeddedCodeViewer and DeviceScreenEmulator are present:
+      // EmbeddedCodeViewer in inspector, DeviceScreenEmulator anchored in right pane (NOT nested inside code viewer)
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('anchored_live_preview_pane')),
+          matching: find.byType(DeviceScreenEmulator),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(EmbeddedCodeViewer),
+          matching: find.byType(DeviceScreenEmulator),
+        ),
+        findsNothing,
+      );
 
       // 3. Header toggle button is visible with 'Hide Preview' (since _showLivePreview defaults to true)
       final togglePreviewBtn = find.byKey(const ValueKey('toggle_live_preview_button')).first;
@@ -489,9 +504,23 @@ class CheckoutScreen extends StatelessWidget {
       await tester.tap(find.textContaining('💻'));
       await tester.pumpAndSettle();
 
-      // Find the LayoutBuilder that contains both code viewer and emulator
+      // EmbeddedCodeViewer in inspector and DeviceScreenEmulator anchored in right pane (NOT nested in code viewer)
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('anchored_live_preview_pane')),
+          matching: find.byType(DeviceScreenEmulator),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(EmbeddedCodeViewer),
+          matching: find.byType(DeviceScreenEmulator),
+        ),
+        findsNothing,
+      );
 
       // In wide view, CodeViewer and Emulator are laid out side-by-side (Row)
       final codeViewerTopLeft = tester.getTopLeft(find.byType(EmbeddedCodeViewer));

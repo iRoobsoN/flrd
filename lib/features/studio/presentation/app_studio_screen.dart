@@ -65,7 +65,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   late TabController _tabController;
   final TransformationController _transformationController =
       TransformationController();
-  int _inspectorTabIndex = 0; // 0: Route Details, 1: View Dart Code, 2: Device Screen Emulator
+  int _inspectorTabIndex = 0; // 0: Route Details, 1: View Dart Code
   bool _isDraggingNode = false;
   bool _showLivePreview = true;
   bool _isDiagramCollapsed = false;
@@ -120,6 +120,9 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (kIsWeb && Uri.base.queryParameters['inspect'] == 'true') {
         final nodes = ref.read(studioProvider).nodes;
@@ -250,391 +253,8 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
               onBack: () => Navigator.of(context).pop(),
             ),
 
-            // Studio Header & Project Bar
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: const BoxDecoration(
-                color: AppColors.backgroundSecondary,
-                border: Border(
-                  bottom: BorderSide(color: AppColors.borderSubtle),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.hub_rounded,
-                      color: AppColors.primary,
-                      size: 18,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                widget.project.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: AppColors.primary.withOpacity(0.3),
-                                ),
-                              ),
-                              child: Text(
-                                widget.project.preset.name.toUpperCase(),
-                                style: const TextStyle(
-                                  color: AppColors.secondary,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.project.path,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            color: AppColors.textMuted.withOpacity(0.8),
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-
-                  // Quick Action Buttons
-                  Flexible(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        OutlinedButton.icon(
-                          key: const ValueKey('collapse_all_button'),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.border),
-                            backgroundColor: AppColors.surface,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          onPressed: () {
-                            final allCollapsed = studio.nodes.isNotEmpty &&
-                                studio.nodes.every((n) => n.isCollapsed);
-                            studioNotifier.setAllNodesCollapsed(!allCollapsed);
-                          },
-                          icon: Icon(
-                            studio.nodes.isNotEmpty &&
-                                    studio.nodes.every((n) => n.isCollapsed)
-                                ? Icons.unfold_more_rounded
-                                : Icons.unfold_less_rounded,
-                            size: 14,
-                            color: AppColors.textSecondary,
-                          ),
-                          label: Text(
-                            studio.nodes.isNotEmpty &&
-                                    studio.nodes.every((n) => n.isCollapsed)
-                                ? 'Expand All'
-                                : 'Collapse All',
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          key: const ValueKey('toolbar_fit_view_button'),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.border),
-                            backgroundColor: AppColors.surface,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          onPressed: () => _fitView(studio.nodes),
-                          icon: const Icon(
-                            Icons.fit_screen_rounded,
-                            size: 14,
-                            color: AppColors.textSecondary,
-                          ),
-                          label: const Text(
-                            'Fit View',
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-
-                        // Toggle Diagram Collapse Button (Full width expansion for Code + Phone)
-                        OutlinedButton.icon(
-                          key: const ValueKey('toggle_diagram_collapse_button'),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(
-                              color: _isDiagramCollapsed
-                                  ? AppColors.primary
-                                  : AppColors.border,
-                            ),
-                            backgroundColor: _isDiagramCollapsed
-                                ? AppColors.primary.withOpacity(0.12)
-                                : AppColors.surface,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _isDiagramCollapsed = !_isDiagramCollapsed;
-                              if (_isDiagramCollapsed &&
-                                  studio.selectedNodeId == null &&
-                                  studio.nodes.isNotEmpty) {
-                                studioNotifier.selectNode(studio.nodes.first.id);
-                                _inspectorTabIndex = 1;
-                              }
-                            });
-                          },
-                          icon: Icon(
-                            _isDiagramCollapsed
-                                ? Icons.arrow_right_rounded
-                                : Icons.arrow_left_rounded,
-                            size: 14,
-                            color: _isDiagramCollapsed
-                                ? AppColors.primary
-                                : AppColors.textSecondary,
-                          ),
-                          label: Text(
-                            _isDiagramCollapsed
-                                ? '▶ Show Diagram'
-                                : '◀ Collapse Diagram',
-                            style: TextStyle(
-                              color: _isDiagramCollapsed
-                                  ? AppColors.primary
-                                  : AppColors.textPrimary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-
-                        // Toggle Live Preview Button (1-click side-by-side emulator toggle)
-                        OutlinedButton.icon(
-                          key: const ValueKey('toggle_live_preview_button'),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(
-                              color: _showLivePreview
-                                  ? AppColors.secondary
-                                  : AppColors.border,
-                            ),
-                            backgroundColor: _showLivePreview
-                                ? AppColors.secondary.withOpacity(0.12)
-                                : AppColors.surface,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _showLivePreview = !_showLivePreview;
-                            });
-                          },
-                          icon: Icon(
-                            _showLivePreview
-                                ? Icons.smartphone_rounded
-                                : Icons.smartphone_outlined,
-                            size: 14,
-                            color: _showLivePreview
-                                ? AppColors.secondary
-                                : AppColors.textSecondary,
-                          ),
-                          label: Text(
-                            _showLivePreview
-                                ? 'Hide Preview'
-                                : '📱 Live Preview',
-                            style: TextStyle(
-                              color: _showLivePreview
-                                  ? AppColors.secondary
-                                  : AppColors.textPrimary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.border),
-                            backgroundColor: AppColors.surface,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          onPressed: _openDirectory,
-                          icon: const Icon(
-                            Icons.folder_open_rounded,
-                            size: 14,
-                            color: AppColors.textSecondary,
-                          ),
-                          label: const Text(
-                            'Folder',
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          onPressed: _openVsCode,
-                          icon: const Icon(Icons.code_rounded, size: 14),
-                          label: const Text(
-                            'Open VS Code',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.secondary),
-                            backgroundColor: AppColors.surface,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          onPressed: () => PublishTemplateDialog.show(
-                            context,
-                            projectPath: widget.project.path,
-                          ),
-                          icon: const Icon(
-                            Icons.verified_user_outlined,
-                            size: 14,
-                            color: AppColors.secondary,
-                          ),
-                          label: const Text(
-                            'Publish',
-                            style: TextStyle(
-                              color: AppColors.secondary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-            // Tab Navigation Bar
-            Container(
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                border: Border(
-                  bottom: BorderSide(color: AppColors.borderSubtle),
-                ),
-              ),
-              child: TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                tabAlignment: TabAlignment.start,
-                indicatorColor: AppColors.primary,
-                indicatorWeight: 2,
-                labelColor: AppColors.primary,
-                unselectedLabelColor: AppColors.textMuted,
-                labelStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-                tabs: const [
-                  Tab(
-                    icon: Icon(Icons.alt_route_rounded, size: 16),
-                    text: 'Routes Flowchart',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.security_rounded, size: 16),
-                    text: 'Native Permissions',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.layers_rounded, size: 16),
-                    text: 'Architecture & Packages',
-                  ),
-                ],
-              ),
-            ),
+            // Studio Header & Project Bar with integrated compact view switcher
+            _buildProjectHeader(studio, studioNotifier),
 
             // Tab Views
             Expanded(
@@ -659,6 +279,432 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     );
   }
 
+  Widget _buildProjectHeader(StudioState studio, StudioNotifier studioNotifier) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: const BoxDecoration(
+        color: AppColors.backgroundSecondary,
+        border: Border(
+          bottom: BorderSide(color: AppColors.borderSubtle),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.hub_rounded,
+              color: AppColors.primary,
+              size: 16,
+            ),
+          ),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 120),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.project.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  widget.project.path,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    color: AppColors.textMuted.withOpacity(0.8),
+                    fontSize: 8.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // Integrated Studio View Switcher Pills (Reclaims ~50px vertical TabBar space)
+          Flexible(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: _buildStudioViewSwitcher(),
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          // Quick Action Buttons
+          Expanded(
+            child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    OutlinedButton.icon(
+                      key: const ValueKey('collapse_all_button'),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.border),
+                        backgroundColor: AppColors.surface,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 3,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      onPressed: () {
+                        final allCollapsed = studio.nodes.isNotEmpty &&
+                            studio.nodes.every((n) => n.isCollapsed);
+                        studioNotifier.setAllNodesCollapsed(!allCollapsed);
+                      },
+                      icon: Icon(
+                        studio.nodes.isNotEmpty &&
+                                studio.nodes.every((n) => n.isCollapsed)
+                            ? Icons.unfold_more_rounded
+                            : Icons.unfold_less_rounded,
+                        size: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                      label: Text(
+                        studio.nodes.isNotEmpty &&
+                                studio.nodes.every((n) => n.isCollapsed)
+                            ? 'Expand All'
+                            : 'Collapse All',
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    OutlinedButton.icon(
+                      key: const ValueKey('toolbar_fit_view_button'),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.border),
+                        backgroundColor: AppColors.surface,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 3,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      onPressed: () => _fitView(studio.nodes),
+                      icon: const Icon(
+                        Icons.fit_screen_rounded,
+                        size: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                      label: const Text(
+                        'Fit View',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+
+                    // Toggle Diagram Collapse Button (Full width expansion for Code + Phone)
+                    OutlinedButton.icon(
+                      key: const ValueKey('toggle_diagram_collapse_button'),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: _isDiagramCollapsed
+                              ? AppColors.primary
+                              : AppColors.border,
+                        ),
+                        backgroundColor: _isDiagramCollapsed
+                            ? AppColors.primary.withOpacity(0.12)
+                            : AppColors.surface,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 3,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _isDiagramCollapsed = !_isDiagramCollapsed;
+                          if (_isDiagramCollapsed &&
+                              studio.selectedNodeId == null &&
+                              studio.nodes.isNotEmpty) {
+                            studioNotifier.selectNode(studio.nodes.first.id);
+                            _inspectorTabIndex = 1;
+                          }
+                        });
+                      },
+                      icon: Icon(
+                        _isDiagramCollapsed
+                            ? Icons.arrow_right_rounded
+                            : Icons.arrow_left_rounded,
+                        size: 12,
+                        color: _isDiagramCollapsed
+                            ? AppColors.primary
+                            : AppColors.textSecondary,
+                      ),
+                      label: Text(
+                        _isDiagramCollapsed
+                            ? '▶ Show Diagram'
+                            : '◀ Collapse Diagram',
+                        style: TextStyle(
+                          color: _isDiagramCollapsed
+                              ? AppColors.primary
+                              : AppColors.textPrimary,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+
+                    // Toggle Live Preview Button (1-click right dock emulator toggle)
+                    OutlinedButton.icon(
+                      key: const ValueKey('toggle_live_preview_button'),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: _showLivePreview
+                              ? AppColors.secondary
+                              : AppColors.border,
+                        ),
+                        backgroundColor: _showLivePreview
+                            ? AppColors.secondary.withOpacity(0.12)
+                            : AppColors.surface,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 3,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _showLivePreview = !_showLivePreview;
+                        });
+                      },
+                      icon: Icon(
+                        _showLivePreview
+                            ? Icons.smartphone_rounded
+                            : Icons.smartphone_outlined,
+                        size: 12,
+                        color: _showLivePreview
+                            ? AppColors.secondary
+                            : AppColors.textSecondary,
+                      ),
+                      label: Text(
+                        _showLivePreview
+                            ? 'Hide Preview'
+                            : '📱 Live Preview',
+                        style: TextStyle(
+                          color: _showLivePreview
+                              ? AppColors.secondary
+                              : AppColors.textPrimary,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.border),
+                        backgroundColor: AppColors.surface,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 3,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      onPressed: _openDirectory,
+                      icon: const Icon(
+                        Icons.folder_open_rounded,
+                        size: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                      label: const Text(
+                        'Folder',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 9.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 3,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      onPressed: _openVsCode,
+                      icon: const Icon(Icons.code_rounded, size: 12),
+                      label: const Text(
+                        'Open VS Code',
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.secondary),
+                        backgroundColor: AppColors.surface,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 3,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      onPressed: () => PublishTemplateDialog.show(
+                        context,
+                        projectPath: widget.project.path,
+                      ),
+                      icon: const Icon(
+                        Icons.verified_user_outlined,
+                        size: 12,
+                        color: AppColors.secondary,
+                      ),
+                      label: const Text(
+                        'Publish',
+                        style: TextStyle(
+                          color: AppColors.secondary,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+  }
+
+  Widget _buildStudioViewSwitcher() {
+    return AnimatedBuilder(
+      animation: _tabController,
+      builder: (context, _) {
+        final currentIndex = _tabController.index;
+        return Container(
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildStudioViewTab(
+                index: 0,
+                icon: Icons.alt_route_rounded,
+                label: 'Routes Flowchart',
+                isSelected: currentIndex == 0,
+              ),
+              const SizedBox(width: 2),
+              _buildStudioViewTab(
+                index: 1,
+                icon: Icons.security_rounded,
+                label: 'Native Permissions',
+                isSelected: currentIndex == 1,
+              ),
+              const SizedBox(width: 2),
+              _buildStudioViewTab(
+                index: 2,
+                icon: Icons.layers_rounded,
+                label: 'Architecture & Packages',
+                isSelected: currentIndex == 2,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStudioViewTab({
+    required int index,
+    required IconData icon,
+    required String label,
+    required bool isSelected,
+  }) {
+    return InkWell(
+      key: ValueKey('studio_view_tab_$index'),
+      onTap: () {
+        _tabController.animateTo(index);
+        setState(() {});
+      },
+      borderRadius: BorderRadius.circular(6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary.withOpacity(0.18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary.withOpacity(0.4)
+                : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 11,
+              color: isSelected ? AppColors.primary : AppColors.textMuted,
+            ),
+            const SizedBox(width: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                color: isSelected ? AppColors.textPrimary : AppColors.textMuted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFlowchartTab(
     BuildContext context,
     StudioState studio,
@@ -667,48 +713,47 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isEmulate = _inspectorTabIndex == 2;
         final isViewingCode = _inspectorTabIndex == 1;
+        final double previewWidth = constraints.maxWidth < 900
+            ? (constraints.maxWidth * 0.4).clamp(320.0, 420.0)
+            : 420.0;
 
         final double sidebarWidth;
         if (selectedNode == null) {
           sidebarWidth = 0.0;
         } else if (_isDiagramCollapsed) {
           sidebarWidth = constraints.maxWidth;
-        } else if (isViewingCode) {
-          if (_showLivePreview) {
-            // Generous space (68-75% width) for side-by-side Code and Phone
-            sidebarWidth = (constraints.maxWidth * 0.72)
-                .clamp(520.0, (constraints.maxWidth - 60.0).clamp(300.0, constraints.maxWidth));
-          } else {
-            sidebarWidth = (constraints.maxWidth * 0.55)
-                .clamp(440.0, (constraints.maxWidth - 60.0).clamp(300.0, constraints.maxWidth));
-          }
-        } else if (isEmulate) {
-          final defaultWidth = 480.0;
-          final isNarrow = constraints.maxWidth < (defaultWidth + 360.0);
-          sidebarWidth = isNarrow
-              ? (constraints.maxWidth * 0.55).clamp(280.0, constraints.maxWidth - 120.0)
-              : defaultWidth;
         } else {
-          final defaultWidth = 440.0;
-          final isNarrow = constraints.maxWidth < (defaultWidth + 360.0);
-          sidebarWidth = isNarrow
-              ? (constraints.maxWidth * 0.5).clamp(280.0, constraints.maxWidth - 120.0)
-              : defaultWidth;
+          final maxInspectorWidth = (constraints.maxWidth -
+                  (_showLivePreview ? previewWidth : 0.0) -
+                  280.0)
+              .clamp(300.0, constraints.maxWidth);
+          final double defaultSidebarWidth = isViewingCode ? 500.0 : 440.0;
+          sidebarWidth = defaultSidebarWidth.clamp(280.0, maxInspectorWidth);
         }
 
         final canvasWidth = selectedNode != null
-            ? (_isDiagramCollapsed ? 0.0 : (constraints.maxWidth - sidebarWidth).clamp(0.0, constraints.maxWidth))
-            : constraints.maxWidth;
+            ? (_isDiagramCollapsed
+                ? 0.0
+                : (constraints.maxWidth -
+                        sidebarWidth -
+                        (_showLivePreview ? previewWidth : 0.0))
+                    .clamp(0.0, constraints.maxWidth))
+            : (constraints.maxWidth - (_showLivePreview ? previewWidth : 0.0))
+                .clamp(0.0, constraints.maxWidth);
         final isNarrowCanvas = canvasWidth < 480;
-        final safeCanvasWidth = canvasWidth.isFinite && canvasWidth > 0 ? canvasWidth : 1200.0;
-        final safeCanvasHeight = constraints.maxHeight.isFinite && constraints.maxHeight > 0 ? constraints.maxHeight : 800.0;
+        final safeCanvasWidth =
+            canvasWidth.isFinite && canvasWidth > 0 ? canvasWidth : 1200.0;
+        final safeCanvasHeight = constraints.maxHeight.isFinite &&
+                constraints.maxHeight > 0
+            ? constraints.maxHeight
+            : 800.0;
         _lastCanvasViewportSize = Size(safeCanvasWidth, safeCanvasHeight);
 
         final showCanvas = !_isDiagramCollapsed || selectedNode == null;
 
         return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Flowchart Canvas Area
             if (showCanvas)
@@ -876,7 +921,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
             ),
 
             // Node Inspector Sidebar (When a node is selected)
-            if (selectedNode != null) ...[
+            if (selectedNode != null)
               _isDiagramCollapsed
                   ? Expanded(
                       child: Container(
@@ -896,7 +941,14 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       ),
                       child: _buildNodeInspector(selectedNode, notifier),
                     ),
-            ],
+
+            // Dedicated Right-Anchored Live Preview Pane (when _showLivePreview is true)
+            if (_showLivePreview)
+              _buildAnchoredLivePreviewPane(
+                studio: studio,
+                node: selectedNode ?? studio.nodes.firstOrNull,
+                width: previewWidth,
+              ),
           ],
         );
       },
@@ -1003,7 +1055,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           ),
           const SizedBox(height: 12),
 
-          // Segmented Switcher: [⚙️ Details] vs [💻 Code] vs [📱 Emulate]
+          // Segmented Switcher: [⚙️ Details] vs [💻 Code]
           _buildInspectorSwitcher(),
           const SizedBox(height: 14),
 
@@ -1021,19 +1073,8 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
       case 0:
         return _buildRouteDetailsContent(node, notifier);
       case 1:
-        return _buildDartCodeContent(node);
-      case 2:
       default:
-        return DeviceScreenEmulator(
-          sourceCode: _currentCode,
-          node: node,
-          project: widget.project,
-          onToggleExpand: () => DeviceScreenEmulator.showModal(
-            context,
-            node: node,
-            project: widget.project,
-          ),
-        );
+        return _buildDartCodeContent(node);
     }
   }
 
@@ -1061,14 +1102,6 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
               title: '💻 ${strings.viewCodeTab}',
               isSelected: _inspectorTabIndex == 1,
               onTap: () => setState(() => _inspectorTabIndex = 1),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: _buildSegmentButton(
-              title: '📱 ${strings.emulateScreenTab}',
-              isSelected: _inspectorTabIndex == 2,
-              onTap: () => setState(() => _inspectorTabIndex = 2),
             ),
           ),
         ],
@@ -1245,7 +1278,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   }
 
   Widget _buildDartCodeContent(RouteNode node) {
-    final codeViewerWithModal = Column(
+    return Column(
       children: [
         Expanded(
           child: EmbeddedCodeViewer(
@@ -1287,63 +1320,149 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
         ),
       ],
     );
+  }
 
-    if (!_showLivePreview) {
-      return codeViewerWithModal;
-    }
+  Widget _buildAnchoredLivePreviewPane({
+    required StudioState studio,
+    required RouteNode? node,
+    double width = 420.0,
+  }) {
+    final activeNode = node ?? studio.nodes.firstOrNull;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final emulatorWidget = Container(
-          decoration: BoxDecoration(
-            color: AppColors.background,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.border),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: DeviceScreenEmulator(
-            sourceCode: _currentCode,
-            node: node,
-            project: widget.project,
-            onToggleExpand: () => DeviceScreenEmulator.showModal(
-              context,
-              node: node,
-              project: widget.project,
-            ),
-          ),
-        );
-
-        if (constraints.maxWidth < 580) {
-          return Column(
-            children: [
-              Expanded(
-                flex: 55,
-                child: codeViewerWithModal,
+    return Container(
+      key: const ValueKey('anchored_live_preview_pane'),
+      width: width,
+      decoration: const BoxDecoration(
+        color: AppColors.backgroundSecondary,
+        border: Border(
+          left: BorderSide(color: AppColors.borderSubtle),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Elegant Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              border: Border(
+                bottom: BorderSide(color: AppColors.borderSubtle),
               ),
-              const SizedBox(height: 8),
-              Expanded(
-                flex: 45,
-                child: emulatorWidget,
-              ),
-            ],
-          );
-        }
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(
+                    Icons.smartphone_rounded,
+                    color: AppColors.secondary,
+                    size: 15,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Flexible(
+                        child: Text(
+                          'Live Screen Preview',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      if (activeNode != null) ...[
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceCard,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: AppColors.borderSubtle),
+                            ),
+                            child: Text(
+                              activeNode.path,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                color: AppColors.secondary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                if (activeNode != null)
+                  IconButton(
+                    tooltip: 'Expand Preview Modal',
+                    icon: const Icon(Icons.open_in_full_rounded, size: 14),
+                    color: AppColors.textMuted,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    onPressed: () => DeviceScreenEmulator.showModal(
+                      context,
+                      node: activeNode,
+                      project: widget.project,
+                      sourceCode: _currentCode,
+                    ),
+                  ),
+                IconButton(
+                  key: const ValueKey('close_live_preview_pane_button'),
+                  tooltip: 'Hide Preview',
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  color: AppColors.textMuted,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  onPressed: () {
+                    setState(() {
+                      _showLivePreview = false;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
 
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 55,
-              child: codeViewerWithModal,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              flex: 45,
-              child: emulatorWidget,
-            ),
-          ],
-        );
-      },
+          // Body: DeviceScreenEmulator filling 100% of remaining vertical height
+          Expanded(
+            child: activeNode != null
+                ? DeviceScreenEmulator(
+                    sourceCode: _currentCode,
+                    node: activeNode,
+                    project: widget.project,
+                    onToggleExpand: () => DeviceScreenEmulator.showModal(
+                      context,
+                      node: activeNode,
+                      project: widget.project,
+                      sourceCode: _currentCode,
+                    ),
+                  )
+                : const Center(
+                    child: Text(
+                      'No route selected',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
