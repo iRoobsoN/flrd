@@ -404,7 +404,6 @@ dependencies:
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsNothing);
 
       // Switch to tab 2 (Emulate)
       await tester.tap(find.text('📱 Emulate'));

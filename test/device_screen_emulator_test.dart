@@ -536,7 +536,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsNothing);
 
       // 4. Switch to Tab 2: Emulate
       await tester.tap(find.text('📱 Emulate'));
@@ -545,6 +544,11 @@ void main() {
 
       expect(find.byType(DeviceScreenEmulator), findsOneWidget);
       expect(find.byType(EmbeddedCodeViewer), findsNothing);
+
+      // In Code Live Sync mode, renders from code; toggle to Archetype Mock renders mock
+      await tester.tap(find.text('🎨 Archetype Mock'));
+      await tester.pumpAndSettle();
+
       // Dashboard archetype inside emulator
       expect(find.text('Welcome back, Alex 👋'), findsOneWidget);
 
@@ -682,8 +686,8 @@ void main() {
       sidebarBox = tester.renderObject(sidebarFinder);
       expect(sidebarBox.size.width, closeTo(480.0, 1.0));
 
-      // Switch to Code Tab (Tab 1)
-      await tester.tap(find.text('💻 Code'));
+      // Switch back to Details Tab (Tab 0)
+      await tester.tap(find.text('⚙️ Details'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 

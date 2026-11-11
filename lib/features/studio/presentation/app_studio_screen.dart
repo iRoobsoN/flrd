@@ -67,6 +67,20 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
       TransformationController();
   int _inspectorTabIndex = 0; // 0: Route Details, 1: View Dart Code, 2: Device Screen Emulator
   bool _isDraggingNode = false;
+  bool _showLivePreview = true;
+  bool _isDiagramCollapsed = false;
+  String? _currentCode;
+
+  void _onCodeViewerChanged(String code) {
+    if (_currentCode == code) return;
+    _currentCode = code;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
 
   void _onNodeDragStart() {
     if (!mounted) return;
@@ -393,6 +407,110 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                           ),
                         ),
                         const SizedBox(width: 8),
+
+                        // Toggle Diagram Collapse Button (Full width expansion for Code + Phone)
+                        OutlinedButton.icon(
+                          key: const ValueKey('toggle_diagram_collapse_button'),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(
+                              color: _isDiagramCollapsed
+                                  ? AppColors.primary
+                                  : AppColors.border,
+                            ),
+                            backgroundColor: _isDiagramCollapsed
+                                ? AppColors.primary.withOpacity(0.12)
+                                : AppColors.surface,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _isDiagramCollapsed = !_isDiagramCollapsed;
+                              if (_isDiagramCollapsed &&
+                                  studio.selectedNodeId == null &&
+                                  studio.nodes.isNotEmpty) {
+                                studioNotifier.selectNode(studio.nodes.first.id);
+                                _inspectorTabIndex = 1;
+                              }
+                            });
+                          },
+                          icon: Icon(
+                            _isDiagramCollapsed
+                                ? Icons.arrow_right_rounded
+                                : Icons.arrow_left_rounded,
+                            size: 14,
+                            color: _isDiagramCollapsed
+                                ? AppColors.primary
+                                : AppColors.textSecondary,
+                          ),
+                          label: Text(
+                            _isDiagramCollapsed
+                                ? '▶ Show Diagram'
+                                : '◀ Collapse Diagram',
+                            style: TextStyle(
+                              color: _isDiagramCollapsed
+                                  ? AppColors.primary
+                                  : AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+
+                        // Toggle Live Preview Button (1-click side-by-side emulator toggle)
+                        OutlinedButton.icon(
+                          key: const ValueKey('toggle_live_preview_button'),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(
+                              color: _showLivePreview
+                                  ? AppColors.secondary
+                                  : AppColors.border,
+                            ),
+                            backgroundColor: _showLivePreview
+                                ? AppColors.secondary.withOpacity(0.12)
+                                : AppColors.surface,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _showLivePreview = !_showLivePreview;
+                            });
+                          },
+                          icon: Icon(
+                            _showLivePreview
+                                ? Icons.smartphone_rounded
+                                : Icons.smartphone_outlined,
+                            size: 14,
+                            color: _showLivePreview
+                                ? AppColors.secondary
+                                : AppColors.textSecondary,
+                          ),
+                          label: Text(
+                            _showLivePreview
+                                ? 'Hide Preview'
+                                : '📱 Live Preview',
+                            style: TextStyle(
+                              color: _showLivePreview
+                                  ? AppColors.secondary
+                                  : AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: AppColors.border),
@@ -550,26 +668,52 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final isEmulate = _inspectorTabIndex == 2;
-        final defaultWidth = isEmulate ? 480.0 : 440.0;
-        final isNarrowScreen = constraints.maxWidth < (defaultWidth + 360.0);
-        final sidebarWidth = isNarrowScreen
-            ? (constraints.maxWidth < 600
-                ? (constraints.maxWidth * 0.55).clamp(280.0, constraints.maxWidth - 120.0)
-                : (constraints.maxWidth * (isEmulate ? 0.55 : 0.5)))
-            : defaultWidth;
+        final isViewingCode = _inspectorTabIndex == 1;
+
+        final double sidebarWidth;
+        if (selectedNode == null) {
+          sidebarWidth = 0.0;
+        } else if (_isDiagramCollapsed) {
+          sidebarWidth = constraints.maxWidth;
+        } else if (isViewingCode) {
+          if (_showLivePreview) {
+            // Generous space (68-75% width) for side-by-side Code and Phone
+            sidebarWidth = (constraints.maxWidth * 0.72)
+                .clamp(520.0, (constraints.maxWidth - 60.0).clamp(300.0, constraints.maxWidth));
+          } else {
+            sidebarWidth = (constraints.maxWidth * 0.55)
+                .clamp(440.0, (constraints.maxWidth - 60.0).clamp(300.0, constraints.maxWidth));
+          }
+        } else if (isEmulate) {
+          final defaultWidth = 480.0;
+          final isNarrow = constraints.maxWidth < (defaultWidth + 360.0);
+          sidebarWidth = isNarrow
+              ? (constraints.maxWidth * 0.55).clamp(280.0, constraints.maxWidth - 120.0)
+              : defaultWidth;
+        } else {
+          final defaultWidth = 440.0;
+          final isNarrow = constraints.maxWidth < (defaultWidth + 360.0);
+          sidebarWidth = isNarrow
+              ? (constraints.maxWidth * 0.5).clamp(280.0, constraints.maxWidth - 120.0)
+              : defaultWidth;
+        }
+
         final canvasWidth = selectedNode != null
-            ? constraints.maxWidth - sidebarWidth
+            ? (_isDiagramCollapsed ? 0.0 : (constraints.maxWidth - sidebarWidth).clamp(0.0, constraints.maxWidth))
             : constraints.maxWidth;
         final isNarrowCanvas = canvasWidth < 480;
         final safeCanvasWidth = canvasWidth.isFinite && canvasWidth > 0 ? canvasWidth : 1200.0;
         final safeCanvasHeight = constraints.maxHeight.isFinite && constraints.maxHeight > 0 ? constraints.maxHeight : 800.0;
         _lastCanvasViewportSize = Size(safeCanvasWidth, safeCanvasHeight);
 
+        final showCanvas = !_isDiagramCollapsed || selectedNode == null;
+
         return Row(
           children: [
             // Flowchart Canvas Area
-            Expanded(
-              child: Stack(
+            if (showCanvas)
+              Expanded(
+                child: Stack(
                 children: [
                   // Zoomable & Pannable Canvas
                   InteractiveViewer(
@@ -664,6 +808,29 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 1,
+                            height: 20,
+                            color: AppColors.border,
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            key: const ValueKey('canvas_collapse_diagram_button'),
+                            tooltip: 'Collapse Diagram',
+                            icon: const Icon(Icons.arrow_left_rounded, size: 16),
+                            color: AppColors.textPrimary,
+                            onPressed: () {
+                              setState(() {
+                                _isDiagramCollapsed = true;
+                                if (studio.selectedNodeId == null &&
+                                    studio.nodes.isNotEmpty) {
+                                  notifier.selectNode(studio.nodes.first.id);
+                                  _inspectorTabIndex = 1;
+                                }
+                              });
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -710,16 +877,25 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
 
             // Node Inspector Sidebar (When a node is selected)
             if (selectedNode != null) ...[
-              Container(
-                width: sidebarWidth,
-                decoration: const BoxDecoration(
-                  color: AppColors.backgroundSecondary,
-                  border: Border(
-                    left: BorderSide(color: AppColors.borderSubtle),
-                  ),
-                ),
-                child: _buildNodeInspector(selectedNode, notifier),
-              ),
+              _isDiagramCollapsed
+                  ? Expanded(
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: AppColors.backgroundSecondary,
+                        ),
+                        child: _buildNodeInspector(selectedNode, notifier),
+                      ),
+                    )
+                  : Container(
+                      width: sidebarWidth,
+                      decoration: const BoxDecoration(
+                        color: AppColors.backgroundSecondary,
+                        border: Border(
+                          left: BorderSide(color: AppColors.borderSubtle),
+                        ),
+                      ),
+                      child: _buildNodeInspector(selectedNode, notifier),
+                    ),
             ],
           ],
         );
@@ -762,6 +938,62 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                   ),
                 ),
               ),
+              if (_inspectorTabIndex == 1) ...[
+                OutlinedButton.icon(
+                  key: const ValueKey('inspector_toggle_preview_button'),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: _showLivePreview ? AppColors.secondary : AppColors.border,
+                    ),
+                    backgroundColor: _showLivePreview
+                        ? AppColors.secondary.withOpacity(0.12)
+                        : AppColors.surface,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  onPressed: () => setState(() => _showLivePreview = !_showLivePreview),
+                  icon: Icon(
+                    _showLivePreview ? Icons.smartphone_rounded : Icons.smartphone_outlined,
+                    size: 13,
+                    color: _showLivePreview ? AppColors.secondary : AppColors.textSecondary,
+                  ),
+                  label: Text(
+                    _showLivePreview ? 'Hide Preview' : '📱 Live Preview',
+                    style: TextStyle(
+                      color: _showLivePreview ? AppColors.secondary : AppColors.textPrimary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              if (_isDiagramCollapsed) ...[
+                OutlinedButton.icon(
+                  key: const ValueKey('inspector_show_diagram_button'),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.primary),
+                    backgroundColor: AppColors.primary.withOpacity(0.12),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  onPressed: () => setState(() => _isDiagramCollapsed = false),
+                  icon: const Icon(Icons.arrow_right_rounded, size: 14, color: AppColors.primary),
+                  label: const Text(
+                    '▶ Show Diagram',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               IconButton(
                 icon: const Icon(Icons.close_rounded, size: 16),
                 color: AppColors.textMuted,
@@ -793,6 +1025,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
       case 2:
       default:
         return DeviceScreenEmulator(
+          sourceCode: _currentCode,
           node: node,
           project: widget.project,
           onToggleExpand: () => DeviceScreenEmulator.showModal(
@@ -1012,7 +1245,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   }
 
   Widget _buildDartCodeContent(RouteNode node) {
-    return Column(
+    final codeViewerWithModal = Column(
       children: [
         Expanded(
           child: EmbeddedCodeViewer(
@@ -1020,12 +1253,14 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
             node: node,
             isExpanded: false,
             onToggleExpand: () => _showFullscreenCodeModal(context, node),
+            onCodeChanged: _onCodeViewerChanged,
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
+            key: const ValueKey('open_fullscreen_modal_button'),
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: AppColors.border),
               backgroundColor: AppColors.surface,
@@ -1051,6 +1286,64 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           ),
         ),
       ],
+    );
+
+    if (!_showLivePreview) {
+      return codeViewerWithModal;
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final emulatorWidget = Container(
+          decoration: BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: DeviceScreenEmulator(
+            sourceCode: _currentCode,
+            node: node,
+            project: widget.project,
+            onToggleExpand: () => DeviceScreenEmulator.showModal(
+              context,
+              node: node,
+              project: widget.project,
+            ),
+          ),
+        );
+
+        if (constraints.maxWidth < 580) {
+          return Column(
+            children: [
+              Expanded(
+                flex: 55,
+                child: codeViewerWithModal,
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                flex: 45,
+                child: emulatorWidget,
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              flex: 55,
+              child: codeViewerWithModal,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 45,
+              child: emulatorWidget,
+            ),
+          ],
+        );
+      },
     );
   }
 

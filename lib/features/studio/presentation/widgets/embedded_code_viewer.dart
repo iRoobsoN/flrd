@@ -110,6 +110,7 @@ class EmbeddedCodeViewer extends ConsumerStatefulWidget {
   final bool isExpanded;
   final VoidCallback? onToggleExpand;
   final Future<void> Function(String code)? onSave;
+  final ValueChanged<String>? onCodeChanged;
 
   const EmbeddedCodeViewer({
     super.key,
@@ -118,6 +119,7 @@ class EmbeddedCodeViewer extends ConsumerStatefulWidget {
     this.isExpanded = false,
     this.onToggleExpand,
     this.onSave,
+    this.onCodeChanged,
   });
 
   /// Writes code back to file on disk using File.writeAsString.
@@ -142,6 +144,7 @@ class EmbeddedCodeViewer extends ConsumerStatefulWidget {
     BuildContext context, {
     required String projectPath,
     required RouteNode node,
+    ValueChanged<String>? onCodeChanged,
   }) {
     return showDialog(
       context: context,
@@ -164,6 +167,7 @@ class EmbeddedCodeViewer extends ConsumerStatefulWidget {
                 node: node,
                 isExpanded: true,
                 onToggleExpand: () => Navigator.of(context).pop(),
+                onCodeChanged: onCodeChanged,
               ),
             ),
           ),
@@ -322,6 +326,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
       setState(() => _isDirty = true);
     }
     _updateLineStats();
+    widget.onCodeChanged?.call(_codeController.text);
   }
 
   void _updateLineStats() {
@@ -370,6 +375,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
     _isLoading = false;
     _isDirty = false;
     _updateLineStats();
+    widget.onCodeChanged?.call(_codeController.text);
     if (mounted) {
       setState(() {});
     }
@@ -684,12 +690,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
                   children: [
                     Expanded(child: pathTag),
                     const SizedBox(width: 8),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: actionButtons,
-                      ),
-                    ),
+                    actionButtons,
                   ],
                 ),
         );
