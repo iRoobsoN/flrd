@@ -409,7 +409,7 @@ class TemplateDetailsModal extends ConsumerWidget {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    'Checkout Seguro do Lemon Squeezy simulado: \$${t.priceUsd.toStringAsFixed(0)} USD (75% ao criador ${t.author} / 25% FLRD Platform Fee).',
+                    'Checkout Seguro Stripe simulado: \$${t.priceUsd.toStringAsFixed(0)} USD (75% ao criador ${t.author} / 25% FLRD Platform Fee).',
                   ),
                   backgroundColor: AppColors.surfaceSelected,
                   duration: const Duration(seconds: 4),

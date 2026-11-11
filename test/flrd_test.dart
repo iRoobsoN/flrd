@@ -5,6 +5,7 @@ import 'package:flrd/features/wizard/models/project_config.dart';
 import 'package:flrd/features/generator/injectors/android_manifest_injector.dart';
 import 'package:flrd/features/generator/injectors/ios_plist_injector.dart';
 import 'package:flrd/core/localization/app_strings.dart';
+import 'package:flrd/core/localization/language_provider.dart';
 import 'package:flrd/features/projects/providers/projects_provider.dart';
 import 'package:flrd/features/studio/providers/studio_provider.dart';
 import 'package:flrd/features/marketplace/providers/marketplace_provider.dart';
@@ -99,7 +100,12 @@ void main() {
   });
 
   group('Localization Provider Tests', () {
-    test('Default language is pt and returns correct strings', () {
+    test('Default language notifier state is en (English US)', () {
+      final notifier = LanguageNotifier();
+      expect(notifier.state, AppLanguage.en);
+    });
+
+    test('Portuguese language returns correct strings', () {
       const stringsPt = AppStrings(AppLanguage.pt);
       expect(stringsPt.hubTitle, 'FLRD Studio');
       expect(stringsPt.newProjectTitle, 'Criar Novo Projeto');

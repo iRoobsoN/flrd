@@ -25,7 +25,7 @@ void main(List<String> arguments) async {
     }
 
     if (results['version'] == true) {
-      stdout.writeln('⚡ FLRD CLI v0.1.0 (Flutter Rapid Deployment)');
+      stdout.writeln('⚡ FLRD CLI v0.2.1 (Flutter Rapid Deployment)');
       exit(0);
     }
 

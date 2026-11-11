@@ -7,7 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../ai/providers/ai_settings_provider.dart';
 
 /// Modal dialog providing centralized settings for Gemini AI API keys,
-/// FLRD Pro subscription & billing via Lemon Squeezy, and open-source donation options.
+/// FLRD subscription & billing via Stripe, and open-source donation options.
 class SettingsAndBillingDialog extends ConsumerStatefulWidget {
   final int initialTabIndex;
 

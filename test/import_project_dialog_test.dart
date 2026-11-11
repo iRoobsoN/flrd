@@ -57,7 +57,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Find and scroll to the import button
-      final importButton = find.text('Importar Projeto');
+      final importButton = find.text('Import Project');
       await tester.scrollUntilVisible(
         importButton,
         300,

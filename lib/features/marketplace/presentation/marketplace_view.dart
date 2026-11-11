@@ -73,7 +73,7 @@ class MarketplaceView extends ConsumerWidget {
                     ),
                     SizedBox(height: 2),
                     Text(
-                      'Templates prontos para produção. Qualquer criador pode publicar, vender em dólares e receber 75% via Lemon Squeezy / Stripe!',
+                      'Templates prontos para produção. Qualquer criador pode publicar, vender em dólares e receber 75% via Stripe!',
                       style: TextStyle(
                         color: AppColors.textMuted,
                         fontSize: 12,

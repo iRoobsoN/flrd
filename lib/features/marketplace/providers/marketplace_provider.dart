@@ -126,7 +126,7 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                   'Autenticação completa com Supabase Auth (Email + Magic Link)',
                   'Suporte Multi-tenant com troca dinâmica de organização',
                   'Navegação adaptativa: Bottom Bar no mobile, Navigation Rail no Desktop',
-                  'Pronto para faturamento Stripe / Lemon Squeezy',
+                  'Pronto para faturamento Stripe',
                 ],
                 accentColor: AppColors.primary,
                 icon: Icons.rocket_launch_rounded,

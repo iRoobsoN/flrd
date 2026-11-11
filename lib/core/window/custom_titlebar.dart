@@ -92,7 +92,7 @@ class CustomTitleBar extends ConsumerWidget {
               border: Border.all(color: AppColors.border),
             ),
             child: const Text(
-              'v0.1.0',
+              'v0.2.1',
               style: TextStyle(
                 color: AppColors.textMuted,
                 fontSize: 10,
@@ -149,7 +149,7 @@ class CustomTitleBar extends ConsumerWidget {
           ),
           if (trailing != null) trailing!,
           IconButton(
-            tooltip: 'Configurações & Faturamento',
+            tooltip: strings.settingsAndBilling,
             icon: const Icon(
               Icons.settings_rounded,
               size: 16,

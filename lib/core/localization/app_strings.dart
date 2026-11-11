@@ -70,11 +70,11 @@ class AppStrings {
 
   String get marketplaceDesc => switch (language) {
     AppLanguage.pt =>
-      'Explore templates prontos da comunidade ou venda os seus em USD com split de 75% no Lemon Squeezy.',
+      'Explore templates prontos da comunidade ou venda os seus em USD com split de 75% via Stripe.',
     AppLanguage.en =>
-      'Explore community templates or sell yours in USD with 75% automated split via Lemon Squeezy.',
+      'Explore community templates or sell yours in USD with 75% automated split via Stripe.',
     AppLanguage.es =>
-      'Explore plantillas de la comunidad o venda las suyas en USD con división del 75% vía Lemon Squeezy.',
+      'Explore plantillas de la comunidad o venda las suyas en USD con división del 75% vía Stripe.',
   };
 
   String get docsTitle => switch (language) {
@@ -213,5 +213,11 @@ class AppStrings {
     AppLanguage.pt => 'Anti-Obsolescência',
     AppLanguage.en => 'Zero Obsolescence',
     AppLanguage.es => 'Anti-Obsolescencia',
+  };
+
+  String get settingsAndBilling => switch (language) {
+    AppLanguage.pt => 'Configurações & Faturamento',
+    AppLanguage.en => 'Settings & Billing',
+    AppLanguage.es => 'Configuración y Facturación',
   };
 }

@@ -273,7 +273,7 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                       ),
                       SizedBox(width: 6),
                       Text(
-                        'FLRD STUDIO v0.1.0 • OPEN-SOURCE ENGINE',
+                        'FLRD STUDIO v0.2.1 • OPEN-SOURCE ENGINE',
                         style: TextStyle(
                           color: AppColors.secondary,
                           fontSize: 10,
