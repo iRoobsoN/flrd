@@ -15,6 +15,7 @@ class RouteNode {
   final Offset position;
   final String filePath;
   final String? parentRouteId;
+  final bool isCollapsed;
 
   const RouteNode({
     required this.id,
@@ -28,6 +29,7 @@ class RouteNode {
     required this.position,
     required this.filePath,
     this.parentRouteId,
+    this.isCollapsed = false,
   });
 
   RouteNode copyWith({
@@ -42,6 +44,7 @@ class RouteNode {
     Offset? position,
     String? filePath,
     Object? parentRouteId = _nodeSentinel,
+    bool? isCollapsed,
   }) {
     return RouteNode(
       id: id ?? this.id,
@@ -57,6 +60,7 @@ class RouteNode {
       parentRouteId: identical(parentRouteId, _nodeSentinel)
           ? this.parentRouteId
           : parentRouteId as String?,
+      isCollapsed: isCollapsed ?? this.isCollapsed,
     );
   }
 }

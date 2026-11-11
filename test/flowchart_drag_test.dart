@@ -426,7 +426,7 @@ void main() {
       expect(updatedNode.position.dy, closeTo(initialPos.dy + 30, 0.5));
     });
 
-    testWidgets('Dragging node beyond canvas boundaries is clamped to min and max limits',
+    testWidgets('Dragging node on infinite canvas moves without clamp restrictions',
         (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
@@ -462,7 +462,7 @@ void main() {
       final cardFinder = find.widgetWithText(RouteNodeCard, initialNode.title);
       final center = tester.getCenter(cardFinder);
 
-      // Drag far beyond bottom-right limits first (from visible initial position)
+      // Drag beyond previous limits first (from visible initial position)
       final gestureBottomRight = await tester.startGesture(center);
       await gestureBottomRight.moveBy(const Offset(30, 30)); // exceed slop
       await tester.pump();
@@ -475,10 +475,10 @@ void main() {
           .read(studioProvider)
           .nodes
           .firstWhere((n) => n.id == initialNode.id);
-      expect(node.position.dx, 1530.0); // 1800 - 270
-      expect(node.position.dy, 780.0);  // 900 - 120
+      expect(node.position.dx, closeTo(initialNode.position.dx + 3000, 1.0));
+      expect(node.position.dy, closeTo(initialNode.position.dy + 3000, 1.0));
 
-      // Drag a second node (login node at 380, 80) beyond top-left limits
+      // Drag a second node (login node at 380, 80) into negative coordinate space
       final loginNode = container.read(studioProvider).nodes[1];
       final loginFinder = find.widgetWithText(RouteNodeCard, loginNode.title);
       final loginCenter = tester.getCenter(loginFinder);
@@ -495,8 +495,8 @@ void main() {
           .read(studioProvider)
           .nodes
           .firstWhere((n) => n.id == loginNode.id);
-      expect(updatedLogin.position.dx, 20.0);
-      expect(updatedLogin.position.dy, 20.0);
+      expect(updatedLogin.position.dx, closeTo(loginNode.position.dx - 3000, 1.0));
+      expect(updatedLogin.position.dy, closeTo(loginNode.position.dy - 3000, 1.0));
     });
 
     testWidgets('Drag motion is compensated when canvas zoom level changes',

@@ -86,17 +86,19 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     }
   }
 
+  Size _lastCanvasViewportSize = const Size(1200, 800);
+
   void _onNodeDragUpdate(String nodeId, Offset delta) {
     final scale = _transformationController.value
         .getMaxScaleOnAxis()
-        .clamp(0.2, 5.0);
+        .clamp(0.1, 5.0);
     final canvasDelta = delta / scale;
     final studio = ref.read(studioProvider);
     final nodeIndex = studio.nodes.indexWhere((n) => n.id == nodeId);
     if (nodeIndex == -1) return;
     final currentPos = studio.nodes[nodeIndex].position;
-    final newX = (currentPos.dx + canvasDelta.dx).clamp(20.0, 1800.0 - 270.0);
-    final newY = (currentPos.dy + canvasDelta.dy).clamp(20.0, 900.0 - 120.0);
+    final newX = currentPos.dx + canvasDelta.dx;
+    final newY = currentPos.dy + canvasDelta.dy;
     ref.read(studioProvider.notifier).updateNodePosition(nodeId, Offset(newX, newY));
   }
 
@@ -124,8 +126,53 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     super.dispose();
   }
 
-  void _resetZoom() {
-    _transformationController.value = Matrix4.identity();
+  void _fitView(List<RouteNode> nodes) {
+    if (nodes.isEmpty) {
+      _transformationController.value = Matrix4.identity();
+      return;
+    }
+
+    double minX = double.infinity;
+    double minY = double.infinity;
+    double maxX = double.negativeInfinity;
+    double maxY = double.negativeInfinity;
+
+    for (final node in nodes) {
+      final double cardH = node.isCollapsed ? 38.0 : 110.0;
+      const double cardW = 260.0;
+      if (node.position.dx < minX) minX = node.position.dx;
+      if (node.position.dy < minY) minY = node.position.dy;
+      if (node.position.dx + cardW > maxX) maxX = node.position.dx + cardW;
+      if (node.position.dy + cardH > maxY) maxY = node.position.dy + cardH;
+    }
+
+    final contentWidth = maxX - minX;
+    final contentHeight = maxY - minY;
+
+    if (contentWidth <= 0 || contentHeight <= 0) {
+      _transformationController.value = Matrix4.identity();
+      return;
+    }
+
+    const padding = 60.0;
+    final availableWidth = (_lastCanvasViewportSize.width - padding * 2).clamp(100.0, 10000.0);
+    final availableHeight = (_lastCanvasViewportSize.height - padding * 2).clamp(100.0, 10000.0);
+
+    final scaleX = availableWidth / contentWidth;
+    final scaleY = availableHeight / contentHeight;
+    final targetScale = (scaleX < scaleY ? scaleX : scaleY).clamp(0.1, 1.5);
+
+    final centerX = (minX + maxX) / 2;
+    final centerY = (minY + maxY) / 2;
+
+    final tx = (_lastCanvasViewportSize.width / 2) - (centerX * targetScale);
+    final ty = (_lastCanvasViewportSize.height / 2) - (centerY * targetScale);
+
+    final matrix = Matrix4.identity()
+      ..translate(tx, ty)
+      ..scale(targetScale, targetScale);
+
+    _transformationController.value = matrix;
   }
 
   void _zoomIn() {
@@ -272,11 +319,80 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                   const SizedBox(width: 12),
 
                   // Quick Action Buttons
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
+                  Flexible(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        OutlinedButton.icon(
+                          key: const ValueKey('collapse_all_button'),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.border),
+                            backgroundColor: AppColors.surface,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          onPressed: () {
+                            final allCollapsed = studio.nodes.isNotEmpty &&
+                                studio.nodes.every((n) => n.isCollapsed);
+                            studioNotifier.setAllNodesCollapsed(!allCollapsed);
+                          },
+                          icon: Icon(
+                            studio.nodes.isNotEmpty &&
+                                    studio.nodes.every((n) => n.isCollapsed)
+                                ? Icons.unfold_more_rounded
+                                : Icons.unfold_less_rounded,
+                            size: 14,
+                            color: AppColors.textSecondary,
+                          ),
+                          label: Text(
+                            studio.nodes.isNotEmpty &&
+                                    studio.nodes.every((n) => n.isCollapsed)
+                                ? 'Expand All'
+                                : 'Collapse All',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          key: const ValueKey('toolbar_fit_view_button'),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.border),
+                            backgroundColor: AppColors.surface,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          onPressed: () => _fitView(studio.nodes),
+                          icon: const Icon(
+                            Icons.fit_screen_rounded,
+                            size: 14,
+                            color: AppColors.textSecondary,
+                          ),
+                          label: const Text(
+                            'Fit View',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: AppColors.border),
@@ -360,9 +476,10 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
+          ),
 
             // Tab Navigation Bar
             Container(
@@ -444,6 +561,9 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
             ? constraints.maxWidth - sidebarWidth
             : constraints.maxWidth;
         final isNarrowCanvas = canvasWidth < 480;
+        final safeCanvasWidth = canvasWidth.isFinite && canvasWidth > 0 ? canvasWidth : 1200.0;
+        final safeCanvasHeight = constraints.maxHeight.isFinite && constraints.maxHeight > 0 ? constraints.maxHeight : 800.0;
+        _lastCanvasViewportSize = Size(safeCanvasWidth, safeCanvasHeight);
 
         return Row(
           children: [
@@ -455,13 +575,13 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                   InteractiveViewer(
                     transformationController: _transformationController,
                     panEnabled: !_isDraggingNode,
-                    minScale: 0.4,
-                    maxScale: 2.2,
-                    boundaryMargin: const EdgeInsets.all(800),
+                    minScale: 0.1,
+                    maxScale: 2.5,
+                    boundaryMargin: const EdgeInsets.all(5000),
                     constrained: false,
                     child: SizedBox(
-                      width: 1800,
-                      height: 900,
+                      width: 10000,
+                      height: 6000,
                       child: Stack(
                         children: [
                           // Canvas Paint Layer (Dot-Grid + Curved Arrow Connections)
@@ -483,6 +603,8 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                                 node: node,
                                 isSelected: node.id == studio.selectedNodeId,
                                 onTap: () => notifier.selectNode(node.id),
+                                onToggleCollapse: () =>
+                                    notifier.toggleNodeCollapse(node.id),
                                 onDragStart: _onNodeDragStart,
                                 onDragUpdate: (delta) =>
                                     _onNodeDragUpdate(node.id, delta),
@@ -521,10 +643,11 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                             onPressed: _zoomOut,
                           ),
                           IconButton(
-                            tooltip: 'Centralizar Visualização',
+                            key: const ValueKey('fit_view_button'),
+                            tooltip: 'Center/Fit View',
                             icon: const Icon(Icons.center_focus_strong_rounded, size: 16),
                             color: AppColors.textPrimary,
-                            onPressed: _resetZoom,
+                            onPressed: () => _fitView(studio.nodes),
                           ),
                           const SizedBox(width: 8),
                           Container(

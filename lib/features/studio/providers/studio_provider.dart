@@ -137,6 +137,7 @@ class StudioNotifier extends StateNotifier<StudioState> {
     required Offset position,
     required String filePath,
     String? parentRouteId,
+    bool isCollapsed = false,
   }) {
     final newNode = RouteNode(
       id: title.toLowerCase().replaceAll(' ', '_'),
@@ -150,11 +151,31 @@ class StudioNotifier extends StateNotifier<StudioState> {
       position: position,
       filePath: filePath,
       parentRouteId: parentRouteId,
+      isCollapsed: isCollapsed,
     );
 
     state = state.copyWith(
       nodes: [...state.nodes, newNode],
       selectedNodeId: newNode.id,
+    );
+  }
+
+  void toggleNodeCollapse(String id) {
+    state = state.copyWith(
+      nodes: state.nodes.map((node) {
+        if (node.id == id) {
+          return node.copyWith(isCollapsed: !node.isCollapsed);
+        }
+        return node;
+      }).toList(),
+    );
+  }
+
+  void setAllNodesCollapsed(bool collapsed) {
+    state = state.copyWith(
+      nodes: state.nodes.map((node) {
+        return node.copyWith(isCollapsed: collapsed);
+      }).toList(),
     );
   }
 

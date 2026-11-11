@@ -37,13 +37,16 @@ class RouteConnectorPainter extends CustomPainter {
       final parent = nodeMap[node.parentRouteId];
       if (parent == null) continue;
 
+      final parentHeight = parent.isCollapsed ? 38.0 : 110.0;
+      final nodeHeight = node.isCollapsed ? 38.0 : 110.0;
+
       final start = Offset(
         parent.position.dx + cardWidth,
-        parent.position.dy + (cardHeight / 2),
+        parent.position.dy + (parentHeight / 2),
       );
       final end = Offset(
         node.position.dx,
-        node.position.dy + (cardHeight / 2),
+        node.position.dy + (nodeHeight / 2),
       );
 
       final isHighlighted =
