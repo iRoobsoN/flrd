@@ -190,7 +190,7 @@ class _TemplateCardState extends State<TemplateCard> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '• ${t.screensCount} telas',
+                    '• ${t.screensCount} screens',
                     style: const TextStyle(
                       color: AppColors.textMuted,
                       fontSize: 11,
@@ -198,7 +198,7 @@ class _TemplateCardState extends State<TemplateCard> {
                   ),
                   const Spacer(),
                   Text(
-                    'Ver Detalhes →',
+                    'View Details →',
                     style: TextStyle(
                       color: t.accentColor,
                       fontSize: 11,

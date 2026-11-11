@@ -222,7 +222,7 @@ class _AiScreenGeneratorDialogState
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Contexto do Projeto: ${widget.project.preset.name.toUpperCase()} • Riverpod & Tokens',
+                        'Project Context: ${widget.project.preset.name.toUpperCase()} • Riverpod & Tokens',
                         style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 11,

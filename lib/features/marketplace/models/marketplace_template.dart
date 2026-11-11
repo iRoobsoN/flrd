@@ -57,5 +57,5 @@ class MarketplaceTemplate {
   });
 
   bool get isFree => priceUsd == 0.0;
-  String get formattedPrice => isFree ? 'GRÁTIS' : '\$${priceUsd.toStringAsFixed(0)} USD';
+  String get formattedPrice => isFree ? 'FREE' : '\$${priceUsd.toStringAsFixed(0)} USD';
 }

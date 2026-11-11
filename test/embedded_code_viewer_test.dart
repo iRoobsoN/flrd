@@ -123,8 +123,8 @@ void main() {
       expect(find.text('lib/features/dashboard/presentation/dashboard_screen.dart'), findsOneWidget);
       expect(find.byIcon(Icons.flutter_dash), findsOneWidget);
       expect(find.text('Template'), findsOneWidget);
-      expect(find.text('Salvar no Disco'), findsOneWidget);
-      expect(find.text('Copiar Código'), findsOneWidget);
+      expect(find.text('Save to Disk'), findsOneWidget);
+      expect(find.text('Copy Code'), findsOneWidget);
 
       // Line numbers gutter exists
       expect(find.text('1'), findsWidgets);
@@ -222,8 +222,8 @@ void main() {
 
       await pumpViewer(tester);
 
-      // Click "Salvar no Disco"
-      final saveButton = find.text('Salvar no Disco');
+      // Click "Save to Disk"
+      final saveButton = find.text('Save to Disk');
       expect(saveButton, findsOneWidget);
 
       await tester.tap(saveButton);
@@ -284,8 +284,8 @@ void main() {
 
       await pumpViewer(tester);
 
-      // Tap "Copiar Código"
-      final copyButton = find.text('Copiar Código');
+      // Tap "Copy Code"
+      final copyButton = find.text('Copy Code');
       expect(copyButton, findsOneWidget);
 
       await tester.tap(copyButton);
@@ -294,7 +294,7 @@ void main() {
 
       expect(clipboardText, isNotNull);
       expect(clipboardText, contains('class ProfileScreen extends StatelessWidget'));
-      expect(find.text('Código copiado para a área de transferência!'), findsOneWidget);
+      expect(find.text('Code copied to clipboard!'), findsOneWidget);
     });
 
     testWidgets('Expandir / Recolher button toggles and triggers onToggleExpand', (tester) async {
@@ -346,14 +346,14 @@ void main() {
 
       await pumpViewer(tester);
 
-      expect(find.text('Expandir'), findsOneWidget);
+      expect(find.text('Expand'), findsOneWidget);
       expect(find.byIcon(Icons.fullscreen_rounded), findsOneWidget);
 
-      await tester.tap(find.text('Expandir'));
+      await tester.tap(find.text('Expand'));
       await pumpViewer(tester);
 
       expect(toggleCalled, isTrue);
-      expect(find.text('Recolher'), findsOneWidget);
+      expect(find.text('Collapse'), findsOneWidget);
       expect(find.byIcon(Icons.fullscreen_exit_rounded), findsOneWidget);
     });
 
@@ -474,29 +474,29 @@ void main() {
       await tester.pumpAndSettle();
 
       // Switcher options exist
-      expect(find.text('⚙️ Detalhes da Rota'), findsOneWidget);
-      expect(find.text('💻 Ver Código Dart'), findsOneWidget);
+      expect(find.text('⚙️ Route Details'), findsOneWidget);
+      expect(find.text('💻 View Dart Code'), findsOneWidget);
 
       // Default: Route Details tab is active
-      expect(find.text('Caminho no GoRouter'), findsOneWidget);
-      expect(find.text('Arquivo Fonte'), findsOneWidget);
+      expect(find.text('GoRouter Route Path'), findsOneWidget);
+      expect(find.text('Source Code File'), findsOneWidget);
       expect(find.byType(EmbeddedCodeViewer), findsNothing);
 
-      // Switch to '💻 Ver Código Dart'
-      await tester.tap(find.text('💻 Ver Código Dart'));
+      // Switch to '💻 View Dart Code'
+      await tester.tap(find.text('💻 View Dart Code'));
       await tester.pumpAndSettle();
 
       // EmbeddedCodeViewer and modal button are now visible
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.text('Abrir em Modal Completo'), findsOneWidget);
-      expect(find.text('Caminho no GoRouter'), findsNothing);
+      expect(find.text('Open in Fullscreen Modal'), findsOneWidget);
+      expect(find.text('GoRouter Route Path'), findsNothing);
 
-      // Switch back to '⚙️ Detalhes da Rota'
-      await tester.tap(find.text('⚙️ Detalhes da Rota'));
+      // Switch back to '⚙️ Route Details'
+      await tester.tap(find.text('⚙️ Route Details'));
       await tester.pumpAndSettle();
 
       expect(find.byType(EmbeddedCodeViewer), findsNothing);
-      expect(find.text('Caminho no GoRouter'), findsOneWidget);
+      expect(find.text('GoRouter Route Path'), findsOneWidget);
     });
 
     testWidgets('Opens 750px wide code dialog via fullscreen modal button and dismisses it',
@@ -520,11 +520,11 @@ void main() {
       await tester.pumpAndSettle();
 
       // Switch to Code Tab
-      await tester.tap(find.text('💻 Ver Código Dart'));
+      await tester.tap(find.text('💻 View Dart Code'));
       await tester.pumpAndSettle();
 
-      // Tap 'Abrir em Modal Completo'
-      final openModalButton = find.text('Abrir em Modal Completo');
+      // Tap 'Open in Fullscreen Modal'
+      final openModalButton = find.text('Open in Fullscreen Modal');
       expect(openModalButton, findsOneWidget);
       await tester.tap(openModalButton);
       await tester.pumpAndSettle();
@@ -541,11 +541,11 @@ void main() {
       );
       expect(dialogSizedBox.width, 750.0);
 
-      // Contains EmbeddedCodeViewer with Recolher button
-      expect(find.text('Recolher'), findsOneWidget);
+      // Contains EmbeddedCodeViewer with Collapse button
+      expect(find.text('Collapse'), findsOneWidget);
 
-      // Tap 'Recolher' to dismiss modal
-      await tester.tap(find.text('Recolher'));
+      // Tap 'Collapse' to dismiss modal
+      await tester.tap(find.text('Collapse'));
       await tester.pumpAndSettle();
 
       // Dialog dismissed
@@ -606,7 +606,7 @@ void main() {
       expect(find.text('lib/features/settings/presentation/settings_screen.dart'), findsOneWidget);
 
       // Dismiss dialog
-      await tester.tap(find.text('Recolher'));
+      await tester.tap(find.text('Collapse'));
       await tester.pumpAndSettle();
 
       expect(find.byType(Dialog), findsNothing);

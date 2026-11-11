@@ -111,8 +111,8 @@ class _SettingsAndBillingDialogState
             const SizedBox(width: 8),
             Text(
               key.isEmpty
-                  ? 'Chave de API removida. Usando gerador padrão sintético.'
-                  : 'Chave Gemini API salva com sucesso!',
+                  ? 'API key removed. Using standard synthetic generator.'
+                  : 'Gemini API Key saved successfully!',
             ),
           ],
         ),
@@ -196,7 +196,7 @@ class _SettingsAndBillingDialogState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Configurações & Faturamento',
+                  'Settings & Billing',
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 16,
@@ -205,7 +205,7 @@ class _SettingsAndBillingDialogState
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Gerencie chaves de IA, licença FLRD Pro e apoios ao projeto',
+                  'Manage AI keys, FLRD subscriptions, and project sponsorships',
                   style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 11,
@@ -215,7 +215,7 @@ class _SettingsAndBillingDialogState
             ),
           ),
           IconButton(
-            tooltip: 'Fechar',
+            tooltip: 'Close',
             icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textMuted),
             splashRadius: 18,
             onPressed: () => Navigator.of(context).pop(),
@@ -239,15 +239,15 @@ class _SettingsAndBillingDialogState
         tabs: const [
           Tab(
             icon: Icon(Icons.psychology_rounded, size: 16),
-            text: 'Inteligência Artificial (IA)',
+            text: 'Artificial Intelligence (AI)',
           ),
           Tab(
             icon: Icon(Icons.workspace_premium_rounded, size: 16),
-            text: 'Plano & Faturamento',
+            text: 'Plan & Billing',
           ),
           Tab(
             icon: Icon(Icons.favorite_rounded, size: 16),
-            text: 'Apoiar Projeto',
+            text: 'Support Project',
           ),
         ],
       ),
@@ -291,7 +291,7 @@ class _SettingsAndBillingDialogState
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Insira sua chave de API pessoal do Google Gemini para sintetizar telas Flutter de alta complexidade diretamente no seu computador sem intermediários.',
+                        'Enter your personal Google Gemini API key to synthesize complex Flutter screens directly on your machine with zero latency.',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 12,
@@ -331,8 +331,8 @@ class _SettingsAndBillingDialogState
                                 Flexible(
                                   child: Text(
                                     aiSettings.hasApiKey
-                                        ? 'Chave Configurada e Pronta'
-                                        : 'Nenhuma chave ativa (Modo sintético offline)',
+                                        ? 'API Key Configured & Ready'
+                                        : 'No active key (Offline fallback mode)',
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
@@ -358,7 +358,7 @@ class _SettingsAndBillingDialogState
 
           // Google Gemini API Key Input
           const Text(
-            'Chave de API do Gemini (Google AI Studio)',
+            'Gemini API Key (Google AI Studio)',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 12,
@@ -390,7 +390,7 @@ class _SettingsAndBillingDialogState
                       color: AppColors.textMuted,
                     ),
                     onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
-                    tooltip: _obscureApiKey ? 'Mostrar Chave' : 'Ocultar Chave',
+                    tooltip: _obscureApiKey ? 'Show Key' : 'Hide Key',
                   ),
                   if (_apiKeyController.text.isNotEmpty)
                     IconButton(
@@ -401,7 +401,7 @@ class _SettingsAndBillingDialogState
                         });
                         ref.read(aiSettingsProvider.notifier).clearApiKey();
                       },
-                      tooltip: 'Limpar',
+                      tooltip: 'Clear',
                     ),
                 ],
               ),
@@ -436,7 +436,7 @@ class _SettingsAndBillingDialogState
                 ),
                 onPressed: _saveApiKey,
                 icon: const Icon(Icons.save_rounded, size: 15),
-                label: const Text('Salvar Chave de API', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                label: const Text('Save API Key', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
               ),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
@@ -447,7 +447,7 @@ class _SettingsAndBillingDialogState
                 ),
                 onPressed: () => _openUrl(MonetizationConfig.googleAiStudioUrl),
                 icon: const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.secondary),
-                label: const Text('Obter Chave Gratuita no Google AI Studio', style: TextStyle(fontSize: 12)),
+                label: const Text('Get Free Key at Google AI Studio', style: TextStyle(fontSize: 12)),
               ),
             ],
           ),
@@ -468,7 +468,7 @@ class _SettingsAndBillingDialogState
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Sua chave de API é mantida de forma segura em memória/local na sua máquina e nunca é compartilhada com servidores de terceiros.',
+                    'Your API key is securely stored locally on your device and never shared with third-party servers.',
                     style: TextStyle(
                       color: AppColors.textMuted,
                       fontSize: 11,
@@ -530,12 +530,12 @@ class _SettingsAndBillingDialogState
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildBillingTogglePill(
-                    label: 'Anual (2 meses grátis 🎁)',
+                    label: 'Annual (2 months free 🎁)',
                     isSelected: _isAnnualBilling,
                     onTap: () => setState(() => _isAnnualBilling = true),
                   ),
                   _buildBillingTogglePill(
-                    label: 'Mensal',
+                    label: 'Monthly',
                     isSelected: !_isAnnualBilling,
                     onTap: () => setState(() => _isAnnualBilling = false),
                   ),
@@ -580,7 +580,7 @@ class _SettingsAndBillingDialogState
                             ),
                           ),
                           Text(
-                            'Para criadores & MVPs ágeis',
+                            'For indie hackers & agile creators',
                             style: TextStyle(color: AppColors.textMuted, fontSize: 11),
                           ),
                         ],
@@ -588,7 +588,7 @@ class _SettingsAndBillingDialogState
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      _isAnnualBilling ? r'$149 / ano' : r'$15 / mês',
+                      _isAnnualBilling ? r'$149 / year' : r'$15 / month',
                       style: const TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 16,
@@ -599,19 +599,19 @@ class _SettingsAndBillingDialogState
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Crie aplicações Flutter do zero com arquitetura limpa e IA pronta para uso, sem precisar de chaves da nuvem.',
+                  'Scaffold clean-architecture Flutter apps with turnkey AI generation ready to go.',
                   style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 14),
-                _buildBenefitItem('Scaffold ilimitado de apps (Riverpod SaaS, BLoC, SQLite)'),
+                _buildBenefitItem('Unlimited app scaffolding (Riverpod SaaS, BLoC, SQLite)'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('IA Gerenciada inclusa (100 telas/mês sem configurar chaves)'),
+                _buildBenefitItem('Managed AI included (100 screens/month with zero config)'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('App Studio com Flowchart interativo de rotas'),
+                _buildBenefitItem('App Studio with interactive route flowchart'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('Editor de código Dart com realce de sintaxe em tempo real'),
+                _buildBenefitItem('Dart code editor with real-time syntax highlighting'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('Injetor de permissões nativas para Android e iOS'),
+                _buildBenefitItem('Native permissions injector for Android & iOS'),
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
@@ -628,7 +628,7 @@ class _SettingsAndBillingDialogState
                   ),
                   icon: const Icon(Icons.check_circle_outline_rounded, size: 16, color: AppColors.primary),
                   label: Text(
-                    _isAnnualBilling ? 'Assinar Starter Anual (\$149/ano)' : 'Assinar Starter Mensal (\$15/mês)',
+                    _isAnnualBilling ? 'Subscribe Starter Annual (\$149/year)' : 'Subscribe Starter Monthly (\$15/month)',
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                   ),
                 ),
@@ -701,7 +701,7 @@ class _SettingsAndBillingDialogState
                                   border: Border.all(color: AppColors.secondary.withOpacity(0.4)),
                                 ),
                                 child: const Text(
-                                  'MAIS POPULAR',
+                                  'MOST POPULAR',
                                   style: TextStyle(
                                     color: AppColors.secondary,
                                     fontSize: 9,
@@ -712,7 +712,7 @@ class _SettingsAndBillingDialogState
                             ],
                           ),
                           const Text(
-                            'Para agências, sêniors e criadores',
+                            'For teams, agencies & pro creators',
                             style: TextStyle(color: AppColors.secondary, fontSize: 11),
                           ),
                         ],
@@ -720,7 +720,7 @@ class _SettingsAndBillingDialogState
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      _isAnnualBilling ? r'$299 / ano' : r'$35 / mês',
+                      _isAnnualBilling ? r'$299 / year' : r'$35 / month',
                       style: const TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 16,
@@ -731,21 +731,21 @@ class _SettingsAndBillingDialogState
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Potência total: faça engenharia reversa de apps existentes, use BYOK sem limites de IA e venda seus templates no Marketplace.',
+                  'Full firepower: reverse engineer existing apps, bring your own AI keys with zero limits, and sell templates in the Marketplace.',
                   style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 14),
-                _buildBenefitItem('Tudo incluso no Plano Starter'),
+                _buildBenefitItem('All Starter features included'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('📂 Engenharia Reversa: importe e mapeie qualquer app legado no Studio'),
+                _buildBenefitItem('📂 Reverse Engineering: import and map any legacy app in Studio'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('🚀 BYOK Ilimitado: use sua própria chave de IA sem limites de telas'),
+                _buildBenefitItem('🚀 Unlimited BYOK: use your own AI key with no screen limits'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('💎 Vendedor no Marketplace: publique templates e receba 75% dos lucros'),
+                _buildBenefitItem('💎 Marketplace Seller: publish templates and earn 75% creator payout'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('🧠 Geração de Telas em Lote (fluxos completos interligados)'),
+                _buildBenefitItem('🧠 Batch Screen Generation (interconnected multi-screen flows)'),
                 const SizedBox(height: 6),
-                _buildBenefitItem('⭐ Suporte VIP Prioritário com acesso antecipado'),
+                _buildBenefitItem('⭐ Priority VIP Core Support with early access'),
                 const SizedBox(height: 18),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
@@ -762,7 +762,7 @@ class _SettingsAndBillingDialogState
                   ),
                   icon: const Icon(Icons.workspace_premium_rounded, size: 18),
                   label: Text(
-                    _isAnnualBilling ? 'Assinar Studio Pro Anual (\$299/ano)' : 'Assinar Studio Pro Mensal (\$35/mês)',
+                    _isAnnualBilling ? 'Subscribe Studio Pro Annual (\$299/year)' : 'Subscribe Studio Pro Monthly (\$35/month)',
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                 ),
@@ -793,8 +793,8 @@ class _SettingsAndBillingDialogState
                     children: [
                       Text(
                         aiSettings.isProActive
-                            ? 'Status da Licença: FLRD Pro Ativo'
-                            : 'Status da Licença: Versão FLRD Community',
+                            ? 'License Status: FLRD Pro Active'
+                            : 'License Status: FLRD Community',
                         style: TextStyle(
                           color: aiSettings.isProActive ? AppColors.success : AppColors.textPrimary,
                           fontSize: 12,
@@ -803,8 +803,8 @@ class _SettingsAndBillingDialogState
                       ),
                       Text(
                         aiSettings.isProActive
-                            ? 'Engenharia Reversa, BYOK e Marketplace desbloqueados!'
-                            : 'Assine um plano para desbloquear todos os recursos avançados.',
+                            ? 'Reverse Engineering, BYOK, and Marketplace unlocked!'
+                            : 'Subscribe to a plan to unlock all advanced capabilities.',
                         style: const TextStyle(
                           color: AppColors.textMuted,
                           fontSize: 11,
@@ -820,8 +820,8 @@ class _SettingsAndBillingDialogState
                       SnackBar(
                         content: Text(
                           !aiSettings.isProActive
-                              ? 'Licença Pro ativada!'
-                              : 'Licença revertida para Community.',
+                              ? 'FLRD Pro license activated!'
+                              : 'Reverted to Community edition.',
                         ),
                         backgroundColor: AppColors.surfaceSelected,
                         duration: const Duration(seconds: 2),
@@ -829,7 +829,7 @@ class _SettingsAndBillingDialogState
                     );
                   },
                   child: Text(
-                    aiSettings.isProActive ? 'Desativar Pro' : 'Ativar Licença',
+                    aiSettings.isProActive ? 'Deactivate Pro' : 'Activate License',
                     style: const TextStyle(fontSize: 11, color: AppColors.secondary),
                   ),
                 ),
@@ -1073,7 +1073,7 @@ class _SettingsAndBillingDialogState
             ),
             onPressed: () => _openUrl('https://github.com/iRoobsoN/flrd'),
             icon: const Icon(Icons.star_rounded, size: 16, color: Colors.amber),
-            label: const Text('Deixar Estrela no GitHub', style: TextStyle(fontSize: 11)),
+            label: const Text('Star on GitHub', style: TextStyle(fontSize: 11)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -1085,7 +1085,7 @@ class _SettingsAndBillingDialogState
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Fechar', style: TextStyle(fontSize: 12)),
+            child: const Text('Close', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),

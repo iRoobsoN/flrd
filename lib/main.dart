@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
+import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
 import 'core/window/custom_titlebar.dart';
 import 'features/hub/presentation/hub_screen.dart';
@@ -57,23 +58,29 @@ class FLRDApp extends ConsumerWidget {
             return AppStudioScreen(project: sampleProject);
           }
         } else if (screenParam == 'marketplace') {
-          return const Scaffold(
-            body: Column(
-              children: [
-                CustomTitleBar(),
-                Expanded(child: MarketplaceView()),
-              ],
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            body: SafeArea(
+              child: Column(
+                children: [
+                  const CustomTitleBar(showBackButton: true),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 1100),
+                          child: const MarketplaceView(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         } else if (screenParam == 'wizard') {
-          return const Scaffold(
-            body: Column(
-              children: [
-                CustomTitleBar(showBackButton: true),
-                Expanded(child: WizardScreen()),
-              ],
-            ),
-          );
+          return const WizardScreen();
         } else if (screenParam == 'billing') {
           return const _BillingShowcaseWrapper();
         }

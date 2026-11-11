@@ -441,7 +441,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Erro ao salvar arquivo no disco: $e',
+                    'Error saving file to disk: $e',
                     style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 12,
@@ -481,7 +481,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
               ),
               SizedBox(width: 8),
               Text(
-                'Código copiado para a área de transferência!',
+                'Code copied to clipboard!',
                 style: TextStyle(
                   color: AppColors.textPrimary,
                   fontSize: 12,
@@ -619,32 +619,32 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
         final actionButtons = Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // "Salvar no Disco" Button
+            // "Save to Disk" Button
             _buildTopBarButton(
               icon: Icons.save_rounded,
-              label: 'Salvar no Disco',
+              label: 'Save to Disk',
               color: AppColors.primary,
               isLoading: _isSaving,
               onPressed: _saveToDisk,
             ),
             const SizedBox(width: 6),
 
-            // "Copiar Código" Button
+            // "Copy Code" Button
             _buildTopBarButton(
               icon: Icons.copy_rounded,
-              label: 'Copiar Código',
+              label: 'Copy Code',
               color: AppColors.textSecondary,
               onPressed: _copyCodeToClipboard,
             ),
 
-            // "Expandir" Button
+            // "Expand" Button
             if (widget.onToggleExpand != null) ...[
               const SizedBox(width: 6),
               _buildTopBarButton(
                 icon: widget.isExpanded
                     ? Icons.fullscreen_exit_rounded
                     : Icons.fullscreen_rounded,
-                label: widget.isExpanded ? 'Recolher' : 'Expandir',
+                label: widget.isExpanded ? 'Collapse' : 'Expand',
                 color: AppColors.secondary,
                 onPressed: widget.onToggleExpand!,
               ),

@@ -310,7 +310,7 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
                           SnackBar(
                             backgroundColor: AppColors.surfaceCard,
                             content: Text(
-                              'Abra o projeto no terminal: code $targetPath',
+                              'Open project in terminal: code $targetPath',
                               style: const TextStyle(color: AppColors.textPrimary),
                             ),
                           ),

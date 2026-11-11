@@ -13,15 +13,16 @@ class MarketplaceState {
 
   const MarketplaceState({
     required this.templates,
-    this.selectedCategory = 'Todos',
+    this.selectedCategory = 'All',
     this.searchQuery = '',
     this.inspectingTemplateId,
   });
 
   List<MarketplaceTemplate> get filteredTemplates {
     return templates.where((template) {
-      final matchesCategory = selectedCategory == 'Todos' ||
-          (selectedCategory == 'Gratuitos' && template.isFree) ||
+      final matchesCategory = selectedCategory == 'All' ||
+          selectedCategory == 'Todos' ||
+          ((selectedCategory == 'Free' || selectedCategory == 'Gratuitos') && template.isFree) ||
           (selectedCategory == 'Premium' && !template.isFree) ||
           template.category == selectedCategory;
 
@@ -69,7 +70,7 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 author: 'Lucas Silva (@lucas_flutter)',
                 category: 'Fintech',
                 description:
-                    'App bancário completo com saldo ocultável, transferências Pix com QR Code, carteira de criptomoedas com gráficos, autenticação biométrica e extrato detalhado.',
+                    'Complete banking application with hideable balance, QR code instant transfers, cryptocurrency portfolio with charts, biometric authentication, and detailed statements.',
                 priceUsd: 49.0,
                 rating: 4.9,
                 reviewsCount: 184,
@@ -77,13 +78,13 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 screensCount: 16,
                 preset: PresetType.saas,
                 navigationStyle: NavigationStyle.tabs,
-                tags: ['Pix', 'Crypto', 'Biometrics', 'Charts', 'Supabase'],
+                tags: ['Fintech', 'Crypto', 'Pix', 'Biometrics', 'Charts', 'Supabase'],
                 features: [
-                  '16 Telas completas prontas para produção',
-                  'Integração nativa com Biometria (Face ID / Fingerprint)',
-                  'Módulo Pix com leitor de QR Code e chave aleatória',
-                  'Carteira Crypto com cotações em tempo real',
-                  'Design System Obsidian Glass com tokens centralizados',
+                  '16 Complete production-ready screens',
+                  'Native biometrics integration (Face ID / Fingerprint)',
+                  'Instant transfers module with QR Code scanner',
+                  'Real-time crypto portfolio tracker with charts',
+                  'Obsidian Glass Dark Design System with centralized tokens',
                 ],
                 accentColor: Color(0xFF10B981),
                 icon: Icons.account_balance_wallet_rounded,
@@ -112,7 +113,7 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 author: 'Robson David (@iRoobsoN)',
                 category: 'SaaS',
                 description:
-                    'Starter oficial do FLRD para plataformas SaaS modernas: autenticação Supabase pronta, alternador de workspaces, tabela de planos/preços e dashboard analítico.',
+                    'Official FLRD starter kit for modern SaaS platforms: Supabase Auth ready, multi-tenant workspace switcher, pricing tiers, and real-time analytical dashboard.',
                 priceUsd: 0.0,
                 rating: 5.0,
                 reviewsCount: 310,
@@ -120,13 +121,13 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 screensCount: 12,
                 preset: PresetType.saas,
                 navigationStyle: NavigationStyle.adaptiveRail,
-                tags: ['SaaS', 'Supabase', 'Multi-tenant', 'Analytics', 'Oficial'],
+                tags: ['SaaS', 'Supabase', 'Multi-tenant', 'Analytics', 'Official'],
                 features: [
-                  '100% Gratuito & Open Source sob licença MIT',
-                  'Autenticação completa com Supabase Auth (Email + Magic Link)',
-                  'Suporte Multi-tenant com troca dinâmica de organização',
-                  'Navegação adaptativa: Bottom Bar no mobile, Navigation Rail no Desktop',
-                  'Pronto para faturamento Stripe',
+                  '100% Free & Open Source under MIT license',
+                  'Full Supabase Auth integration (Email + Magic Link)',
+                  'Multi-tenant support with dynamic organization switcher',
+                  'Adaptive navigation: Bottom bar on mobile, Navigation Rail on Desktop',
+                  'Stripe billing integration ready',
                 ],
                 accentColor: AppColors.primary,
                 icon: Icons.rocket_launch_rounded,
@@ -153,7 +154,7 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 author: 'Elena Rostova (@elena_codes)',
                 category: 'E-Commerce',
                 description:
-                    'Marketplace de delivery com catálogo de restaurantes, carrinho interativo, cálculo de frete, pagamento Pix/Cartão e acompanhamento de rota via GPS.',
+                    'On-demand food delivery marketplace with restaurant catalog, reactive cart, shipping calculation, Stripe/Card payments, and live GPS route tracking.',
                 priceUsd: 39.0,
                 rating: 4.8,
                 reviewsCount: 97,
@@ -163,11 +164,11 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 navigationStyle: NavigationStyle.tabs,
                 tags: ['Delivery', 'GPS', 'Cart', 'BLoC', 'Orders'],
                 features: [
-                  '18 Telas modernas com fluxo de compra completo',
-                  'Carrinho de compras reativo com persistência local',
-                  'Rastreamento em tempo real do entregador no mapa',
-                  'Arquitetura Clean-Lite com BLoC 8.x e injeção GetIt',
-                  'Suporte a cupons de desconto e taxa de entrega dinâmica',
+                  '18 Modern screens with full checkout lifecycle',
+                  'Reactive shopping cart with offline local persistence',
+                  'Live real-time courier tracking on map',
+                  'Clean-Lite architecture with BLoC 8.x & GetIt DI',
+                  'Discount coupons and dynamic delivery fee calculation',
                 ],
                 accentColor: Color(0xFFF59E0B),
                 icon: Icons.delivery_dining_rounded,
@@ -193,7 +194,7 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 author: 'Marco Rossi (@marco_dev)',
                 category: 'Offline',
                 description:
-                    'Cofre seguro e ultrarrápido que funciona 100% offline sem conexão à internet. Notas com criptografia AES-256, gerador de senhas e biometria.',
+                    'Ultra-fast secure vault that works 100% offline without internet connection. AES-256 encrypted notes, password generator, and biometric unlock.',
                 priceUsd: 0.0,
                 rating: 4.9,
                 reviewsCount: 125,
@@ -203,11 +204,11 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 navigationStyle: NavigationStyle.drawer,
                 tags: ['Offline', 'SQLite', 'Encryption', 'Security', 'Free'],
                 features: [
-                  '100% Gratuito da comunidade para uso pessoal ou comercial',
-                  'Banco de dados local ultrarrápido com SQLite / Drift',
-                  'Criptografia de ponta a ponta sem tráfego de rede',
-                  'Desbloqueio com impressão digital ou PIN mestre',
-                  'Exportação e importação de backup seguro em arquivo',
+                  '100% Free community template for personal and commercial use',
+                  'High-speed local database powered by SQLite / Drift',
+                  'End-to-end zero-knowledge client encryption with no telemetry',
+                  'Biometric fingerprint unlock or master PIN',
+                  'Secure backup export and import in encrypted files',
                 ],
                 accentColor: Color(0xFF38BDF8),
                 icon: Icons.shield_rounded,
@@ -231,9 +232,9 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 id: 'fitpulse-ai',
                 title: 'FitPulse - Workout & Diet AI Coach',
                 author: 'Juliana Mendes (@ju_flutter)',
-                category: 'Saúde & AI',
+                category: 'Health & AI',
                 description:
-                    'Aplicativo de treino físico e acompanhamento nutricional com coach integrado via Gemini AI, cronômetro de descanso e gráficos de performance.',
+                    'Workout routines and nutrition tracking app with integrated Gemini AI coach, interval resting timer, and interactive progress graphs.',
                 priceUsd: 29.0,
                 rating: 4.9,
                 reviewsCount: 78,
@@ -243,11 +244,11 @@ class MarketplaceNotifier extends StateNotifier<MarketplaceState> {
                 navigationStyle: NavigationStyle.tabs,
                 tags: ['Health', 'Fitness', 'Gemini AI', 'Charts', 'Timer'],
                 features: [
-                  '14 Telas com visual fitness escuro de alta energia',
-                  'Coach de treinos alimentado por Gemini AI integrada',
-                  'Cronômetro de descanso entre séries com avisos sonoros',
-                  'Gráficos de evolução corporal e contagem de macros',
-                  'Planilhas de treino customizáveis por grupo muscular',
+                  '14 High-energy dark fitness screens',
+                  'AI workout recommendations powered by Gemini API',
+                  'Rest interval timer between sets with audio alerts',
+                  'Body composition charts and macro nutrient tracking',
+                  'Customizable workout plan split by muscle groups',
                 ],
                 accentColor: Color(0xFFEC4899),
                 icon: Icons.fitness_center_rounded,

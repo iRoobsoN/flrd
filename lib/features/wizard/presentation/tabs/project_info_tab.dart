@@ -52,7 +52,7 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
             backgroundColor: AppColors.surfaceCard,
             duration: Duration(seconds: 4),
             content: Text(
-              'No navegador (Chrome), selecione um dos atalhos abaixo ou digite o caminho (ex: C:/Projects). A janela nativa de pastas funciona no app Desktop.',
+              'In web browser mode, use the shortcuts below or type a destination path (e.g. C:/Projects). Native directory picker is active in Desktop build.',
               style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
             ),
           ),

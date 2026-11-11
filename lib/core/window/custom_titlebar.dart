@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 import '../localization/language_provider.dart';
+import '../localization/language_selector_widget.dart';
 import '../theme/app_colors.dart';
 import '../../features/settings/presentation/settings_and_billing_dialog.dart';
 
@@ -147,7 +148,11 @@ class CustomTitleBar extends ConsumerWidget {
           Expanded(
             child: kIsWeb ? titleContent : DragToMoveArea(child: titleContent),
           ),
-          if (trailing != null) trailing!,
+          trailing ??
+              const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: LanguageSelectorWidget(compact: true),
+              ),
           IconButton(
             tooltip: strings.settingsAndBilling,
             icon: const Icon(

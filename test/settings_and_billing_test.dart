@@ -61,16 +61,16 @@ void main() {
       await tester.pumpAndSettle();
 
       // Check Header
-      expect(find.text('Configurações & Faturamento'), findsOneWidget);
+      expect(find.text('Settings & Billing'), findsOneWidget);
       expect(
-        find.text('Gerencie chaves de IA, licença FLRD Pro e apoios ao projeto'),
+        find.text('Manage AI keys, FLRD subscriptions, and project sponsorships'),
         findsOneWidget,
       );
 
       // Check Tabs exist
-      expect(find.text('Inteligência Artificial (IA)'), findsOneWidget);
-      expect(find.text('Plano & Faturamento'), findsOneWidget);
-      expect(find.text('Apoiar Projeto'), findsOneWidget);
+      expect(find.text('Artificial Intelligence (AI)'), findsOneWidget);
+      expect(find.text('Plan & Billing'), findsOneWidget);
+      expect(find.text('Support Project'), findsOneWidget);
     });
 
     testWidgets('Tab 1 (IA): Saves Gemini API key into aiSettingsProvider',
@@ -96,9 +96,9 @@ void main() {
 
       // Verify BYOK section elements
       expect(find.text('Bring Your Own Key (BYOK) — Google Gemini'), findsOneWidget);
-      expect(find.text('Chave de API do Gemini (Google AI Studio)'), findsOneWidget);
-      expect(find.text('Obter Chave Gratuita no Google AI Studio'), findsOneWidget);
-      expect(find.text('Salvar Chave de API'), findsOneWidget);
+      expect(find.text('Gemini API Key (Google AI Studio)'), findsOneWidget);
+      expect(find.text('Get Free Key at Google AI Studio'), findsOneWidget);
+      expect(find.text('Save API Key'), findsOneWidget);
 
       // Enter a new API Key
       final textFieldFinder = find.byType(TextField);
@@ -108,7 +108,7 @@ void main() {
       await tester.pump();
 
       // Tap Save
-      await tester.tap(find.text('Salvar Chave de API'));
+      await tester.tap(find.text('Save API Key'));
       await tester.pumpAndSettle();
 
       // Verify that provider received the key
@@ -116,7 +116,7 @@ void main() {
       expect(container.read(aiSettingsProvider).hasApiKey, isTrue);
 
       // Verify feedback SnackBar
-      expect(find.text('Chave Gemini API salva com sucesso!'), findsOneWidget);
+      expect(find.text('Gemini API Key saved successfully!'), findsOneWidget);
     });
 
     testWidgets('Tab 2 (Plano & Faturamento): Displays FLRD Pro card, pricing, and benefits',
@@ -143,41 +143,41 @@ void main() {
       // Verify Tier cards
       expect(find.text('FLRD Starter'), findsOneWidget);
       expect(find.text('FLRD Studio Pro'), findsOneWidget);
-      expect(find.text(r'$149 / ano'), findsOneWidget);
-      expect(find.text(r'$299 / ano'), findsOneWidget);
+      expect(find.text(r'$149 / year'), findsOneWidget);
+      expect(find.text(r'$299 / year'), findsOneWidget);
 
       // Verify benefits checklist
       expect(
-        find.text('Scaffold ilimitado de apps (Riverpod SaaS, BLoC, SQLite)'),
+        find.text('Unlimited app scaffolding (Riverpod SaaS, BLoC, SQLite)'),
         findsOneWidget,
       );
       expect(
-        find.text('📂 Engenharia Reversa: importe e mapeie qualquer app legado no Studio'),
+        find.text('📂 Reverse Engineering: import and map any legacy app in Studio'),
         findsOneWidget,
       );
       expect(
-        find.text('🚀 BYOK Ilimitado: use sua própria chave de IA sem limites de telas'),
+        find.text('🚀 Unlimited BYOK: use your own AI key with no screen limits'),
         findsOneWidget,
       );
 
       // Verify annual buttons
-      expect(find.text('Assinar Starter Anual (\$149/ano)'), findsOneWidget);
-      expect(find.text('Assinar Studio Pro Anual (\$299/ano)'), findsOneWidget);
+      expect(find.text('Subscribe Starter Annual (\$149/year)'), findsOneWidget);
+      expect(find.text('Subscribe Studio Pro Annual (\$299/year)'), findsOneWidget);
 
       // Toggle to Monthly billing
-      final monthlyToggle = find.text('Mensal');
+      final monthlyToggle = find.text('Monthly');
       expect(monthlyToggle, findsOneWidget);
       await tester.tap(monthlyToggle);
       await tester.pumpAndSettle();
 
-      expect(find.text(r'$15 / mês'), findsOneWidget);
-      expect(find.text(r'$35 / mês'), findsOneWidget);
-      expect(find.text('Assinar Starter Mensal (\$15/mês)'), findsOneWidget);
-      expect(find.text('Assinar Studio Pro Mensal (\$35/mês)'), findsOneWidget);
+      expect(find.text(r'$15 / month'), findsOneWidget);
+      expect(find.text(r'$35 / month'), findsOneWidget);
+      expect(find.text('Subscribe Starter Monthly (\$15/month)'), findsOneWidget);
+      expect(find.text('Subscribe Studio Pro Monthly (\$35/month)'), findsOneWidget);
 
       // Test Pro status toggle
       expect(container.read(aiSettingsProvider).isProActive, isFalse);
-      final activateFinder = find.text('Ativar Licença');
+      final activateFinder = find.text('Activate License');
       expect(activateFinder, findsOneWidget);
 
       await tester.ensureVisible(activateFinder);
@@ -185,7 +185,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(container.read(aiSettingsProvider).isProActive, isTrue);
-      expect(find.text('Status da Licença: FLRD Pro Ativo'), findsOneWidget);
+      expect(find.text('License Status: FLRD Pro Active'), findsOneWidget);
     });
 
     testWidgets('Tab 3 (Apoiar Projeto): Shows Pix key and Copy button',
@@ -256,10 +256,11 @@ void main() {
 
       // Verify dialog is opened
       expect(find.byType(SettingsAndBillingDialog), findsOneWidget);
-      expect(find.text('Configurações & Faturamento'), findsOneWidget);
+      expect(find.text('Settings & Billing'), findsOneWidget);
 
       // Close the dialog
-      await tester.tap(find.text('Fechar'));
+      expect(find.byTooltip('Close'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
 
       // Verify dialog is dismissed

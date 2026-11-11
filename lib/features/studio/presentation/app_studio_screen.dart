@@ -248,7 +248,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       color: AppColors.textSecondary,
                     ),
                     label: const Text(
-                      'Pasta',
+                      'Folder',
                       style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 11,
@@ -271,7 +271,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                     onPressed: _openVsCode,
                     icon: const Icon(Icons.code_rounded, size: 14),
                     label: const Text(
-                      'Abrir VS Code',
+                      'Open VS Code',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
@@ -301,7 +301,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       color: AppColors.secondary,
                     ),
                     label: const Text(
-                      'Publicar',
+                      'Publish',
                       style: TextStyle(
                         color: AppColors.secondary,
                         fontSize: 11,
@@ -334,15 +334,15 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                 tabs: const [
                   Tab(
                     icon: Icon(Icons.alt_route_rounded, size: 16),
-                    text: 'Fluxograma de Rotas & Telas',
+                    text: 'Routes Flowchart',
                   ),
                   Tab(
                     icon: Icon(Icons.security_rounded, size: 16),
-                    text: 'Injetor de Permissões Nativas',
+                    text: 'Native Permissions',
                   ),
                   Tab(
                     icon: Icon(Icons.layers_rounded, size: 16),
-                    text: 'Arquitetura & Pacotes',
+                    text: 'Architecture & Packages',
                   ),
                 ],
               ),
@@ -463,7 +463,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        '${studio.nodes.length} Rotas Mapeadas',
+                        '${studio.nodes.length} Routes Mapped',
                         style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 11,
@@ -499,7 +499,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       ),
                       icon: const Icon(Icons.auto_awesome_rounded, size: 15),
                       label: const Text(
-                        'Gerar Tela com IA',
+                        'Generate Screen with AI',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
@@ -601,7 +601,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
         children: [
           Expanded(
             child: _buildSegmentButton(
-              title: '⚙️ Detalhes da Rota',
+              title: '⚙️ Route Details',
               isSelected: _inspectorTabIndex == 0,
               onTap: () => setState(() => _inspectorTabIndex = 0),
             ),
@@ -609,7 +609,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           const SizedBox(width: 4),
           Expanded(
             child: _buildSegmentButton(
-              title: '💻 Ver Código Dart',
+              title: '💻 View Dart Code',
               isSelected: _inspectorTabIndex == 1,
               onTap: () => setState(() => _inspectorTabIndex = 1),
             ),
@@ -662,7 +662,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
       children: [
         // Route Path
         const Text(
-          'Caminho no GoRouter',
+          'GoRouter Route Path',
           style: TextStyle(
             color: AppColors.textMuted,
             fontSize: 10,
@@ -692,7 +692,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
 
         // File Path
         const Text(
-          'Arquivo Fonte',
+          'Source Code File',
           style: TextStyle(
             color: AppColors.textMuted,
             fontSize: 10,
@@ -720,7 +720,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
             ),
             const SizedBox(width: 6),
             Text(
-              node.isProtected ? 'Protegida por Auth Guard' : 'Rota Pública',
+              node.isProtected ? 'Protected by Auth Guard' : 'Public Route',
               style: TextStyle(
                 color: node.isProtected
                     ? AppColors.textPrimary
@@ -748,7 +748,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
             onPressed: _openVsCode,
             icon: const Icon(Icons.code_rounded, size: 14),
             label: const Text(
-              'Abrir Arquivo no VS Code',
+              'Open File in VS Code',
               style: TextStyle(color: AppColors.textPrimary, fontSize: 11),
             ),
           ),
@@ -763,7 +763,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
               ),
               onPressed: () => notifier.removeNode(node.id),
               icon: const Icon(Icons.delete_outline_rounded, size: 14),
-              label: const Text('Remover Rota do Grafo',
+              label: const Text('Remove Route from Graph',
                   style: TextStyle(fontSize: 11)),
             ),
           ),
@@ -801,7 +801,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
               color: AppColors.secondary,
             ),
             label: const Text(
-              'Abrir em Modal Completo',
+              'Open in Fullscreen Modal',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 11,

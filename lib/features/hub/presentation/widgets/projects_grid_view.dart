@@ -68,7 +68,7 @@ class ProjectsGridView extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Nenhum projeto registrado no momento',
+              'No registered projects yet',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 15,
@@ -77,7 +77,7 @@ class ProjectsGridView extends ConsumerWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Crie seu primeiro app ou escaneie um diretório com projetos Flutter.',
+              'Create your first app or scan a directory with Flutter projects.',
               style: TextStyle(color: AppColors.textMuted, fontSize: 13),
             ),
             const SizedBox(height: 20),
@@ -100,7 +100,7 @@ class ProjectsGridView extends ConsumerWidget {
               },
               icon: const Icon(Icons.add_rounded, size: 18),
               label: const Text(
-                'Criar Novo Projeto',
+                'Create New Project',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ),

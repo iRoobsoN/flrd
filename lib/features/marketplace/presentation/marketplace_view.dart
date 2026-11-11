@@ -9,13 +9,13 @@ class MarketplaceView extends ConsumerWidget {
   const MarketplaceView({super.key});
 
   static const List<String> _categories = [
-    'Todos',
+    'All',
     'Fintech',
     'SaaS',
     'E-Commerce',
     'Offline',
-    'Saúde & AI',
-    'Gratuitos',
+    'Health & AI',
+    'Free',
     'Premium',
   ];
 
@@ -64,7 +64,7 @@ class MarketplaceView extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Marketplace de Templates da Comunidade FLRD',
+                      'FLRD Community Template Marketplace',
                       style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 15,
@@ -73,7 +73,7 @@ class MarketplaceView extends ConsumerWidget {
                     ),
                     SizedBox(height: 2),
                     Text(
-                      'Templates prontos para produção. Qualquer criador pode publicar, vender em dólares e receber 75% via Stripe!',
+                      'Production-ready starter kits. Any creator can publish, sell in USD, and earn 75% via Stripe Connect!',
                       style: TextStyle(
                         color: AppColors.textMuted,
                         fontSize: 12,
@@ -93,7 +93,7 @@ class MarketplaceView extends ConsumerWidget {
                 ),
                 icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
                 label: const Text(
-                  'Publicar Template',
+                  'Publish Template',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -115,7 +115,7 @@ class MarketplaceView extends ConsumerWidget {
                     color: AppColors.textPrimary,
                   ),
                   decoration: InputDecoration(
-                    hintText: 'Buscar por nome, tag ou tecnologia (ex: Pix, Crypto, BLoC)...',
+                    hintText: 'Search by name, tag, or tech (e.g. Stripe, Crypto, BLoC)...',
                     hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 12),
                     prefixIcon: const Icon(Icons.search_rounded, size: 16, color: AppColors.textMuted),
                     filled: true,

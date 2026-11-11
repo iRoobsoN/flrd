@@ -16,14 +16,21 @@ import '../../wizard/presentation/wizard_screen.dart';
 import 'widgets/projects_grid_view.dart';
 
 class HubScreen extends ConsumerStatefulWidget {
-  const HubScreen({super.key});
+  final int initialSection;
+  const HubScreen({super.key, this.initialSection = 0});
 
   @override
   ConsumerState<HubScreen> createState() => _HubScreenState();
 }
 
 class _HubScreenState extends ConsumerState<HubScreen> {
-  int _activeSection = 0; // 0 = Meus Projetos, 1 = Marketplace
+  late int _activeSection;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeSection = widget.initialSection;
+  }
 
   Future<void> _openUrl(BuildContext context, String url) async {
     final uri = Uri.parse(url);
@@ -92,14 +99,14 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                             children: [
                               _buildSectionTabButton(
                                 index: 0,
-                                title: 'Meus Projetos Locais',
+                                title: strings.myProjectsTitle,
                                 count: '$projectsCount',
                                 icon: Icons.grid_view_rounded,
                               ),
                               const SizedBox(width: 4),
                               _buildSectionTabButton(
                                 index: 1,
-                                title: 'Marketplace de Templates',
+                                title: strings.marketplaceTitle,
                                 badge: 'USD \$ • $templatesCount kits',
                                 icon: Icons.storefront_rounded,
                               ),
@@ -612,7 +619,7 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text(
-                              'Varredura concluída: 3 projetos Flutter reconhecidos na máquina!',
+                              'Scan complete: 3 Flutter projects recognized on this machine!',
                             ),
                             backgroundColor: AppColors.surfaceSelected,
                             duration: Duration(seconds: 2),
