@@ -36,6 +36,7 @@ class _SettingsAndBillingDialogState
   late final TabController _tabController;
   late final TextEditingController _apiKeyController;
   bool _obscureApiKey = true;
+  bool _isAnnualBilling = true;
 
   @override
   void initState() {
@@ -483,19 +484,166 @@ class _SettingsAndBillingDialogState
     );
   }
 
+  Widget _buildBillingTogglePill({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary.withOpacity(0.25) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: isSelected ? Border.all(color: AppColors.primary) : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? AppColors.textPrimary : AppColors.textMuted,
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPlanAndBillingTab(BuildContext context, AiSettingsState aiSettings) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Obsidian Glass Card for "FLRD Pro"
+          // Billing Period Switcher (Annual vs Monthly)
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildBillingTogglePill(
+                    label: 'Anual (2 meses grátis 🎁)',
+                    isSelected: _isAnnualBilling,
+                    onTap: () => setState(() => _isAnnualBilling = true),
+                  ),
+                  _buildBillingTogglePill(
+                    label: 'Mensal',
+                    isSelected: !_isAnnualBilling,
+                    onTap: () => setState(() => _isAnnualBilling = false),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Tier 1: FLRD Starter
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: AppColors.surfaceCard,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.secondary.withOpacity(0.35)),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.bolt_rounded, color: AppColors.primary, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'FLRD Starter',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Para criadores & MVPs ágeis',
+                            style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _isAnnualBilling ? r'$149 / ano' : r'$15 / mês',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Crie aplicações Flutter do zero com arquitetura limpa e IA pronta para uso, sem precisar de chaves da nuvem.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                ),
+                const SizedBox(height: 14),
+                _buildBenefitItem('Scaffold ilimitado de apps (Riverpod SaaS, BLoC, SQLite)'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('IA Gerenciada inclusa (100 telas/mês sem configurar chaves)'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('App Studio com Flowchart interativo de rotas'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('Editor de código Dart com realce de sintaxe em tempo real'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('Injetor de permissões nativas para Android e iOS'),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.surfaceHover,
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.border),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => _openUrl(
+                    _isAnnualBilling
+                        ? MonetizationConfig.stripeStarterAnnualCheckoutUrl
+                        : MonetizationConfig.stripeStarterMonthlyCheckoutUrl,
+                  ),
+                  icon: const Icon(Icons.check_circle_outline_rounded, size: 16, color: AppColors.primary),
+                  label: Text(
+                    _isAnnualBilling ? 'Assinar Starter Anual (\$149/ano)' : 'Assinar Starter Mensal (\$15/mês)',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Tier 2: FLRD Studio Pro (Highlight Card)
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceCard,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.secondary.withOpacity(0.4), width: 1.5),
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -507,9 +655,9 @@ class _SettingsAndBillingDialogState
               ),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.secondary.withOpacity(0.05),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
+                  color: AppColors.secondary.withOpacity(0.06),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
@@ -517,135 +665,106 @@ class _SettingsAndBillingDialogState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.secondary.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(
-                            Icons.diamond_rounded,
-                            color: AppColors.secondary,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'FLRD Pro',
-                              style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                            Text(
-                              'Obsidian Enterprise Suite',
-                              style: TextStyle(
-                                color: AppColors.secondary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    // Price tag
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: AppColors.surface,
+                        color: AppColors.secondary.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border),
                       ),
-                      child: const Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                      child: const Icon(Icons.diamond_rounded, color: AppColors.secondary, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            r'$19 / mês',
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Row(
+                            children: [
+                              const Flexible(
+                                child: Text(
+                                  'FLRD Studio Pro',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.secondary.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: AppColors.secondary.withOpacity(0.4)),
+                                ),
+                                child: const Text(
+                                  'MAIS POPULAR',
+                                  style: TextStyle(
+                                    color: AppColors.secondary,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            r'ou $49 vitalício',
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 10,
-                            ),
+                          const Text(
+                            'Para agências, sêniors e criadores',
+                            style: TextStyle(color: AppColors.secondary, fontSize: 11),
                           ),
                         ],
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _isAnnualBilling ? r'$299 / ano' : r'$35 / mês',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 const Text(
-                  'Eleve sua produtividade a nível industrial com compilação remota instantânea, geração ilimitada de arquitetura com IA e canal de suporte exclusivo.',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
+                  'Potência total: faça engenharia reversa de apps existentes, use BYOK sem limites de IA e venda seus templates no Marketplace.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 ),
-                const SizedBox(height: 16),
-
-                // Benefits Checklist
-                _buildBenefitItem('Nuvem rápida para renderização e preview de fluxogramas'),
-                const SizedBox(height: 8),
-                _buildBenefitItem('Telas ilimitadas geradas por IA com Clean Architecture'),
-                const SizedBox(height: 8),
-                _buildBenefitItem('Suporte VIP com engenheiros core e acesso antecipado a novos presets'),
-                const SizedBox(height: 8),
-                _buildBenefitItem('Acesso ilimitado ao Marketplace de templates & componentes curados'),
-                const SizedBox(height: 20),
-
-                // CTA Button
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 10,
-                  children: [
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.secondary,
-                        foregroundColor: AppColors.background,
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        elevation: 2,
-                      ),
-                      onPressed: () => _openUrl(MonetizationConfig.stripeProMonthlyCheckoutUrl),
-                      icon: const Icon(Icons.bolt_rounded, size: 18),
-                      label: const Text(
-                        'Assinar Pro (\$19/mês)',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        elevation: 2,
-                      ),
-                      onPressed: () => _openUrl(MonetizationConfig.stripeProLifetimeCheckoutUrl),
-                      icon: const Icon(Icons.workspace_premium_rounded, size: 18),
-                      label: const Text(
-                        'Licença Vitalícia (\$49)',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 14),
+                _buildBenefitItem('Tudo incluso no Plano Starter'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('📂 Engenharia Reversa: importe e mapeie qualquer app legado no Studio'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('🚀 BYOK Ilimitado: use sua própria chave de IA sem limites de telas'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('💎 Vendedor no Marketplace: publique templates e receba 75% dos lucros'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('🧠 Geração de Telas em Lote (fluxos completos interligados)'),
+                const SizedBox(height: 6),
+                _buildBenefitItem('⭐ Suporte VIP Prioritário com acesso antecipado'),
+                const SizedBox(height: 18),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.secondary,
+                    foregroundColor: AppColors.background,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 2,
+                  ),
+                  onPressed: () => _openUrl(
+                    _isAnnualBilling
+                        ? MonetizationConfig.stripeProAnnualCheckoutUrl
+                        : MonetizationConfig.stripeProMonthlyCheckoutUrl,
+                  ),
+                  icon: const Icon(Icons.workspace_premium_rounded, size: 18),
+                  label: Text(
+                    _isAnnualBilling ? 'Assinar Studio Pro Anual (\$299/ano)' : 'Assinar Studio Pro Mensal (\$35/mês)',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
                 ),
               ],
             ),
@@ -684,8 +803,8 @@ class _SettingsAndBillingDialogState
                       ),
                       Text(
                         aiSettings.isProActive
-                            ? 'Todos os recursos avançados e geradores em nuvem estão desbloqueados.'
-                            : 'Insira sua chave Lemon Squeezy ou ative a licença para liberar recursos Pro.',
+                            ? 'Engenharia Reversa, BYOK e Marketplace desbloqueados!'
+                            : 'Assine um plano para desbloquear todos os recursos avançados.',
                         style: const TextStyle(
                           color: AppColors.textMuted,
                           fontSize: 11,

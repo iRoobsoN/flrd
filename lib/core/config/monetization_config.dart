@@ -2,13 +2,21 @@
 class MonetizationConfig {
   const MonetizationConfig._();
 
-  /// Stripe direct checkout URL for FLRD Pro monthly subscription ($19/mo).
-  static const String stripeProMonthlyCheckoutUrl =
-      'https://buy.stripe.com/test_fZufZh5tR58QgSf7nc0Jq00';
+  /// Stripe direct checkout URL for FLRD Starter monthly subscription ($15/mo).
+  static const String stripeStarterMonthlyCheckoutUrl =
+      'https://buy.stripe.com/test_5kQ14n7BZ0SAcBZbDs0Jq02';
 
-  /// Stripe direct checkout URL for FLRD Pro lifetime license ($49 one-time).
-  static const String stripeProLifetimeCheckoutUrl =
-      'https://buy.stripe.com/test_aFadR909x44MgSf36W0Jq01';
+  /// Stripe direct checkout URL for FLRD Starter annual subscription ($149/yr).
+  static const String stripeStarterAnnualCheckoutUrl =
+      'https://buy.stripe.com/test_14A3cvf4rgRy8lJ8rg0Jq03';
+
+  /// Stripe direct checkout URL for FLRD Studio Pro monthly subscription ($35/mo).
+  static const String stripeProMonthlyCheckoutUrl =
+      'https://buy.stripe.com/test_fZu5kDcWj7gY8lJ36W0Jq04';
+
+  /// Stripe direct checkout URL for FLRD Studio Pro annual subscription ($299/yr).
+  static const String stripeProAnnualCheckoutUrl =
+      'https://buy.stripe.com/test_7sYcN56xV6cU6dB5f40Jq05';
 
   /// Lemon Squeezy direct checkout URL for FLRD Pro license/subscription.
   static const String lemonSqueezyProCheckoutUrl =

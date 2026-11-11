@@ -140,28 +140,40 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Verify FLRD Pro Obsidian card content
-      expect(find.text('FLRD Pro'), findsOneWidget);
-      expect(find.text(r'$19 / mês'), findsOneWidget);
-      expect(find.text(r'ou $49 vitalício'), findsOneWidget);
+      // Verify Tier cards
+      expect(find.text('FLRD Starter'), findsOneWidget);
+      expect(find.text('FLRD Studio Pro'), findsOneWidget);
+      expect(find.text(r'$149 / ano'), findsOneWidget);
+      expect(find.text(r'$299 / ano'), findsOneWidget);
 
       // Verify benefits checklist
       expect(
-        find.text('Nuvem rápida para renderização e preview de fluxogramas'),
+        find.text('Scaffold ilimitado de apps (Riverpod SaaS, BLoC, SQLite)'),
         findsOneWidget,
       );
       expect(
-        find.text('Telas ilimitadas geradas por IA com Clean Architecture'),
+        find.text('📂 Engenharia Reversa: importe e mapeie qualquer app legado no Studio'),
         findsOneWidget,
       );
       expect(
-        find.text('Suporte VIP com engenheiros core e acesso antecipado a novos presets'),
+        find.text('🚀 BYOK Ilimitado: use sua própria chave de IA sem limites de telas'),
         findsOneWidget,
       );
 
-      // Verify Stripe checkout buttons
-      expect(find.text('Assinar Pro (\$19/mês)'), findsOneWidget);
-      expect(find.text('Licença Vitalícia (\$49)'), findsOneWidget);
+      // Verify annual buttons
+      expect(find.text('Assinar Starter Anual (\$149/ano)'), findsOneWidget);
+      expect(find.text('Assinar Studio Pro Anual (\$299/ano)'), findsOneWidget);
+
+      // Toggle to Monthly billing
+      final monthlyToggle = find.text('Mensal');
+      expect(monthlyToggle, findsOneWidget);
+      await tester.tap(monthlyToggle);
+      await tester.pumpAndSettle();
+
+      expect(find.text(r'$15 / mês'), findsOneWidget);
+      expect(find.text(r'$35 / mês'), findsOneWidget);
+      expect(find.text('Assinar Starter Mensal (\$15/mês)'), findsOneWidget);
+      expect(find.text('Assinar Studio Pro Mensal (\$35/mês)'), findsOneWidget);
 
       // Test Pro status toggle
       expect(container.read(aiSettingsProvider).isProActive, isFalse);
