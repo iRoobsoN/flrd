@@ -266,6 +266,45 @@ class OrderScreen extends StatelessWidget {
       final writtenFile = File(p.join(tempDir.path, 'lib/features/profile/presentation/profilescreen.dart'));
       expect(await writtenFile.exists(), isTrue);
     });
+
+    test('generateScreen handles empty, whitespace, null strings, and network exceptions cleanly', () async {
+      // 1. Whitespace / empty string / 'null'
+      final emptyKeyResult = await GeminiAiService.generateScreen(
+        projectPath: tempDir.path,
+        screenClassName: 'FeedScreen',
+        routePath: '/feed',
+        prompt: 'Feed de novidades.',
+        preset: PresetType.saas,
+        apiKey: '   ',
+      );
+      expect(emptyKeyResult.code, contains('class FeedScreen extends StatefulWidget'));
+
+      final literalNullResult = await GeminiAiService.generateScreen(
+        projectPath: tempDir.path,
+        screenClassName: 'FeedScreen',
+        routePath: '/feed',
+        prompt: 'Feed de novidades.',
+        preset: PresetType.saas,
+        apiKey: 'null',
+      );
+      expect(literalNullResult.code, contains('class FeedScreen extends StatefulWidget'));
+
+      // 2. Client throwing SocketException / network disconnection
+      final throwingClient = MockHttpClient((request) async {
+        throw const SocketException('Failed host lookup: generativelanguage.googleapis.com');
+      });
+
+      final networkFailResult = await GeminiAiService.generateScreen(
+        projectPath: tempDir.path,
+        screenClassName: 'SearchScreen',
+        routePath: '/search',
+        prompt: 'Busca inteligente.',
+        preset: PresetType.saas,
+        apiKey: 'valid-format-key',
+        httpClient: throwingClient,
+      );
+      expect(networkFailResult.code, contains('class SearchScreen extends StatefulWidget'));
+    });
   });
 
   group('AiScreenGeneratorDialog Widget Tests', () {

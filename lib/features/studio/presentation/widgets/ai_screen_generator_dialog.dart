@@ -4,6 +4,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../ai/providers/ai_settings_provider.dart';
 import '../../../ai/services/gemini_ai_service.dart';
 import '../../../projects/models/registered_project.dart';
+import '../../models/route_node.dart';
 import '../../providers/studio_provider.dart';
 
 class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
@@ -89,15 +90,20 @@ class _AiScreenGeneratorDialogState
       final studio = ref.read(studioProvider.notifier);
       final currentNodes = ref.read(studioProvider).nodes;
 
-      final parent = currentNodes.firstWhere(
-        (n) => n.id == _parentRouteId,
-        orElse: () => currentNodes.last,
-      );
+      RouteNode? parent;
+      for (final n in currentNodes) {
+        if (n.id == _parentRouteId) {
+          parent = n;
+          break;
+        }
+      }
+      if (parent == null && currentNodes.isNotEmpty) {
+        parent = currentNodes.last;
+      }
 
-      final newPos = Offset(
-        parent.position.dx + 330,
-        parent.position.dy + 30,
-      );
+      final newPos = parent != null
+          ? Offset(parent.position.dx + 330, parent.position.dy + 30)
+          : const Offset(380, 80);
 
       studio.addRouteNode(
         path: _pathController.text.trim(),

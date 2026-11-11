@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,151 +26,172 @@ class CustomTitleBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = ref.watch(appStringsProvider);
     final sdkStatus = ref.watch(flutterSdkProvider);
+    final isDesktop =
+        !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
 
     Widget titleContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          if (showBackButton) ...[
-            InkWell(
-              borderRadius: BorderRadius.circular(6),
-              onTap: onBack ?? () => Navigator.of(context).maybePop(),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                margin: const EdgeInsets.only(right: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppColors.borderSubtle),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.arrow_back_rounded,
-                      size: 14,
-                      color: AppColors.textPrimary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      strings.backToHub,
-                      style: const TextStyle(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showBackButton) ...[
+              InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: onBack ??
+                    () {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).maybePop();
+                      }
+                    },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  margin: const EdgeInsets.only(right: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.borderSubtle),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.arrow_back_rounded,
+                        size: 14,
                         color: AppColors.textPrimary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        strings.backToHub,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            // Brand Icon & Name
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Icon(
+                Icons.bolt_rounded,
+                color: Colors.white,
+                size: 14,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'FLRD',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Text(
+                'v0.2.1',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Dynamic Flutter SDK Status Pill
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 180),
+              child: Tooltip(
+                message: sdkStatus.isInstalled
+                    ? 'Flutter SDK active (${sdkStatus.version ?? "Ready"}). Click to run FLRD Doctor.'
+                    : 'Flutter SDK missing in PATH. Click to run FLRD Doctor.',
+                child: InkWell(
+                  onTap: () => FlutterDoctorDialog.show(context),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: sdkStatus.isInstalled
+                          ? AppColors.success.withOpacity(0.12)
+                          : (sdkStatus.isChecking
+                              ? AppColors.secondary.withOpacity(0.12)
+                              : AppColors.warning.withOpacity(0.15)),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: sdkStatus.isInstalled
+                            ? AppColors.success.withOpacity(0.3)
+                            : (sdkStatus.isChecking
+                                ? AppColors.secondary.withOpacity(0.3)
+                                : AppColors.warning.withOpacity(0.4)),
                       ),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: sdkStatus.isInstalled
+                                ? AppColors.success
+                                : (sdkStatus.isChecking
+                                    ? AppColors.secondary
+                                    : AppColors.warning),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 140),
+                          child: Text(
+                            sdkStatus.isChecking
+                                ? strings.flutterSdkChecking
+                                : (sdkStatus.isInstalled
+                                    ? (sdkStatus.version != null
+                                        ? 'Flutter ${sdkStatus.version}'
+                                        : strings.engineStatus)
+                                    : strings.flutterSdkMissing),
+                            style: TextStyle(
+                              color: sdkStatus.isInstalled
+                                  ? AppColors.success
+                                  : (sdkStatus.isChecking
+                                      ? AppColors.secondary
+                                      : AppColors.warning),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
           ],
-          // Brand Icon & Name
-          Container(
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              gradient: AppColors.primaryGradient,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: const Icon(
-              Icons.bolt_rounded,
-              color: Colors.white,
-              size: 14,
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'FLRD',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Text(
-              'v0.2.1',
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Dynamic Flutter SDK Status Pill
-          Tooltip(
-            message: sdkStatus.isInstalled
-                ? 'Flutter SDK active (${sdkStatus.version ?? "Ready"}). Click to run FLRD Doctor.'
-                : 'Flutter SDK missing in PATH. Click to run FLRD Doctor.',
-            child: InkWell(
-              onTap: () => FlutterDoctorDialog.show(context),
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: sdkStatus.isInstalled
-                      ? AppColors.success.withOpacity(0.12)
-                      : (sdkStatus.isChecking
-                          ? AppColors.secondary.withOpacity(0.12)
-                          : AppColors.warning.withOpacity(0.15)),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: sdkStatus.isInstalled
-                        ? AppColors.success.withOpacity(0.3)
-                        : (sdkStatus.isChecking
-                            ? AppColors.secondary.withOpacity(0.3)
-                            : AppColors.warning.withOpacity(0.4)),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: sdkStatus.isInstalled
-                            ? AppColors.success
-                            : (sdkStatus.isChecking
-                                ? AppColors.secondary
-                                : AppColors.warning),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      sdkStatus.isChecking
-                          ? strings.flutterSdkChecking
-                          : (sdkStatus.isInstalled
-                              ? (sdkStatus.version != null
-                                  ? 'Flutter ${sdkStatus.version}'
-                                  : strings.engineStatus)
-                              : strings.flutterSdkMissing),
-                      style: TextStyle(
-                        color: sdkStatus.isInstalled
-                            ? AppColors.success
-                            : (sdkStatus.isChecking
-                                ? AppColors.secondary
-                                : AppColors.warning),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
 
@@ -181,11 +203,13 @@ class CustomTitleBar extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          titleContent,
+          Flexible(
+            child: titleContent,
+          ),
           Expanded(
-            child: kIsWeb
-                ? const SizedBox.expand()
-                : const DragToMoveArea(child: SizedBox.expand()),
+            child: isDesktop
+                ? const DragToMoveArea(child: SizedBox.expand())
+                : const SizedBox.expand(),
           ),
           trailing ??
               const Padding(
@@ -205,25 +229,41 @@ class CustomTitleBar extends ConsumerWidget {
             onPressed: () => SettingsAndBillingDialog.show(context),
           ),
           const SizedBox(width: 4),
-          if (!kIsWeb) ...[
+          if (isDesktop) ...[
             _WindowActionButton(
               icon: Icons.remove_rounded,
-              onTap: () => windowManager.minimize(),
+              onTap: () async {
+                try {
+                  await windowManager.minimize();
+                } catch (e) {
+                  debugPrint('WindowManager minimize failed: $e');
+                }
+              },
             ),
             _WindowActionButton(
               icon: Icons.crop_square_rounded,
               onTap: () async {
-                if (await windowManager.isMaximized()) {
-                  windowManager.unmaximize();
-                } else {
-                  windowManager.maximize();
+                try {
+                  if (await windowManager.isMaximized()) {
+                    await windowManager.unmaximize();
+                  } else {
+                    await windowManager.maximize();
+                  }
+                } catch (e) {
+                  debugPrint('WindowManager maximize toggle failed: $e');
                 }
               },
             ),
             _WindowActionButton(
               icon: Icons.close_rounded,
               isClose: true,
-              onTap: () => windowManager.close(),
+              onTap: () async {
+                try {
+                  await windowManager.close();
+                } catch (e) {
+                  debugPrint('WindowManager close failed: $e');
+                }
+              },
             ),
           ],
         ],
@@ -253,8 +293,12 @@ class _WindowActionButtonState extends State<_WindowActionButton> {
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
+      onEnter: (_) {
+        if (mounted) setState(() => _isHovered = true);
+      },
+      onExit: (_) {
+        if (mounted) setState(() => _isHovered = false);
+      },
       child: GestureDetector(
         onTap: widget.onTap,
         child: Container(

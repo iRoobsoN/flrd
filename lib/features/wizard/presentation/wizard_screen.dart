@@ -1,12 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import 'package:process_run/process_run.dart';
 import '../../../core/services/flutter_sdk_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/flutter_sdk_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
 import 'controllers/wizard_controller.dart';
+import '../models/project_name_validator.dart';
 import 'widgets/wizard_sidebar.dart';
 import 'widgets/bottom_action_bar.dart';
 import 'tabs/project_info_tab.dart';
@@ -38,6 +40,32 @@ class WizardScreen extends ConsumerWidget {
   }
 
   void _showGenerationDialog(BuildContext context, WidgetRef ref) {
+    final config = ref.read(wizardProvider).config;
+
+    final nameError = ProjectNameValidator.validate(config.projectName);
+    if (nameError != null) {
+      ref.read(wizardProvider.notifier).setStep(WizardStep.project);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.danger,
+          content: Text('Invalid Project Name: $nameError'),
+        ),
+      );
+      return;
+    }
+
+    final orgError = OrgIdValidator.validate(config.orgId);
+    if (orgError != null) {
+      ref.read(wizardProvider.notifier).setStep(WizardStep.project);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.danger,
+          content: Text('Invalid Organization ID: $orgError'),
+        ),
+      );
+      return;
+    }
+
     final sdk = ref.read(flutterSdkProvider);
 
     if (!kIsWeb && !sdk.isInstalled) {
@@ -322,7 +350,12 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
                     onPressed: () {
                       Navigator.of(context).pop();
                       final config = ref.read(wizardProvider).config;
-                      final targetPath = '${config.outputPath}/${config.projectName}';
+                      final targetPath = p.normalize(
+                        p.join(
+                          config.outputPath.isEmpty ? '.' : config.outputPath,
+                          config.projectName,
+                        ),
+                      );
                       if (!kIsWeb) {
                         runExecutableArguments('code', [targetPath]);
                       } else {

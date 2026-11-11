@@ -224,14 +224,16 @@ class FlutterDoctorService extends StateNotifier<DoctorReport> {
   Future<DoctorReport> runDoctor() async {
     if (kIsWeb) {
       final report = DoctorReport.webSandbox();
-      state = report;
+      if (mounted) state = report;
       return report;
     }
 
-    state = state.copyWith(isScanning: true, error: null);
+    if (mounted) {
+      state = state.copyWith(isScanning: true, error: null);
+    }
 
     try {
-      final isWindows = Platform.isWindows;
+      final isWindows = !kIsWeb && Platform.isWindows;
 
       // 1. Pre-flight check: Verify if flutter executable exists in PATH
       final locatorCmd = isWindows ? 'where.exe' : 'which';
@@ -245,7 +247,7 @@ class FlutterDoctorService extends StateNotifier<DoctorReport> {
           final report = DoctorReport.missingSdk(
             error: 'Flutter executable not found in system PATH.',
           );
-          state = report;
+          if (mounted) state = report;
           return report;
         }
       } catch (_) {
@@ -267,7 +269,7 @@ class FlutterDoctorService extends StateNotifier<DoctorReport> {
         final report = DoctorReport.missingSdk(
           error: 'Flutter doctor exited with code ${doctorRes.exitCode}.',
         );
-        state = report;
+        if (mounted) state = report;
         return report;
       }
 
@@ -286,15 +288,15 @@ class FlutterDoctorService extends StateNotifier<DoctorReport> {
               ? 'Could not parse flutter doctor output.'
               : 'Doctor output was empty.',
         );
-        state = fallback;
+        if (mounted) state = fallback;
         return fallback;
       }
 
-      state = parsedReport;
+      if (mounted) state = parsedReport;
       return parsedReport;
     } catch (e) {
       final report = DoctorReport.missingSdk(error: e.toString());
-      state = report;
+      if (mounted) state = report;
       return report;
     }
   }

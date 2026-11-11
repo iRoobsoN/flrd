@@ -54,56 +54,95 @@ class FlutterSdkNotifier extends StateNotifier<FlutterSdkStatus> {
 
   Future<void> checkSdk() async {
     if (kIsWeb) {
-      state = FlutterSdkStatus.webSandbox();
+      if (mounted) state = FlutterSdkStatus.webSandbox();
       return;
     }
 
-    state = const FlutterSdkStatus(isInstalled: false, isChecking: true);
+    if (mounted) {
+      state = const FlutterSdkStatus(isInstalled: false, isChecking: true);
+    }
 
     try {
-      final isWindows = Platform.isWindows;
+      final isWindows = !kIsWeb && Platform.isWindows;
       final locatorCmd = isWindows ? 'where.exe' : 'which';
-      final locatorRes = await Process.run(
-        locatorCmd,
-        ['flutter'],
-        runInShell: isWindows,
-      );
+      String resolvedPath = 'flutter';
+      bool locatorFound = false;
 
-      if (locatorRes.exitCode != 0) {
-        state = FlutterSdkStatus.missing(
-          error: 'Flutter executable not found in system PATH.',
+      try {
+        final locatorRes = await Process.run(
+          locatorCmd,
+          ['flutter'],
+          runInShell: isWindows,
         );
-        return;
+
+        if (locatorRes.exitCode == 0) {
+          final firstLine = locatorRes.stdout
+              .toString()
+              .split(RegExp(r'[\r\n]+'))
+              .where((line) => line.trim().isNotEmpty)
+              .firstOrNull;
+          if (firstLine != null && firstLine.trim().isNotEmpty) {
+            resolvedPath = firstLine.trim();
+            locatorFound = true;
+          }
+        }
+      } catch (_) {
+        // Locator command (where.exe/which) missing or threw ProcessException; proceed to test flutter directly
       }
 
-      final resolvedPath = locatorRes.stdout
-          .toString()
-          .split(RegExp(r'[\r\n]+'))
-          .where((line) => line.trim().isNotEmpty)
-          .firstOrNull ?? 'flutter';
-
       // Fetch version string from flutter --version
-      final versionRes = await Process.run(
-        'flutter',
-        ['--version'],
-        runInShell: true,
-      );
+      ProcessResult? versionRes;
+      try {
+        versionRes = await Process.run(
+          'flutter',
+          ['--version'],
+          runInShell: true,
+        );
+      } catch (e) {
+        // If flutter command failed and locator also didn't find it
+        if (!locatorFound) {
+          if (mounted) {
+            state = FlutterSdkStatus.missing(
+              error: 'Flutter executable not found in system PATH ($e).',
+            );
+          }
+          return;
+        }
+      }
 
-      String version = 'Ready';
-      if (versionRes.exitCode == 0) {
+      if (versionRes != null && versionRes.exitCode == 0) {
+        String version = 'Ready';
         final output = versionRes.stdout.toString();
         final match = RegExp(r'Flutter\s+(\d+\.\d+(\.\d+)?)').firstMatch(output);
         if (match != null) {
           version = 'v${match.group(1)}';
         }
-      }
 
-      state = FlutterSdkStatus.detected(
-        version: version,
-        sdkPath: resolvedPath,
-      );
+        if (mounted) {
+          state = FlutterSdkStatus.detected(
+            version: version,
+            sdkPath: resolvedPath,
+          );
+        }
+      } else if (locatorFound) {
+        // Found via locator, but --version didn't return clean output
+        if (mounted) {
+          state = FlutterSdkStatus.detected(
+            version: 'Ready',
+            sdkPath: resolvedPath,
+          );
+        }
+      } else {
+        if (mounted) {
+          state = FlutterSdkStatus.missing(
+            error: 'Flutter executable not found in system PATH.',
+          );
+        }
+      }
     } catch (e) {
-      state = FlutterSdkStatus.missing(error: e.toString());
+      if (mounted) {
+        state = FlutterSdkStatus.missing(error: e.toString());
+      }
     }
   }
 }

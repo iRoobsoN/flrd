@@ -78,27 +78,31 @@ class _RouteNodeCardState extends State<RouteNodeCard> {
               // Top Bar: Route Path + Status Badges
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.backgroundSecondary,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: AppColors.borderSubtle),
-                    ),
-                    child: Text(
-                      node.path,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        color: AppColors.secondary,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.backgroundSecondary,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppColors.borderSubtle),
+                      ),
+                      child: Text(
+                        node.path,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          color: AppColors.secondary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 6),
                   if (node.isAIGenerated) ...[
                     Container(
                       padding: const EdgeInsets.symmetric(

@@ -266,5 +266,57 @@ void main() {
       // Verify dialog is dismissed
       expect(find.byType(SettingsAndBillingDialog), findsNothing);
     });
+
+    testWidgets('Plan and billing cycle preferences persist across dialog instances',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      // 1. Open dialog and change billing to Monthly and activate Pro
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SettingsAndBillingDialog(initialTabIndex: 1),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap Monthly
+      await tester.tap(find.text('Monthly'));
+      await tester.pumpAndSettle();
+      expect(container.read(aiSettingsProvider).isAnnualBilling, isFalse);
+
+      // Activate Pro
+      final activateFinder = find.text('Activate License');
+      await tester.ensureVisible(activateFinder);
+      await tester.tap(activateFinder);
+      await tester.pumpAndSettle();
+      expect(container.read(aiSettingsProvider).isProActive, isTrue);
+
+      // Close and open a completely new dialog instance
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SettingsAndBillingDialog(initialTabIndex: 1),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify state was preserved in new dialog instance
+      expect(find.text('License Status: FLRD Pro Active'), findsOneWidget);
+      expect(find.text('Subscribe Starter Monthly (\$15/month)'), findsOneWidget);
+    });
   });
 }

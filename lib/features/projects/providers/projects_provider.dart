@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../wizard/models/project_config.dart';
 import '../models/registered_project.dart';
 
+const _projectsSentinel = Object();
+
 class ProjectsState {
   final List<RegisteredProject> projects;
   final bool isScanning;
@@ -16,12 +18,14 @@ class ProjectsState {
   ProjectsState copyWith({
     List<RegisteredProject>? projects,
     bool? isScanning,
-    String? selectedProjectId,
+    Object? selectedProjectId = _projectsSentinel,
   }) {
     return ProjectsState(
       projects: projects ?? this.projects,
       isScanning: isScanning ?? this.isScanning,
-      selectedProjectId: selectedProjectId ?? this.selectedProjectId,
+      selectedProjectId: identical(selectedProjectId, _projectsSentinel)
+          ? this.selectedProjectId
+          : selectedProjectId as String?,
     );
   }
 }
@@ -112,10 +116,12 @@ class ProjectsNotifier extends StateNotifier<ProjectsState> {
   void removeProject(String id) {
     state = state.copyWith(
       projects: state.projects.where((p) => p.id != id).toList(),
+      selectedProjectId:
+          state.selectedProjectId == id ? null : state.selectedProjectId,
     );
   }
 
-  void selectProject(String id) {
+  void selectProject(String? id) {
     state = state.copyWith(selectedProjectId: id);
   }
 

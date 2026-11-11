@@ -1,12 +1,16 @@
-import 'package:flutter/foundation.dart';
+import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:process_run/process_run.dart';
 import '../../wizard/models/project_config.dart';
 import '../injectors/android_manifest_injector.dart';
 import '../injectors/ios_plist_injector.dart';
+import '../injectors/pubspec_injector.dart';
 import '../presets/saas_preset.dart';
 import '../presets/clean_lite_preset.dart';
 import '../presets/offline_preset.dart';
 import '../services/permission_service_template.dart';
+
+const bool _kIsWeb = identical(0, 0.0);
 
 class ProjectGenerator {
   final ProjectConfig config;
@@ -29,8 +33,21 @@ class ProjectGenerator {
   }
 
   Future<bool> execute() async {
+    // 1. Pre-flight Validation
+    final nameError = ProjectNameValidator.validate(config.projectName);
+    if (nameError != null) {
+      onLog('❌ Invalid project name: $nameError');
+      return false;
+    }
+
+    final orgError = OrgIdValidator.validate(config.orgId);
+    if (orgError != null) {
+      onLog('❌ Invalid organization ID: $orgError');
+      return false;
+    }
+
     // Handling Browser / Web Sandbox Mode
-    if (kIsWeb) {
+    if (_kIsWeb) {
       onLog('🌐 [Web Preview Mode]: Sandboxed browser environment detected.');
       await Future.delayed(const Duration(milliseconds: 500));
       onLog('🔒 Browser security prevents direct host shell execution (flutter create).');
@@ -50,7 +67,40 @@ class ProjectGenerator {
       return true;
     }
 
-    final targetPath = '${config.outputPath}/${config.projectName}';
+    final parentDir = Directory(config.outputPath.isEmpty ? '.' : config.outputPath);
+    final targetPath = p.normalize(
+      p.join(
+        config.outputPath.isEmpty ? '.' : config.outputPath,
+        config.projectName,
+      ),
+    );
+
+    // Verify / create parent directory safely
+    if (!await parentDir.exists()) {
+      try {
+        await parentDir.create(recursive: true);
+        onLog('📁 Created parent directory: ${parentDir.path}');
+      } on FileSystemException catch (e) {
+        onLog('❌ Failed to create parent directory "${parentDir.path}": ${e.message}');
+        if (e.osError != null) {
+          onLog('   OS Error: ${e.osError!.message} (code ${e.osError!.errorCode})');
+        }
+        return false;
+      }
+    }
+
+    // Inspect if target directory already exists
+    final targetDir = Directory(targetPath);
+    if (await targetDir.exists()) {
+      try {
+        final entries = await targetDir.list().toList();
+        if (entries.isNotEmpty) {
+          onLog('⚠️ Target directory already exists and contains files: $targetPath');
+        }
+      } on FileSystemException catch (e) {
+        onLog('⚠️ Directory inspection notice: ${e.message}');
+      }
+    }
 
     try {
       // Step 1: Base Flutter Scaffold
@@ -68,7 +118,8 @@ class ProjectGenerator {
       );
 
       if (createRes.exitCode != 0) {
-        onLog('❌ flutter create failed: ${createRes.stderr}');
+        final err = createRes.stderr.toString().trim();
+        onLog('❌ flutter create failed: ${err.isNotEmpty ? err : createRes.stdout}');
         return false;
       }
       onLog('✅ Base Flutter project generated successfully.');
@@ -87,7 +138,7 @@ class ProjectGenerator {
         onLog('✅ Native permissions safely injected.');
       }
 
-      // Step 3: Resolving Dynamic Dependencies
+      // Step 3: Resolving Dynamic Dependencies & Pubspec
       onLog('📦 Step 3/5: Resolving dynamic packages from pub.dev...');
       final packagesToAdd = <String>['go_router', 'google_fonts'];
       
@@ -107,12 +158,36 @@ class ProjectGenerator {
         packagesToAdd.add('permission_handler');
       }
 
-      await runExecutableArguments(
-        'flutter',
-        ['pub', 'add', ...packagesToAdd],
-        workingDirectory: targetPath,
-      );
-      onLog('✅ Dependencies resolved and added.');
+      bool pubSuccess = false;
+      try {
+        final pubRes = await runExecutableArguments(
+          'flutter',
+          ['pub', 'add', ...packagesToAdd],
+          workingDirectory: targetPath,
+        );
+        if (pubRes.exitCode == 0) {
+          pubSuccess = true;
+          onLog('✅ Dependencies resolved and added.');
+        } else {
+          onLog('⚠️ flutter pub add exited with code ${pubRes.exitCode}. Falling back to PubspecInjector...');
+        }
+      } catch (e) {
+        onLog('⚠️ flutter pub add unavailable: $e. Falling back to PubspecInjector...');
+      }
+
+      // Semantic YAML injection fallback
+      if (!pubSuccess) {
+        final depMap = {for (final p in packagesToAdd) p: 'any'};
+        final injected = await PubspecInjector.injectDependencies(
+          projectRoot: targetPath,
+          dependencies: depMap,
+        );
+        if (injected) {
+          onLog('✅ Dependencies injected into pubspec.yaml via semantic PubspecInjector.');
+        } else {
+          onLog('⚠️ Semantic PubspecInjector could not modify pubspec.yaml.');
+        }
+      }
 
       // Step 4: Synthesize Lib & Theme
       onLog('🎨 Step 4/5: Synthesizing architecture presets & GoRouter guards...');
@@ -138,6 +213,22 @@ class ProjectGenerator {
 
       onLog('🎉 Step 5/5: FLRD scaffolding complete! Opening project...');
       return true;
+    } on FileSystemException catch (e) {
+      onLog('❌ File system error during scaffolding: ${e.message}');
+      if (e.path != null) onLog('   Path: ${e.path}');
+      if (e.osError != null) {
+        onLog('   OS Error: ${e.osError!.message} (code ${e.osError!.errorCode})');
+      }
+      onLog('💡 Verify disk write permissions and path availability.');
+      return false;
+    } on ProcessException catch (e) {
+      if (e.message.contains('cannot find') || e.message.contains('not found')) {
+        onLog('⚠️ Flutter executable not found in system PATH: ${e.executable}');
+        onLog('💡 Download Flutter SDK at: https://docs.flutter.dev/get-started/install');
+      } else {
+        onLog('❌ Process error (${e.executable}): ${e.message}');
+      }
+      return false;
     } catch (e) {
       if (e.toString().contains('cannot find') || e.toString().contains('not found')) {
         onLog('⚠️ Flutter executable not found in system PATH.');

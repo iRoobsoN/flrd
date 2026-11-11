@@ -1,8 +1,26 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import '../../wizard/models/project_config.dart';
 
 class OfflinePreset {
   OfflinePreset._();
+
+  static File _resolveFile(String targetPath, String relativePath) {
+    return File(p.normalize(p.join(targetPath.isEmpty ? '.' : targetPath, relativePath)));
+  }
+
+  static Future<void> _writeFile(File file, String content) async {
+    try {
+      await file.parent.create(recursive: true);
+      await file.writeAsString(content);
+    } on FileSystemException catch (e) {
+      throw FileSystemException(
+        'Failed to write scaffolded preset file "${file.path}": ${e.message}',
+        file.path,
+        e.osError,
+      );
+    }
+  }
 
   static Future<void> synthesize(String targetPath, ProjectConfig config) async {
     await _writeTheme(targetPath, config);
@@ -15,12 +33,10 @@ class OfflinePreset {
   }
 
   static Future<void> _writeTheme(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/core/theme/app_theme.dart');
-    await file.parent.create(recursive: true);
-
+    final file = _resolveFile(targetPath, 'lib/core/theme/app_theme.dart');
     final seedHex = config.seedColor.value.toRadixString(16).padLeft(8, '0');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -71,10 +87,9 @@ class AppTheme {
   }
 
   static Future<void> _writeDatabaseHelper(String targetPath) async {
-    final file = File('$targetPath/lib/core/database/database_helper.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/core/database/database_helper.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import '../../features/items/models/item_model.dart';
@@ -156,9 +171,8 @@ class DatabaseHelper {
 
   static Future<void> _writeItemFeature(String targetPath) async {
     // 1. Model
-    final modelFile = File('$targetPath/lib/features/items/models/item_model.dart');
-    await modelFile.parent.create(recursive: true);
-    await modelFile.writeAsString('''
+    final modelFile = _resolveFile(targetPath, 'lib/features/items/models/item_model.dart');
+    await _writeFile(modelFile, '''
 class ItemModel {
   final int? id;
   final String title;
@@ -213,9 +227,8 @@ class ItemModel {
 ''');
 
     // 2. Provider (State Manager with Provider)
-    final providerFile = File('$targetPath/lib/features/items/providers/item_provider.dart');
-    await providerFile.parent.create(recursive: true);
-    await providerFile.writeAsString('''
+    final providerFile = _resolveFile(targetPath, 'lib/features/items/providers/item_provider.dart');
+    await _writeFile(providerFile, '''
 import 'package:flutter/material.dart';
 import '../../../core/database/database_helper.dart';
 import '../models/item_model.dart';
@@ -294,10 +307,9 @@ class ItemProvider extends ChangeNotifier {
   }
 
   static Future<void> _writeSettingsFeature(String targetPath) async {
-    final file = File('$targetPath/lib/features/settings/providers/settings_provider.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/features/settings/providers/settings_provider.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -331,9 +343,8 @@ class SettingsProvider extends ChangeNotifier {
 
   static Future<void> _writeScreens(String targetPath, ProjectConfig config) async {
     // 1. Items Screen (Home Screen)
-    final itemsFile = File('$targetPath/lib/features/items/presentation/items_screen.dart');
-    await itemsFile.parent.create(recursive: true);
-    await itemsFile.writeAsString('''
+    final itemsFile = _resolveFile(targetPath, 'lib/features/items/presentation/items_screen.dart');
+    await _writeFile(itemsFile, '''
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/item_model.dart';
@@ -462,9 +473,8 @@ class ItemsScreen extends StatelessWidget {
 ''');
 
     // 2. Settings Screen
-    final settingsFile = File('$targetPath/lib/features/settings/presentation/settings_screen.dart');
-    await settingsFile.parent.create(recursive: true);
-    await settingsFile.writeAsString('''
+    final settingsFile = _resolveFile(targetPath, 'lib/features/settings/presentation/settings_screen.dart');
+    await _writeFile(settingsFile, '''
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../items/providers/item_provider.dart';
@@ -557,9 +567,8 @@ class SettingsScreen extends StatelessWidget {
 ''');
 
     // 3. Shell Screen (Tabs, Drawer, or AdaptiveRail)
-    final shellFile = File('$targetPath/lib/features/home/presentation/shell_screen.dart');
-    await shellFile.parent.create(recursive: true);
-    await shellFile.writeAsString(_generateShellCode(config));
+    final shellFile = _resolveFile(targetPath, 'lib/features/home/presentation/shell_screen.dart');
+    await _writeFile(shellFile, _generateShellCode(config));
   }
 
   static String _generateShellCode(ProjectConfig config) {
@@ -681,10 +690,9 @@ class ShellScreen extends StatelessWidget {
   }
 
   static Future<void> _writeRouter(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/core/router/app_router.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/core/router/app_router.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/items/presentation/items_screen.dart';
@@ -726,10 +734,9 @@ final appRouter = GoRouter(
   }
 
   static Future<void> _writeMain(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/main.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/main.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/router/app_router.dart';

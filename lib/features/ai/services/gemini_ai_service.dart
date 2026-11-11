@@ -43,10 +43,13 @@ class GeminiAiService {
   }) async {
     String rawCode = '';
 
-    final hasApiKey = apiKey != null && apiKey.trim().isNotEmpty;
+    final hasApiKey = apiKey != null &&
+        apiKey.trim().isNotEmpty &&
+        apiKey.trim() != 'null' &&
+        apiKey.trim() != 'undefined';
     if (hasApiKey) {
+      final client = httpClient ?? http.Client();
       try {
-        final client = httpClient ?? http.Client();
         final uri = Uri.parse(
           'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}',
         );
@@ -72,11 +75,13 @@ class GeminiAiService {
           }
         };
 
-        final response = await client.post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(requestPayload),
-        );
+        final response = await client
+            .post(
+              uri,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(requestPayload),
+            )
+            .timeout(const Duration(seconds: 15));
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
           final decoded = jsonDecode(response.body);
@@ -97,8 +102,12 @@ class GeminiAiService {
           }
         }
       } catch (_) {
-        // Fall back to offline code synthesis if Gemini API call fails
+        // Fall back to offline code synthesis if Gemini API call fails (network drop, timeout, or auth issue)
         rawCode = '';
+      } finally {
+        if (httpClient == null) {
+          client.close();
+        }
       }
     }
 
@@ -112,7 +121,15 @@ class GeminiAiService {
       );
     }
 
-    final cleanDartCode = extractDartCode(rawCode);
+    var cleanDartCode = extractDartCode(rawCode);
+    if (cleanDartCode.trim().isEmpty) {
+      cleanDartCode = synthesizeScreenCode(
+        screenClassName: screenClassName,
+        routePath: routePath,
+        prompt: prompt,
+        preset: preset,
+      );
+    }
 
     var featureFolder = screenClassName.toLowerCase().replaceAll('screen', '');
     if (featureFolder.isEmpty) {

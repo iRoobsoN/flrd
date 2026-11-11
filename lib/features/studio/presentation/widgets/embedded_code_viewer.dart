@@ -278,6 +278,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
   bool _isTemplate = false;
   bool _isSaving = false;
   bool _isDirty = false;
+  bool _suppressDirtyNotification = false;
   int _lineCount = 1;
   int _maxLineLength = 0;
 
@@ -317,7 +318,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
   }
 
   void _onCodeChanged() {
-    if (!_isDirty) {
+    if (!_suppressDirtyNotification && !_isDirty) {
       setState(() => _isDirty = true);
     }
     _updateLineStats();
@@ -350,6 +351,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
   }
 
   void _loadFileContent() {
+    _suppressDirtyNotification = true;
     try {
       final file = File(_resolvedFilePath);
       if (file.existsSync()) {
@@ -362,6 +364,8 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
     } catch (_) {
       _codeController.text = EmbeddedCodeViewer.generateTemplateCode(widget.node);
       _isTemplate = true;
+    } finally {
+      _suppressDirtyNotification = false;
     }
     _isLoading = false;
     _isDirty = false;
@@ -544,7 +548,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
   Widget _buildTopBar(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 460;
+        final isCompact = constraints.maxWidth < 560;
 
         final pathTag = Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -680,7 +684,12 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
                   children: [
                     Expanded(child: pathTag),
                     const SizedBox(width: 8),
-                    actionButtons,
+                    Flexible(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: actionButtons,
+                      ),
+                    ),
                   ],
                 ),
         );
@@ -743,8 +752,10 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final availableWidth =
+            math.max(constraints.maxWidth, gutterWidth + 40.0);
         final codeViewportWidth =
-            math.max(constraints.maxWidth - gutterWidth, 100.0);
+            math.max(availableWidth - gutterWidth, 100.0);
         final minContentWidth =
             math.max(_maxLineLength * 7.8 + 40.0, codeViewportWidth);
 

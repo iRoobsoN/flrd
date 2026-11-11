@@ -47,8 +47,10 @@ class _SettingsAndBillingDialogState
       initialIndex: widget.initialTabIndex.clamp(0, 2),
     );
 
-    final currentApiKey = ref.read(aiSettingsProvider).apiKey ?? '';
+    final aiSettings = ref.read(aiSettingsProvider);
+    final currentApiKey = aiSettings.apiKey ?? '';
     _apiKeyController = TextEditingController(text: currentApiKey);
+    _isAnnualBilling = aiSettings.isAnnualBilling;
   }
 
   @override
@@ -532,12 +534,18 @@ class _SettingsAndBillingDialogState
                   _buildBillingTogglePill(
                     label: 'Annual (2 months free 🎁)',
                     isSelected: _isAnnualBilling,
-                    onTap: () => setState(() => _isAnnualBilling = true),
+                    onTap: () {
+                      setState(() => _isAnnualBilling = true);
+                      ref.read(aiSettingsProvider.notifier).setAnnualBilling(true);
+                    },
                   ),
                   _buildBillingTogglePill(
                     label: 'Monthly',
                     isSelected: !_isAnnualBilling,
-                    onTap: () => setState(() => _isAnnualBilling = false),
+                    onTap: () {
+                      setState(() => _isAnnualBilling = false);
+                      ref.read(aiSettingsProvider.notifier).setAnnualBilling(false);
+                    },
                   ),
                 ],
               ),
@@ -794,9 +802,13 @@ class _SettingsAndBillingDialogState
                       Text(
                         aiSettings.isProActive
                             ? 'License Status: FLRD Pro Active'
-                            : 'License Status: FLRD Community',
+                            : (aiSettings.selectedPlan == 'starter'
+                                ? 'License Status: FLRD Starter Active'
+                                : 'License Status: FLRD Community'),
                         style: TextStyle(
-                          color: aiSettings.isProActive ? AppColors.success : AppColors.textPrimary,
+                          color: (aiSettings.isProActive || aiSettings.selectedPlan == 'starter')
+                              ? AppColors.success
+                              : AppColors.textPrimary,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),

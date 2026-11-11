@@ -14,10 +14,15 @@ void main() {
       guardian = TemplateGuardianService();
     });
 
-    test('isPriceFloorValid correctly enforces category minimums', () {
-      // Free templates
-      expect(guardian.isPriceFloorValid(tier: TemplateTier.microKit, priceUsd: 0.0), isTrue);
-      expect(guardian.isPriceFloorValid(tier: TemplateTier.starterKit, priceUsd: 0.0), isTrue);
+    test('isPriceFloorValid correctly enforces category minimums and rejects bypasses', () {
+      // Rejects floor price bypasses: zero, negative zero, negative values, NaN, and Infinity
+      expect(guardian.isPriceFloorValid(tier: TemplateTier.microKit, priceUsd: 0.0), isFalse);
+      expect(guardian.isPriceFloorValid(tier: TemplateTier.starterKit, priceUsd: 0.0), isFalse);
+      expect(guardian.isPriceFloorValid(tier: TemplateTier.starterKit, priceUsd: -0.0), isFalse);
+      expect(guardian.isPriceFloorValid(tier: TemplateTier.starterKit, priceUsd: -10.0), isFalse);
+      expect(guardian.isPriceFloorValid(tier: TemplateTier.fullApp, priceUsd: double.nan), isFalse);
+      expect(guardian.isPriceFloorValid(tier: TemplateTier.fullApp, priceUsd: double.infinity), isFalse);
+      expect(guardian.isPriceFloorValid(tier: TemplateTier.fullApp, priceUsd: -double.infinity), isFalse);
 
       // MicroKit (piso: $15)
       expect(guardian.isPriceFloorValid(tier: TemplateTier.microKit, priceUsd: 14.99), isFalse);
@@ -145,6 +150,91 @@ void main() {
       expect(manifest['commercial']['no_resale_clause'], isTrue);
       expect(manifest['security']['checksum_sha256'], equals('abc123sha256'));
     });
+
+    test('validateSubmission safely handles NaN, Infinity and negative values without crashing', () async {
+      final nanSubmission = TemplateSubmissionData(
+        title: 'Corrupted Pricing Kit',
+        tier: TemplateTier.fullApp,
+        priceUsd: double.nan,
+        authorName: 'Robson',
+        githubHandle: 'iroobson',
+        payoutAccount: 'robson@pix.me',
+        description: 'Test description',
+        projectPath: '/dummy/path',
+      );
+
+      final resultNan = await guardian.validateSubmission(
+        submission: nanSubmission,
+        knownTemplates: [],
+      );
+      expect(resultNan.isValid, isFalse);
+      expect(resultNan.errors.any((e) => e.contains('inválido')), isTrue);
+
+      final infSubmission = TemplateSubmissionData(
+        title: 'Infinite Pricing Kit',
+        tier: TemplateTier.starterKit,
+        priceUsd: double.infinity,
+        authorName: 'Robson',
+        githubHandle: 'iroobson',
+        payoutAccount: 'robson@pix.me',
+        description: 'Test description',
+        projectPath: '/dummy/path',
+      );
+
+      final resultInf = await guardian.validateSubmission(
+        submission: infSubmission,
+        knownTemplates: [],
+      );
+      expect(resultInf.isValid, isFalse);
+      expect(resultInf.errors.any((e) => e.contains('inválido')), isTrue);
+
+      const negSubmission = TemplateSubmissionData(
+        title: 'Negative Pricing Kit',
+        tier: TemplateTier.microKit,
+        priceUsd: -15.0,
+        authorName: 'Robson',
+        githubHandle: 'iroobson',
+        payoutAccount: 'robson@pix.me',
+        description: 'Test description',
+        projectPath: '/dummy/path',
+      );
+
+      final resultNeg = await guardian.validateSubmission(
+        submission: negSubmission,
+        knownTemplates: [],
+      );
+      expect(resultNeg.isValid, isFalse);
+      expect(resultNeg.errors.any((e) => e.contains(r'$-15.00')), isTrue);
+    });
+
+    test('generateSignedManifest sanitizes NaN and Infinity to 0.0', () {
+      final submission = TemplateSubmissionData(
+        title: 'NaN Manifest Kit',
+        tier: TemplateTier.microKit,
+        priceUsd: double.nan,
+        authorName: 'Robson',
+        githubHandle: 'iroobson',
+        payoutAccount: 'robson@pix.me',
+        description: 'Test description',
+        projectPath: '/dummy/path',
+      );
+
+      const fingerprint = TemplateFingerprint(
+        templateId: 'NaN Manifest Kit',
+        classDeclarations: {'App'},
+        widgetDeclarations: {'Card'},
+        routePaths: {'/home'},
+        relativeFilePaths: {'lib/main.dart'},
+      );
+
+      final manifest = guardian.generateSignedManifest(
+        submission: submission,
+        fingerprint: fingerprint,
+      );
+
+      expect(manifest['commercial']['price_usd'], equals(0.0));
+      expect(manifest['commercial']['creator_earnings_usd'], equals(0.0));
+    });
   });
 
   group('PublishTemplateDialog Widget Tests', () {
@@ -211,6 +301,36 @@ void main() {
       expect(find.text('Piso de Preço Respeitado'), findsOneWidget);
       expect(find.text('Segurança & Ausência de Chaves Privadas'), findsOneWidget);
       expect(find.textContaining('Originalidade & Anti-Plágio'), findsOneWidget);
+    });
+
+    testWidgets('Shows warning when currency input is below floor or zero', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: PublishTemplateDialog(initialProjectPath: tempCleanDir.path),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final priceField = find.widgetWithText(TextField, 'Preço Pretendido (\$ USD)');
+      expect(priceField, findsOneWidget);
+
+      // Enter price below floor
+      await tester.enterText(priceField, '10');
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Preço abaixo do piso'), findsOneWidget);
+
+      // Enter 0
+      await tester.enterText(priceField, '0');
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Preço abaixo do piso'), findsOneWidget);
     });
   });
 }

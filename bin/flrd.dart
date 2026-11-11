@@ -1,24 +1,33 @@
 import 'dart:io';
 import 'package:args/args.dart';
+import 'package:path/path.dart' as p;
 import 'package:flrd/features/generator/pipeline/project_generator.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 
 void main(List<String> arguments) async {
-  final parser = ArgParser()
-    ..addCommand('create')
-    ..addOption('org', abbr: 'o', defaultsTo: 'com.example', help: 'Organization / Reverse domain identifier')
-    ..addOption('preset', abbr: 'p', defaultsTo: 'saas', allowed: ['saas', 'clean-lite', 'offline'], help: 'Architectural preset')
-    ..addOption('nav', abbr: 'n', defaultsTo: 'tabs', allowed: ['tabs', 'drawer', 'adaptive'], help: 'Navigation shell style')
-    ..addOption('path', defaultsTo: '.', help: 'Target parent directory')
-    ..addMultiOption('permissions', help: 'Comma-separated permissions: camera,location,notifications,photos,biometrics')
-    ..addFlag('interactive', abbr: 'i', defaultsTo: false, help: 'Run interactive question wizard')
-    ..addFlag('help', abbr: 'h', negatable: false, help: 'Show usage help')
-    ..addFlag('version', abbr: 'v', negatable: false, help: 'Show FLRD version');
+  void addSharedOptions(ArgParser p) {
+    p
+      ..addOption('org', abbr: 'o', defaultsTo: 'com.example', help: 'Organization / Reverse domain identifier')
+      ..addOption('preset', abbr: 'p', defaultsTo: 'saas', allowed: ['saas', 'clean-lite', 'offline'], help: 'Architectural preset')
+      ..addOption('nav', abbr: 'n', defaultsTo: 'tabs', allowed: ['tabs', 'drawer', 'adaptive'], help: 'Navigation shell style')
+      ..addOption('path', defaultsTo: '.', help: 'Target parent directory')
+      ..addMultiOption('permissions', help: 'Comma-separated permissions: camera,location,notifications,photos,biometrics')
+      ..addFlag('interactive', abbr: 'i', defaultsTo: false, help: 'Run interactive question wizard')
+      ..addFlag('help', abbr: 'h', negatable: false, help: 'Show usage help');
+  }
+
+  final parser = ArgParser();
+  addSharedOptions(parser);
+  parser.addFlag('version', abbr: 'v', negatable: false, help: 'Show FLRD version');
+
+  final createCmd = parser.addCommand('create');
+  addSharedOptions(createCmd);
 
   try {
     final results = parser.parse(arguments);
 
-    if (results['help'] == true) {
+    final isHelp = results['help'] == true || (results.command != null && results.command!['help'] == true);
+    if (isHelp) {
       _printBanner();
       _printHelp(parser);
       exit(0);
@@ -36,7 +45,9 @@ void main(List<String> arguments) async {
     final rest = results.command?.rest ?? results.rest;
     String? projectName = rest.isNotEmpty ? rest.first : null;
 
-    final isInteractive = results['interactive'] == true || (command == null && projectName == null);
+    final isInteractive = results['interactive'] == true ||
+        (results.command != null && results.command!['interactive'] == true) ||
+        (command == null && projectName == null);
 
     ProjectConfig config;
 
@@ -44,15 +55,36 @@ void main(List<String> arguments) async {
       config = await _runInteractiveWizard(projectName);
     } else {
       projectName ??= 'my_flrd_app';
+
+      final nameErr = ProjectNameValidator.validate(projectName);
+      if (nameErr != null) {
+        stderr.writeln('\n\x1B[1;31m❌ Validation Error: $nameErr\x1B[0m\n');
+        _printHelp(parser);
+        exit(1);
+      }
+
       config = _buildConfigFromArgs(results, projectName);
+
+      final orgErr = OrgIdValidator.validate(config.orgId);
+      if (orgErr != null) {
+        stderr.writeln('\n\x1B[1;31m❌ Validation Error: $orgErr\x1B[0m\n');
+        exit(1);
+      }
     }
+
+    final targetLocation = p.normalize(
+      p.join(
+        config.outputPath.isEmpty ? '.' : config.outputPath,
+        config.projectName,
+      ),
+    );
 
     stdout.writeln('\n\x1B[1;36m⚙️  Executing FLRD Scaffolding Pipeline...\x1B[0m');
     stdout.writeln('   Project: \x1B[32m${config.projectName}\x1B[0m');
     stdout.writeln('   Org ID:  \x1B[32m${config.orgId}\x1B[0m');
     stdout.writeln('   Preset:  \x1B[35m${config.preset.name}\x1B[0m');
     stdout.writeln('   Nav:     \x1B[33m${config.navigationStyle.title}\x1B[0m');
-    stdout.writeln('   Target:  \x1B[34m${config.outputPath}/${config.projectName}\x1B[0m\n');
+    stdout.writeln('   Target:  \x1B[34m$targetLocation\x1B[0m\n');
 
     final generator = ProjectGenerator(
       config: config,
@@ -62,7 +94,7 @@ void main(List<String> arguments) async {
     final success = await generator.execute();
 
     if (success) {
-      _printSuccessBox(config);
+      _printSuccessBox(config, targetLocation);
     } else {
       stderr.writeln('\n\x1B[1;31m❌ Scaffolding encountered errors. See logs above.\x1B[0m\n');
       exit(1);
@@ -104,10 +136,24 @@ Examples:
 }
 
 ProjectConfig _buildConfigFromArgs(ArgResults results, String projectName) {
-  final presetStr = results['preset'] as String? ?? 'saas';
-  final navStr = results['nav'] as String? ?? 'tabs';
-  final org = results['org'] as String? ?? 'com.example';
-  final path = results['path'] as String? ?? '.';
+  // Read option either from command or root parser
+  T getOption<T>(String key, T defaultValue) {
+    if (results.command != null && results.command!.wasParsed(key)) {
+      return results.command![key] as T;
+    }
+    if (results.wasParsed(key)) {
+      return results[key] as T;
+    }
+    if (results.command != null && results.command![key] != null) {
+      return results.command![key] as T;
+    }
+    return (results[key] as T?) ?? defaultValue;
+  }
+
+  final presetStr = getOption<String>('preset', 'saas');
+  final navStr = getOption<String>('nav', 'tabs');
+  final org = getOption<String>('org', 'com.example');
+  final path = getOption<String>('path', '.');
 
   PresetType preset;
   switch (presetStr) {
@@ -135,7 +181,7 @@ ProjectConfig _buildConfigFromArgs(ArgResults results, String projectName) {
       nav = NavigationStyle.tabs;
   }
 
-  final permList = results['permissions'] as List<String>? ?? [];
+  final permList = getOption<List<String>>('permissions', []);
   final permissions = <DevicePermission>{};
   for (final p in permList) {
     switch (p.toLowerCase().trim()) {
@@ -170,18 +216,29 @@ ProjectConfig _buildConfigFromArgs(ArgResults results, String projectName) {
 Future<ProjectConfig> _runInteractiveWizard(String? prefillName) async {
   stdout.writeln('\x1B[1m\nInteractive Project Wizard:\x1B[0m');
 
-  // 1. Project Name
+  // 1. Project Name with validation loop
   String name = prefillName ?? '';
-  if (name.isEmpty) {
+  while (true) {
+    if (name.isNotEmpty) {
+      final err = ProjectNameValidator.validate(name);
+      if (err == null) break;
+      stdout.writeln('  \x1B[31m⚠️ $err\x1B[0m');
+    }
     stdout.write('? Project Name (e.g. my_awesome_app) [my_flrd_app]: ');
     final input = stdin.readLineSync()?.trim();
     name = (input != null && input.isNotEmpty) ? input : 'my_flrd_app';
   }
 
-  // 2. Organization ID
-  stdout.write('? Organization / Bundle ID [com.example]: ');
-  final orgInput = stdin.readLineSync()?.trim();
-  final org = (orgInput != null && orgInput.isNotEmpty) ? orgInput : 'com.example';
+  // 2. Organization ID with validation loop
+  String org = 'com.example';
+  while (true) {
+    stdout.write('? Organization / Bundle ID [com.example]: ');
+    final orgInput = stdin.readLineSync()?.trim();
+    org = (orgInput != null && orgInput.isNotEmpty) ? orgInput : 'com.example';
+    final err = OrgIdValidator.validate(org);
+    if (err == null) break;
+    stdout.writeln('  \x1B[31m⚠️ $err\x1B[0m');
+  }
 
   // 3. Preset
   stdout.writeln('\n? Choose an Architectural Preset:');
@@ -220,8 +277,7 @@ Future<ProjectConfig> _runInteractiveWizard(String? prefillName) async {
   );
 }
 
-void _printSuccessBox(ProjectConfig config) {
-  final target = '${config.outputPath}/${config.projectName}';
+void _printSuccessBox(ProjectConfig config, String target) {
   stdout.writeln('''
 \x1B[1;32m┌─────────────────────────────────────────────────────────────┐
 │  🎉 PROJECT SCAFFOLDED SUCCESSFULLY WITH FLRD! ⚡           │

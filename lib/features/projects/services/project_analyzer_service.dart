@@ -34,9 +34,20 @@ class ProjectAnalyzerService {
   ///
   /// Throws an [Exception] if [projectPath] does not contain a valid `pubspec.yaml`.
   static Future<AnalyzedProjectResult> analyzeProject(String projectPath) async {
-    final pubspecFile = File(p.join(projectPath, 'pubspec.yaml'));
+    var cleanPath = projectPath.trim();
+    if ((cleanPath.startsWith('"') && cleanPath.endsWith('"')) ||
+        (cleanPath.startsWith("'") && cleanPath.endsWith("'"))) {
+      cleanPath = cleanPath.substring(1, cleanPath.length - 1).trim();
+    }
+    cleanPath = p.normalize(cleanPath);
+    if (FileSystemEntity.isFileSync(cleanPath) &&
+        p.basename(cleanPath).toLowerCase() == 'pubspec.yaml') {
+      cleanPath = p.dirname(cleanPath);
+    }
+
+    final pubspecFile = File(p.join(cleanPath, 'pubspec.yaml'));
     if (!await pubspecFile.exists()) {
-      throw Exception('No pubspec.yaml found at "$projectPath". Please specify a valid Flutter project root.');
+      throw Exception('No pubspec.yaml found at "$cleanPath". Please specify a valid Flutter project root.');
     }
 
     // 1. Parse pubspec.yaml
@@ -45,17 +56,17 @@ class ProjectAnalyzerService {
     try {
       yamlMap = loadYaml(pubspecContent);
     } catch (e) {
-      throw Exception('Failed to parse pubspec.yaml at "$projectPath": $e');
+      throw Exception('Failed to parse pubspec.yaml at "$cleanPath": $e');
     }
 
     if (yamlMap is! YamlMap) {
-      throw Exception('Invalid pubspec.yaml structure at "$projectPath". Expected a YAML map.');
+      throw Exception('Invalid pubspec.yaml structure at "$cleanPath". Expected a YAML map.');
     }
 
     final rawName = yamlMap['name'];
     final projectName = (rawName is String && rawName.trim().isNotEmpty)
         ? rawName.trim()
-        : p.basename(p.normalize(projectPath));
+        : p.basename(p.normalize(cleanPath));
 
     final dependencies = <String>{};
     final deps = yamlMap['dependencies'];
@@ -69,20 +80,20 @@ class ProjectAnalyzerService {
     final PresetType preset = _detectPreset(dependencies);
 
     // 3. Detect DevicePermissions (Android + iOS)
-    final detectedPermissions = await _detectPermissions(projectPath);
+    final detectedPermissions = await _detectPermissions(cleanPath);
 
     // 4. Detect Organization Identifier (orgId)
-    final orgId = await _detectOrgId(projectPath, projectName);
+    final orgId = await _detectOrgId(cleanPath, projectName);
 
     // 5. Scan lib/ for Screens/Pages/Views and build RouteNodes
-    final routeNodes = await _scanRouteNodes(projectPath, detectedPermissions);
+    final routeNodes = await _scanRouteNodes(cleanPath, detectedPermissions);
 
     // 6. Navigation Style (detect or default)
-    final navigationStyle = await _detectNavigationStyle(projectPath);
+    final navigationStyle = await _detectNavigationStyle(cleanPath);
 
     // 7. Write or update .flrd/manifest.json
     await _writeOrUpdateManifest(
-      projectPath: projectPath,
+      projectPath: cleanPath,
       projectName: projectName,
       orgId: orgId,
       preset: preset,
@@ -100,7 +111,7 @@ class ProjectAnalyzerService {
       id: projectName.toLowerCase().replaceAll(' ', '_'),
       name: projectName,
       orgId: orgId,
-      path: projectPath,
+      path: cleanPath,
       preset: preset,
       navigationStyle: navigationStyle,
       permissions: detectedPermissions,

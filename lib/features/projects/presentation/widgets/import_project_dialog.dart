@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../studio/presentation/app_studio_screen.dart';
@@ -66,13 +67,54 @@ class _ImportProjectDialogState extends ConsumerState<ImportProjectDialog> {
     } catch (_) {}
   }
 
+  String _sanitizePath(String rawPath) {
+    var cleaned = rawPath.trim();
+    if ((cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+        (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+      cleaned = cleaned.substring(1, cleaned.length - 1).trim();
+    }
+    return p.normalize(cleaned);
+  }
+
   Future<void> _importProject() async {
-    final path = _pathController.text.trim();
+    var path = _sanitizePath(_pathController.text);
     if (path.isEmpty) {
       setState(() {
         _errorMessage = 'Por favor, informe o caminho do projeto Flutter.';
       });
       return;
+    }
+
+    if (!kIsWeb) {
+      if (FileSystemEntity.isFileSync(path)) {
+        if (p.basename(path).toLowerCase() == 'pubspec.yaml') {
+          path = p.dirname(path);
+          _pathController.text = path.replaceAll('\\', '/');
+        } else {
+          setState(() {
+            _errorMessage =
+                'O caminho especificado aponta para um arquivo. Selecione a pasta raiz do projeto.';
+          });
+          return;
+        }
+      }
+
+      final dir = Directory(path);
+      if (!dir.existsSync()) {
+        setState(() {
+          _errorMessage = 'O diretório informado não foi encontrado: "$path"';
+        });
+        return;
+      }
+
+      final pubspec = File(p.join(path, 'pubspec.yaml'));
+      if (!pubspec.existsSync()) {
+        setState(() {
+          _errorMessage =
+              'Nenhum pubspec.yaml encontrado em "$path". Certifique-se de selecionar a raiz de um projeto Flutter válido.';
+        });
+        return;
+      }
     }
 
     setState(() {
@@ -256,6 +298,12 @@ class _ImportProjectDialogState extends ConsumerState<ImportProjectDialog> {
                     child: TextField(
                       controller: _pathController,
                       enabled: !_isLoading,
+                      onSubmitted: _isLoading ? null : (_) => _importProject(),
+                      onChanged: (val) {
+                        if (_errorMessage != null) {
+                          setState(() => _errorMessage = null);
+                        }
+                      },
                       style: const TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 12,

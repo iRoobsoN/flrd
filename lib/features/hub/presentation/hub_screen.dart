@@ -37,6 +37,14 @@ class _HubScreenState extends ConsumerState<HubScreen> {
     _activeSection = widget.initialSection;
   }
 
+  @override
+  void didUpdateWidget(covariant HubScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialSection != widget.initialSection) {
+      _activeSection = widget.initialSection;
+    }
+  }
+
   Future<void> _openUrl(BuildContext context, String url) async {
     final uri = Uri.parse(url);
     try {
@@ -134,12 +142,18 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 200),
                           child: _activeSection == 0
-                              ? _buildRecognizedProjectsSection(
-                                  context,
-                                  ref,
-                                  strings,
+                              ? KeyedSubtree(
+                                  key: const ValueKey<int>(0),
+                                  child: _buildRecognizedProjectsSection(
+                                    context,
+                                    ref,
+                                    strings,
+                                  ),
                                 )
-                              : const MarketplaceView(),
+                              : const KeyedSubtree(
+                                  key: ValueKey<int>(1),
+                                  child: MarketplaceView(),
+                                ),
                         ),
                         const SizedBox(height: 48),
 
@@ -252,218 +266,237 @@ class _HubScreenState extends ConsumerState<HubScreen> {
     WidgetRef ref,
     AppStrings strings,
   ) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.surface, AppColors.surfaceCard.withOpacity(0.8)],
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Top Tag Pill
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: AppColors.primary.withOpacity(0.3),
-                    ),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.auto_awesome_rounded,
-                        size: 13,
-                        color: AppColors.secondary,
-                      ),
-                      SizedBox(width: 6),
-                      Text(
-                        'FLRD STUDIO v0.2.1 • OPEN-SOURCE ENGINE',
-                        style: TextStyle(
-                          color: AppColors.secondary,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 750;
 
-                // Main Heading with Gradient
-                ShaderMask(
-                  shaderCallback: (bounds) =>
-                      AppColors.primaryGradient.createShader(bounds),
-                  child: Text(
-                    strings.hubTitle,
-                    style: const TextStyle(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
+        final leftContent = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Top Tag Pill
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 4,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.primary.withOpacity(0.3),
                 ),
-                const SizedBox(height: 8),
-
-                // Subtitle
-                Text(
-                  strings.hubTagline,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 15,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // 3 Anti-Obsolescence Pillar Chips
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    _buildPillarChip(
-                      Icons.layers_rounded,
-                      strings.hubStatsPillar1,
-                      AppColors.primary,
-                    ),
-                    _buildPillarChip(
-                      Icons.security_rounded,
-                      strings.hubStatsPillar2,
-                      AppColors.secondary,
-                    ),
-                    _buildPillarChip(
-                      Icons.diamond_rounded,
-                      strings.hubStatsPillar3,
-                      AppColors.success,
-                    ),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(8),
-                      onTap: () => FlutterDoctorDialog.show(context),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceCard,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: AppColors.secondary.withOpacity(0.35),
-                          ),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('🩺', style: TextStyle(fontSize: 12)),
-                            SizedBox(width: 6),
-                            Text(
-                              'FLRD Doctor',
-                              style: TextStyle(
-                                color: AppColors.secondary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 24),
-
-          // Header Right: Full Language Selector & Actions
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              const LanguageSelectorWidget(compact: false),
-              const SizedBox(height: 12),
-              Row(
+              ),
+              child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: AppColors.surfaceCard,
-                      side: const BorderSide(color: AppColors.border),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    onPressed: () => FlutterDoctorDialog.show(context),
-                    icon: const Text(
-                      '🩺',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                    label: const Text(
-                      'FLRD Doctor',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                  Icon(
+                    Icons.auto_awesome_rounded,
+                    size: 13,
+                    color: AppColors.secondary,
                   ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: AppColors.surfaceCard,
-                      side: const BorderSide(color: AppColors.border),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    onPressed: () =>
-                        _openUrl(context, 'https://github.com/iRoobsoN/flrd'),
-                    icon: const Icon(
-                      Icons.star_rounded,
-                      size: 16,
-                      color: Colors.amber,
-                    ),
-                    label: const Text(
-                      'GitHub ⭐',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  SizedBox(width: 6),
+                  Text(
+                    'FLRD STUDIO v0.2.1 • OPEN-SOURCE ENGINE',
+                    style: TextStyle(
+                      color: AppColors.secondary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ],
               ),
-            ],
+            ),
+            const SizedBox(height: 14),
+
+            // Main Heading with Gradient
+            ShaderMask(
+              shaderCallback: (bounds) =>
+                  AppColors.primaryGradient.createShader(bounds),
+              child: Text(
+                strings.hubTitle,
+                style: const TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Subtitle
+            Text(
+              strings.hubTagline,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 15,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // 3 Anti-Obsolescence Pillar Chips
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _buildPillarChip(
+                  Icons.layers_rounded,
+                  strings.hubStatsPillar1,
+                  AppColors.primary,
+                ),
+                _buildPillarChip(
+                  Icons.security_rounded,
+                  strings.hubStatsPillar2,
+                  AppColors.secondary,
+                ),
+                _buildPillarChip(
+                  Icons.diamond_rounded,
+                  strings.hubStatsPillar3,
+                  AppColors.success,
+                ),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => FlutterDoctorDialog.show(context),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceCard,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.secondary.withOpacity(0.35),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('🩺', style: TextStyle(fontSize: 12)),
+                        SizedBox(width: 6),
+                        Text(
+                          'FLRD Doctor',
+                          style: TextStyle(
+                            color: AppColors.secondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final rightContent = Column(
+          crossAxisAlignment:
+              isNarrow ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+          children: [
+            const LanguageSelectorWidget(compact: false),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: AppColors.surfaceCard,
+                    side: const BorderSide(color: AppColors.border),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onPressed: () => FlutterDoctorDialog.show(context),
+                  icon: const Text(
+                    '🩺',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  label: const Text(
+                    'FLRD Doctor',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: AppColors.surfaceCard,
+                    side: const BorderSide(color: AppColors.border),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onPressed: () =>
+                      _openUrl(context, 'https://github.com/iRoobsoN/flrd'),
+                  icon: const Icon(
+                    Icons.star_rounded,
+                    size: 16,
+                    color: Colors.amber,
+                  ),
+                  label: const Text(
+                    'GitHub ⭐',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(isNarrow ? 20 : 28),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.border),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.surface,
+                AppColors.surfaceCard.withOpacity(0.8),
+              ],
+            ),
           ),
-        ],
-      ),
+          child: isNarrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    leftContent,
+                    const SizedBox(height: 20),
+                    rightContent,
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: leftContent),
+                    const SizedBox(width: 24),
+                    rightContent,
+                  ],
+                ),
+        );
+      },
     );
   }
 
@@ -695,13 +728,15 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                           .read(projectsProvider.notifier)
                           .scanWorkspace();
                       if (context.mounted) {
+                        final count =
+                            ref.read(projectsProvider).projects.length;
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
+                          SnackBar(
                             content: Text(
-                              'Scan complete: 3 Flutter projects recognized on this machine!',
+                              'Scan complete: $count Flutter ${count == 1 ? "project" : "projects"} recognized on this machine!',
                             ),
                             backgroundColor: AppColors.surfaceSelected,
-                            duration: Duration(seconds: 2),
+                            duration: const Duration(seconds: 2),
                           ),
                         );
                       }
@@ -769,96 +804,203 @@ class _HubScreenState extends ConsumerState<HubScreen> {
   }
 
   Widget _buildCommunityFooter(BuildContext context, AppStrings strings) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: const BoxDecoration(
-              gradient: AppColors.primaryGradient,
-              shape: BoxShape.circle,
-            ),
-            child: const Center(
-              child: Text(
-                'RD',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 620;
+
+        final authorRow = Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: const BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                shape: BoxShape.circle,
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Robson David (@iRoobsoN)',
+              child: const Center(
+                child: Text(
+                  'RD',
                   style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  strings.sponsorBannerText,
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
                     fontSize: 11,
                   ),
                 ),
-              ],
-            ),
-          ),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              side: const BorderSide(color: AppColors.border),
-              backgroundColor: AppColors.surfaceCard,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
               ),
             ),
-            onPressed: () =>
-                _openUrl(context, 'https://github.com/iRoobsoN/flrd'),
-            icon: const Icon(Icons.star_rounded, size: 14, color: Colors.amber),
-            label: Text(
-              strings.starButton,
-              style: const TextStyle(color: AppColors.textPrimary, fontSize: 12),
-            ),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Robson David (@iRoobsoN)',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    strings.sponsorBannerText,
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
               ),
             ),
-            onPressed: () => DonateDialog.show(context),
-            icon: const Icon(
-              Icons.favorite_rounded,
-              size: 14,
-              color: Colors.pinkAccent,
-            ),
-            label: Text(
-              strings.donateButton,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-            ),
+          ],
+        );
+
+        final actionButtons = Row(
+          mainAxisSize: isNarrow ? MainAxisSize.max : MainAxisSize.min,
+          children: [
+            isNarrow
+                ? Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        side: const BorderSide(color: AppColors.border),
+                        backgroundColor: AppColors.surfaceCard,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () =>
+                          _openUrl(context, 'https://github.com/iRoobsoN/flrd'),
+                      icon: const Icon(
+                        Icons.star_rounded,
+                        size: 14,
+                        color: Colors.amber,
+                      ),
+                      label: Text(
+                        strings.starButton,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  )
+                : OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      side: const BorderSide(color: AppColors.border),
+                      backgroundColor: AppColors.surfaceCard,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () =>
+                        _openUrl(context, 'https://github.com/iRoobsoN/flrd'),
+                    icon: const Icon(
+                      Icons.star_rounded,
+                      size: 14,
+                      color: Colors.amber,
+                    ),
+                    label: Text(
+                      strings.starButton,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+            const SizedBox(width: 8),
+            isNarrow
+                ? Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () => DonateDialog.show(context),
+                      icon: const Icon(
+                        Icons.favorite_rounded,
+                        size: 14,
+                        color: Colors.pinkAccent,
+                      ),
+                      label: Text(
+                        strings.donateButton,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  )
+                : ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () => DonateDialog.show(context),
+                    icon: const Icon(
+                      Icons.favorite_rounded,
+                      size: 14,
+                      color: Colors.pinkAccent,
+                    ),
+                    label: Text(
+                      strings.donateButton,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+          ],
+        );
+
+        return Container(
+          padding: EdgeInsets.symmetric(
+            vertical: isNarrow ? 16 : 20,
+            horizontal: isNarrow ? 16 : 24,
           ),
-        ],
-      ),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: isNarrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    authorRow,
+                    const SizedBox(height: 14),
+                    actionButtons,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: authorRow),
+                    const SizedBox(width: 12),
+                    actionButtons,
+                  ],
+                ),
+        );
+      },
     );
   }
 

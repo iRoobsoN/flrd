@@ -1,8 +1,26 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import '../../wizard/models/project_config.dart';
 
 class SaasPreset {
   SaasPreset._();
+
+  static File _resolveFile(String targetPath, String relativePath) {
+    return File(p.normalize(p.join(targetPath.isEmpty ? '.' : targetPath, relativePath)));
+  }
+
+  static Future<void> _writeFile(File file, String content) async {
+    try {
+      await file.parent.create(recursive: true);
+      await file.writeAsString(content);
+    } on FileSystemException catch (e) {
+      throw FileSystemException(
+        'Failed to write scaffolded preset file "${file.path}": ${e.message}',
+        file.path,
+        e.osError,
+      );
+    }
+  }
 
   static Future<void> synthesize(String targetPath, ProjectConfig config) async {
     await _writeTheme(targetPath, config);
@@ -14,12 +32,10 @@ class SaasPreset {
   }
 
   static Future<void> _writeTheme(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/core/theme/app_theme.dart');
-    await file.parent.create(recursive: true);
-
+    final file = _resolveFile(targetPath, 'lib/core/theme/app_theme.dart');
     final seedHex = config.seedColor.value.toRadixString(16).padLeft(8, '0');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -70,10 +86,9 @@ class AppTheme {
   }
 
   static Future<void> _writeAuthModels(String targetPath) async {
-    final file = File('$targetPath/lib/features/auth/models/user_model.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/features/auth/models/user_model.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 class AppUser {
   final String id;
   final String email;
@@ -99,10 +114,9 @@ class AppUser {
   }
 
   static Future<void> _writeAuthProvider(String targetPath) async {
-    final file = File('$targetPath/lib/features/auth/providers/auth_provider.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/features/auth/providers/auth_provider.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user_model.dart';
@@ -192,9 +206,8 @@ final authNotifierProvider = ChangeNotifierProvider<AuthNotifier>((ref) {
 
   static Future<void> _writeScreens(String targetPath, ProjectConfig config) async {
     // 1. Splash Screen
-    final splashFile = File('$targetPath/lib/features/splash/presentation/splash_screen.dart');
-    await splashFile.parent.create(recursive: true);
-    await splashFile.writeAsString('''
+    final splashFile = _resolveFile(targetPath, 'lib/features/splash/presentation/splash_screen.dart');
+    await _writeFile(splashFile, '''
 import 'package:flutter/material.dart';
 
 class SplashScreen extends StatelessWidget {
@@ -236,9 +249,8 @@ class SplashScreen extends StatelessWidget {
 ''');
 
     // 2. Login Screen
-    final loginFile = File('$targetPath/lib/features/auth/presentation/login_screen.dart');
-    await loginFile.parent.create(recursive: true);
-    await loginFile.writeAsString('''
+    final loginFile = _resolveFile(targetPath, 'lib/features/auth/presentation/login_screen.dart');
+    await _writeFile(loginFile, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -379,9 +391,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 ''');
 
     // 3. Register Screen
-    final registerFile = File('$targetPath/lib/features/auth/presentation/register_screen.dart');
-    await registerFile.parent.create(recursive: true);
-    await registerFile.writeAsString('''
+    final registerFile = _resolveFile(targetPath, 'lib/features/auth/presentation/register_screen.dart');
+    await _writeFile(registerFile, '''
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -414,13 +425,12 @@ class RegisterScreen extends StatelessWidget {
 ''');
 
     // 4. Shell Screen (Implements the Navigation style: Tabs, Drawer, AdaptiveRail)
-    final shellFile = File('$targetPath/lib/features/home/presentation/shell_screen.dart');
-    await shellFile.parent.create(recursive: true);
-    await shellFile.writeAsString(_generateShellCode(config));
+    final shellFile = _resolveFile(targetPath, 'lib/features/home/presentation/shell_screen.dart');
+    await _writeFile(shellFile, _generateShellCode(config));
 
     // 5. Home, Explore, and Profile Screens
-    final homeFile = File('$targetPath/lib/features/home/presentation/home_screen.dart');
-    await homeFile.writeAsString('''
+    final homeFile = _resolveFile(targetPath, 'lib/features/home/presentation/home_screen.dart');
+    await _writeFile(homeFile, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -501,8 +511,8 @@ class HomeScreen extends ConsumerWidget {
 }
 ''');
 
-    final exploreFile = File('$targetPath/lib/features/home/presentation/explore_screen.dart');
-    await exploreFile.writeAsString('''
+    final exploreFile = _resolveFile(targetPath, 'lib/features/home/presentation/explore_screen.dart');
+    await _writeFile(exploreFile, '''
 import 'package:flutter/material.dart';
 
 class ExploreScreen extends StatelessWidget {
@@ -520,8 +530,8 @@ class ExploreScreen extends StatelessWidget {
 }
 ''');
 
-    final profileFile = File('$targetPath/lib/features/home/presentation/profile_screen.dart');
-    await profileFile.writeAsString('''
+    final profileFile = _resolveFile(targetPath, 'lib/features/home/presentation/profile_screen.dart');
+    await _writeFile(profileFile, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -681,10 +691,9 @@ class ShellScreen extends StatelessWidget {
   }
 
   static Future<void> _writeRouter(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/core/router/app_router.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/core/router/app_router.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -795,10 +804,9 @@ final routerProvider = Provider<GoRouter>((ref) {
   }
 
   static Future<void> _writeMain(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/main.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/main.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';

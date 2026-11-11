@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../models/template_submission.dart';
@@ -63,7 +64,18 @@ class _PublishTemplateDialogState extends ConsumerState<PublishTemplateDialog> {
     super.dispose();
   }
 
-  double get _currentPrice => double.tryParse(_priceController.text) ?? 0.0;
+  double get _currentPrice {
+    final raw = _priceController.text.trim();
+    if (raw.isEmpty) return 0.0;
+    // Strip currency symbols and normalize comma separators
+    final sanitized = raw.replaceAll(r'$', '').replaceAll(',', '.').trim();
+    final parsed = double.tryParse(sanitized);
+    if (parsed == null || parsed.isNaN || parsed.isInfinite || parsed <= 0.0) {
+      return 0.0;
+    }
+    return parsed;
+  }
+
   bool get _isBelowFloor => _currentPrice < _selectedTier.minimumPriceUsd;
 
   Future<void> _runAudit() async {
@@ -93,6 +105,7 @@ class _PublishTemplateDialogState extends ConsumerState<PublishTemplateDialog> {
       projectDir: projectDir,
     );
 
+    if (!mounted) return;
     setState(() {
       _isAuditing = false;
       _auditResult = result;
@@ -132,6 +145,7 @@ class _PublishTemplateDialogState extends ConsumerState<PublishTemplateDialog> {
       );
     }
 
+    if (!mounted) return;
     setState(() {
       _manifestGenerated = true;
     });
@@ -428,7 +442,10 @@ class _PublishTemplateDialogState extends ConsumerState<PublishTemplateDialog> {
                 width: 180,
                 child: TextField(
                   controller: _priceController,
-                  keyboardType: TextInputType.number,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d*[\.,]?\d{0,2}')),
+                  ],
                   onChanged: (_) => setState(() {}),
                   style: const TextStyle(
                     color: AppColors.textPrimary,

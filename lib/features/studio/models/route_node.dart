@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../wizard/models/project_config.dart';
 
+const _nodeSentinel = Object();
+
 class RouteNode {
   final String id;
   final String path;
@@ -39,7 +41,7 @@ class RouteNode {
     List<DevicePermission>? requiredPermissions,
     Offset? position,
     String? filePath,
-    String? parentRouteId,
+    Object? parentRouteId = _nodeSentinel,
   }) {
     return RouteNode(
       id: id ?? this.id,
@@ -52,7 +54,9 @@ class RouteNode {
       requiredPermissions: requiredPermissions ?? this.requiredPermissions,
       position: position ?? this.position,
       filePath: filePath ?? this.filePath,
-      parentRouteId: parentRouteId ?? this.parentRouteId,
+      parentRouteId: identical(parentRouteId, _nodeSentinel)
+          ? this.parentRouteId
+          : parentRouteId as String?,
     );
   }
 }

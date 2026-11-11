@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../models/project_name_validator.dart';
 import '../controllers/wizard_controller.dart';
 
 class ProjectInfoTab extends ConsumerStatefulWidget {
@@ -108,8 +109,10 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
             label: 'PROJECT NAME',
             hint: 'e.g. my_saas_app',
             helperText: 'Use lowercase letters and underscores (standard Flutter naming).',
+            errorText: ProjectNameValidator.validate(_nameController.text),
             controller: _nameController,
             onChanged: (val) {
+              setState(() {});
               notifier.updateConfig((c) => c.copyWith(projectName: val.trim()));
             },
           ),
@@ -120,8 +123,10 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
             label: 'ORGANIZATION / BUNDLE IDENTIFIER',
             hint: 'e.g. com.company, dev.robson',
             helperText: 'Your reverse domain name used for Android package and iOS bundle.',
+            errorText: OrgIdValidator.validate(_orgController.text),
             controller: _orgController,
             onChanged: (val) {
+              setState(() {});
               notifier.updateConfig((c) => c.copyWith(orgId: val.trim()));
             },
           ),
@@ -220,6 +225,7 @@ class _FormField extends StatelessWidget {
   final String label;
   final String hint;
   final String helperText;
+  final String? errorText;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
 
@@ -227,6 +233,7 @@ class _FormField extends StatelessWidget {
     required this.label,
     required this.hint,
     required this.helperText,
+    this.errorText,
     required this.controller,
     required this.onChanged,
   });
@@ -249,14 +256,19 @@ class _FormField extends StatelessWidget {
         TextField(
           controller: controller,
           style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
-          decoration: InputDecoration(hintText: hint),
+          decoration: InputDecoration(
+            hintText: hint,
+            errorText: errorText,
+          ),
           onChanged: onChanged,
         ),
-        const SizedBox(height: 6),
-        Text(
-          helperText,
-          style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-        ),
+        if (errorText == null) ...[
+          const SizedBox(height: 6),
+          Text(
+            helperText,
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+          ),
+        ],
       ],
     );
   }

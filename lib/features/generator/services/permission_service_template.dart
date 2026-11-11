@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import '../../wizard/models/project_config.dart';
 
 class PermissionServiceTemplate {
@@ -7,8 +8,20 @@ class PermissionServiceTemplate {
   static Future<void> synthesize(String targetPath, Set<DevicePermission> permissions) async {
     if (permissions.isEmpty) return;
 
-    final file = File('$targetPath/lib/core/services/permission_service.dart');
-    await file.parent.create(recursive: true);
+    final filePath = p.normalize(
+      p.join(targetPath, 'lib', 'core', 'services', 'permission_service.dart'),
+    );
+    final file = File(filePath);
+
+    try {
+      await file.parent.create(recursive: true);
+    } on FileSystemException catch (e) {
+      throw FileSystemException(
+        'Failed to create parent directory for permission service: ${e.message}',
+        file.parent.path,
+        e.osError,
+      );
+    }
 
     final buffer = StringBuffer();
     buffer.writeln('''
@@ -66,7 +79,16 @@ class PermissionService {
     }
 
     buffer.writeln('}');
-    await file.writeAsString(buffer.toString());
+
+    try {
+      await file.writeAsString(buffer.toString());
+    } on FileSystemException catch (e) {
+      throw FileSystemException(
+        'Failed to write permission service: ${e.message}',
+        file.path,
+        e.osError,
+      );
+    }
   }
 
   static String _getMethodName(DevicePermission perm) {

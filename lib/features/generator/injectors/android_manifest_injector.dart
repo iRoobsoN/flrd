@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 import '../../wizard/models/project_config.dart';
 
@@ -10,9 +11,17 @@ class AndroidManifestInjector {
     required String projectRoot,
     required Set<DevicePermission> permissions,
   }) async {
-    final manifestFile = File(
-      '$projectRoot/android/app/src/main/AndroidManifest.xml',
+    final manifestPath = p.normalize(
+      p.join(
+        projectRoot.isEmpty ? '.' : projectRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'AndroidManifest.xml',
+      ),
     );
+    final manifestFile = File(manifestPath);
 
     if (!await manifestFile.exists()) {
       return false;
@@ -44,6 +53,8 @@ class AndroidManifestInjector {
 
       await manifestFile.writeAsString(document.toXmlString(pretty: true, indent: '    '));
       return true;
+    } on FileSystemException {
+      return false;
     } catch (_) {
       return false;
     }

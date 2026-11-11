@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../wizard/models/project_config.dart';
 import '../models/route_node.dart';
 
+const _studioSentinel = Object();
+
 class StudioState {
   final List<RouteNode> nodes;
   final String? selectedNodeId;
@@ -25,12 +27,14 @@ class StudioState {
 
   StudioState copyWith({
     List<RouteNode>? nodes,
-    String? selectedNodeId,
+    Object? selectedNodeId = _studioSentinel,
     double? zoomScale,
   }) {
     return StudioState(
       nodes: nodes ?? this.nodes,
-      selectedNodeId: selectedNodeId ?? this.selectedNodeId,
+      selectedNodeId: identical(selectedNodeId, _studioSentinel)
+          ? this.selectedNodeId
+          : selectedNodeId as String?,
       zoomScale: zoomScale ?? this.zoomScale,
     );
   }

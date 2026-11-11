@@ -1,8 +1,26 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import '../../wizard/models/project_config.dart';
 
 class CleanLitePreset {
   CleanLitePreset._();
+
+  static File _resolveFile(String targetPath, String relativePath) {
+    return File(p.normalize(p.join(targetPath.isEmpty ? '.' : targetPath, relativePath)));
+  }
+
+  static Future<void> _writeFile(File file, String content) async {
+    try {
+      await file.parent.create(recursive: true);
+      await file.writeAsString(content);
+    } on FileSystemException catch (e) {
+      throw FileSystemException(
+        'Failed to write scaffolded preset file "${file.path}": ${e.message}',
+        file.path,
+        e.osError,
+      );
+    }
+  }
 
   static Future<void> synthesize(String targetPath, ProjectConfig config) async {
     await _writeTheme(targetPath, config);
@@ -16,12 +34,10 @@ class CleanLitePreset {
   }
 
   static Future<void> _writeTheme(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/core/theme/app_theme.dart');
-    await file.parent.create(recursive: true);
-
+    final file = _resolveFile(targetPath, 'lib/core/theme/app_theme.dart');
     final seedHex = config.seedColor.value.toRadixString(16).padLeft(8, '0');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -72,10 +88,9 @@ class AppTheme {
   }
 
   static Future<void> _writeErrors(String targetPath) async {
-    final file = File('$targetPath/lib/core/errors/failures.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/core/errors/failures.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 /// Idiomatic Dart 3 sealed class hierarchy for enterprise-grade error handling.
 sealed class Failure {
   final String message;
@@ -102,10 +117,9 @@ class CacheFailure extends Failure {
   }
 
   static Future<void> _writeNetwork(String targetPath) async {
-    final file = File('$targetPath/lib/core/network/dio_client.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/core/network/dio_client.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:dio/dio.dart';
 import '../errors/failures.dart';
 
@@ -163,9 +177,8 @@ class DioClient {
 
   static Future<void> _writeAuthFeature(String targetPath) async {
     // 1. Model
-    final modelFile = File('$targetPath/lib/features/auth/data/models/user_model.dart');
-    await modelFile.parent.create(recursive: true);
-    await modelFile.writeAsString('''
+    final modelFile = _resolveFile(targetPath, 'lib/features/auth/data/models/user_model.dart');
+    await _writeFile(modelFile, '''
 class UserModel {
   final String id;
   final String email;
@@ -186,9 +199,8 @@ class UserModel {
 ''');
 
     // 2. Repository
-    final repoFile = File('$targetPath/lib/features/auth/data/repositories/auth_repository.dart');
-    await repoFile.parent.create(recursive: true);
-    await repoFile.writeAsString('''
+    final repoFile = _resolveFile(targetPath, 'lib/features/auth/data/repositories/auth_repository.dart');
+    await _writeFile(repoFile, '''
 import '../../../../core/network/dio_client.dart';
 import '../models/user_model.dart';
 
@@ -235,10 +247,8 @@ class AuthRepositoryImpl implements AuthRepository {
 ''');
 
     // 3. BLoC (Event, State, Bloc)
-    final blocFolder = '$targetPath/lib/features/auth/bloc';
-    final eventFile = File('$blocFolder/auth_event.dart');
-    await eventFile.parent.create(recursive: true);
-    await eventFile.writeAsString('''
+    final eventFile = _resolveFile(targetPath, 'lib/features/auth/bloc/auth_event.dart');
+    await _writeFile(eventFile, '''
 import 'package:flutter/foundation.dart';
 
 @immutable
@@ -255,8 +265,8 @@ class AuthLoginSubmitted extends AuthEvent {
 class AuthLogoutRequested extends AuthEvent {}
 ''');
 
-    final stateFile = File('$blocFolder/auth_state.dart');
-    await stateFile.writeAsString('''
+    final stateFile = _resolveFile(targetPath, 'lib/features/auth/bloc/auth_state.dart');
+    await _writeFile(stateFile, '''
 import 'package:flutter/foundation.dart';
 import '../data/models/user_model.dart';
 
@@ -282,8 +292,8 @@ class AuthFailureState extends AuthState {
 }
 ''');
 
-    final blocFile = File('$blocFolder/auth_bloc.dart');
-    await blocFile.writeAsString('''
+    final blocFile = _resolveFile(targetPath, 'lib/features/auth/bloc/auth_bloc.dart');
+    await _writeFile(blocFile, '''
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../data/repositories/auth_repository.dart';
 import 'auth_event.dart';
@@ -330,10 +340,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   static Future<void> _writeDi(String targetPath) async {
-    final file = File('$targetPath/lib/core/di/injection.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/core/di/injection.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:get_it/get_it.dart';
 import '../network/dio_client.dart';
 import '../../features/auth/data/repositories/auth_repository.dart';
@@ -361,9 +370,8 @@ Future<void> setupLocator() async {
 
   static Future<void> _writeScreens(String targetPath, ProjectConfig config) async {
     // 1. Splash Screen
-    final splashFile = File('$targetPath/lib/features/splash/presentation/splash_screen.dart');
-    await splashFile.parent.create(recursive: true);
-    await splashFile.writeAsString('''
+    final splashFile = _resolveFile(targetPath, 'lib/features/splash/presentation/splash_screen.dart');
+    await _writeFile(splashFile, '''
 import 'package:flutter/material.dart';
 
 class SplashScreen extends StatelessWidget {
@@ -401,9 +409,8 @@ class SplashScreen extends StatelessWidget {
 ''');
 
     // 2. Login Page with BlocConsumer
-    final loginFile = File('$targetPath/lib/features/auth/presentation/login_page.dart');
-    await loginFile.parent.create(recursive: true);
-    await loginFile.writeAsString('''
+    final loginFile = _resolveFile(targetPath, 'lib/features/auth/presentation/login_page.dart');
+    await _writeFile(loginFile, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -534,13 +541,12 @@ class _LoginPageState extends State<LoginPage> {
 ''');
 
     // 3. Shell Screen (Tabs, Drawer, or AdaptiveRail)
-    final shellFile = File('$targetPath/lib/features/home/presentation/shell_screen.dart');
-    await shellFile.parent.create(recursive: true);
-    await shellFile.writeAsString(_generateShellCode(config));
+    final shellFile = _resolveFile(targetPath, 'lib/features/home/presentation/shell_screen.dart');
+    await _writeFile(shellFile, _generateShellCode(config));
 
     // 4. Home Page
-    final homeFile = File('$targetPath/lib/features/home/presentation/home_page.dart');
-    await homeFile.writeAsString('''
+    final homeFile = _resolveFile(targetPath, 'lib/features/home/presentation/home_page.dart');
+    await _writeFile(homeFile, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -635,8 +641,8 @@ class HomePage extends StatelessWidget {
 }
 ''');
 
-    final settingsFile = File('$targetPath/lib/features/home/presentation/settings_page.dart');
-    await settingsFile.writeAsString('''
+    final settingsFile = _resolveFile(targetPath, 'lib/features/home/presentation/settings_page.dart');
+    await _writeFile(settingsFile, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../auth/bloc/auth_bloc.dart';
@@ -789,10 +795,9 @@ class ShellScreen extends StatelessWidget {
   }
 
   static Future<void> _writeRouter(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/core/router/app_router.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/core/router/app_router.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/login_page.dart';
@@ -844,10 +849,9 @@ final appRouter = GoRouter(
   }
 
   static Future<void> _writeMain(String targetPath, ProjectConfig config) async {
-    final file = File('$targetPath/lib/main.dart');
-    await file.parent.create(recursive: true);
+    final file = _resolveFile(targetPath, 'lib/main.dart');
 
-    await file.writeAsString('''
+    await _writeFile(file, '''
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'core/di/injection.dart';

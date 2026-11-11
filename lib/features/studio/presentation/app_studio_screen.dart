@@ -178,135 +178,151 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            widget.project.name,
-                            style: const TextStyle(
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                widget.project.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: AppColors.primary.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Text(
+                                widget.project.preset.name.toUpperCase(),
+                                style: const TextStyle(
+                                  color: AppColors.secondary,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.project.path,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            color: AppColors.textMuted.withOpacity(0.8),
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+
+                  // Quick Action Buttons
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.border),
+                            backgroundColor: AppColors.surface,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          onPressed: _openDirectory,
+                          icon: const Icon(
+                            Icons.folder_open_rounded,
+                            size: 14,
+                            color: AppColors.textSecondary,
+                          ),
+                          label: const Text(
+                            'Folder',
+                            style: TextStyle(
                               color: AppColors.textPrimary,
-                              fontSize: 14,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          onPressed: _openVsCode,
+                          icon: const Icon(Icons.code_rounded, size: 14),
+                          label: const Text(
+                            'Open VS Code',
+                            style: TextStyle(
+                              fontSize: 11,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Container(
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.secondary),
+                            backgroundColor: AppColors.surface,
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
+                              horizontal: 10,
+                              vertical: 6,
                             ),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: AppColors.primary.withOpacity(0.3),
-                              ),
-                            ),
-                            child: Text(
-                              widget.project.preset.name.toUpperCase(),
-                              style: const TextStyle(
-                                color: AppColors.secondary,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.project.path,
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          color: AppColors.textMuted.withOpacity(0.8),
-                          fontSize: 10,
+                          onPressed: () => PublishTemplateDialog.show(
+                            context,
+                            projectPath: widget.project.path,
+                          ),
+                          icon: const Icon(
+                            Icons.verified_user_outlined,
+                            size: 14,
+                            color: AppColors.secondary,
+                          ),
+                          label: const Text(
+                            'Publish',
+                            style: TextStyle(
+                              color: AppColors.secondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-
-                  // Quick Action Buttons
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.border),
-                      backgroundColor: AppColors.surface,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    onPressed: _openDirectory,
-                    icon: const Icon(
-                      Icons.folder_open_rounded,
-                      size: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                    label: const Text(
-                      'Folder',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    onPressed: _openVsCode,
-                    icon: const Icon(Icons.code_rounded, size: 14),
-                    label: const Text(
-                      'Open VS Code',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.secondary),
-                      backgroundColor: AppColors.surface,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    onPressed: () => PublishTemplateDialog.show(
-                      context,
-                      projectPath: widget.project.path,
-                    ),
-                    icon: const Icon(
-                      Icons.verified_user_outlined,
-                      size: 14,
-                      color: AppColors.secondary,
-                    ),
-                    label: const Text(
-                      'Publish',
-                      style: TextStyle(
-                        color: AppColors.secondary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      ],
                     ),
                   ),
                 ],
@@ -323,6 +339,8 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
               ),
               child: TabBar(
                 controller: _tabController,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
                 indicatorColor: AppColors.primary,
                 indicatorWeight: 2,
                 labelColor: AppColors.primary,
@@ -377,156 +395,172 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     StudioNotifier notifier,
     RouteNode? selectedNode,
   ) {
-    return Row(
-      children: [
-        // Flowchart Canvas Area
-        Expanded(
-          child: Stack(
-            children: [
-              // Zoomable & Pannable Canvas
-              InteractiveViewer(
-                transformationController: _transformationController,
-                minScale: 0.4,
-                maxScale: 2.2,
-                boundaryMargin: const EdgeInsets.all(800),
-                constrained: false,
-                child: SizedBox(
-                  width: 1800,
-                  height: 900,
-                  child: Stack(
-                    children: [
-                      // Canvas Paint Layer (Dot-Grid + Curved Arrow Connections)
-                      Positioned.fill(
-                        child: CustomPaint(
-                          painter: RouteConnectorPainter(
-                            nodes: studio.nodes,
-                            selectedNodeId: studio.selectedNodeId,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrowScreen = constraints.maxWidth < 800;
+        final sidebarWidth = isNarrowScreen
+            ? (constraints.maxWidth < 500
+                ? constraints.maxWidth
+                : constraints.maxWidth * 0.5)
+            : 440.0;
+        final canvasWidth = selectedNode != null
+            ? constraints.maxWidth - sidebarWidth
+            : constraints.maxWidth;
+        final isNarrowCanvas = canvasWidth < 480;
+
+        return Row(
+          children: [
+            // Flowchart Canvas Area
+            Expanded(
+              child: Stack(
+                children: [
+                  // Zoomable & Pannable Canvas
+                  InteractiveViewer(
+                    transformationController: _transformationController,
+                    minScale: 0.4,
+                    maxScale: 2.2,
+                    boundaryMargin: const EdgeInsets.all(800),
+                    constrained: false,
+                    child: SizedBox(
+                      width: 1800,
+                      height: 900,
+                      child: Stack(
+                        children: [
+                          // Canvas Paint Layer (Dot-Grid + Curved Arrow Connections)
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: RouteConnectorPainter(
+                                nodes: studio.nodes,
+                                selectedNodeId: studio.selectedNodeId,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
 
-                      // Interactive Node Cards
-                      ...studio.nodes.map((node) {
-                        return Positioned(
-                          left: node.position.dx,
-                          top: node.position.dy,
-                          child: RouteNodeCard(
-                            node: node,
-                            isSelected: node.id == studio.selectedNodeId,
-                            onTap: () => notifier.selectNode(node.id),
-                            onDrag: (newPos) =>
-                                notifier.updateNodePosition(node.id, newPos),
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Floating Canvas Controls & AI Generator Trigger
-              Positioned(
-                top: 16,
-                left: 16,
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface.withOpacity(0.92),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Aumentar Zoom',
-                        icon: const Icon(Icons.add_rounded, size: 16),
-                        color: AppColors.textPrimary,
-                        onPressed: _zoomIn,
-                      ),
-                      IconButton(
-                        tooltip: 'Diminuir Zoom',
-                        icon: const Icon(Icons.remove_rounded, size: 16),
-                        color: AppColors.textPrimary,
-                        onPressed: _zoomOut,
-                      ),
-                      IconButton(
-                        tooltip: 'Centralizar Visualização',
-                        icon: const Icon(Icons.center_focus_strong_rounded, size: 16),
-                        color: AppColors.textPrimary,
-                        onPressed: _resetZoom,
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        width: 1,
-                        height: 20,
-                        color: AppColors.border,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${studio.nodes.length} Routes Mapped',
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Top Right Action Buttons: AI Screen Gen & Add Node
-              Positioned(
-                top: 16,
-                right: 16,
-                child: Row(
-                  children: [
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.secondary,
-                        foregroundColor: AppColors.background,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      onPressed: () => AiScreenGeneratorDialog.show(
-                        context,
-                        widget.project,
-                      ),
-                      icon: const Icon(Icons.auto_awesome_rounded, size: 15),
-                      label: const Text(
-                        'Generate Screen with AI',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
+                          // Interactive Node Cards
+                          ...studio.nodes.map((node) {
+                            return Positioned(
+                              left: node.position.dx,
+                              top: node.position.dy,
+                              child: RouteNodeCard(
+                                node: node,
+                                isSelected: node.id == studio.selectedNodeId,
+                                onTap: () => notifier.selectNode(node.id),
+                                onDrag: (newPos) =>
+                                    notifier.updateNodePosition(node.id, newPos),
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+                  ),
 
-        // Node Inspector Sidebar (When a node is selected)
-        if (selectedNode != null) ...[
-          Container(
-            width: 440,
-            decoration: const BoxDecoration(
-              color: AppColors.backgroundSecondary,
-              border: Border(
-                left: BorderSide(color: AppColors.borderSubtle),
+                  // Floating Canvas Controls & AI Generator Trigger
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface.withOpacity(0.92),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: 'Aumentar Zoom',
+                            icon: const Icon(Icons.add_rounded, size: 16),
+                            color: AppColors.textPrimary,
+                            onPressed: _zoomIn,
+                          ),
+                          IconButton(
+                            tooltip: 'Diminuir Zoom',
+                            icon: const Icon(Icons.remove_rounded, size: 16),
+                            color: AppColors.textPrimary,
+                            onPressed: _zoomOut,
+                          ),
+                          IconButton(
+                            tooltip: 'Centralizar Visualização',
+                            icon: const Icon(Icons.center_focus_strong_rounded, size: 16),
+                            color: AppColors.textPrimary,
+                            onPressed: _resetZoom,
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 1,
+                            height: 20,
+                            color: AppColors.border,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${studio.nodes.length} Routes Mapped',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Action Button: AI Screen Gen (Repositions dynamically when canvas is narrow)
+                  Positioned(
+                    top: isNarrowCanvas ? 72 : 16,
+                    right: isNarrowCanvas ? null : 16,
+                    left: isNarrowCanvas ? 16 : null,
+                    child: Row(
+                      children: [
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.secondary,
+                            foregroundColor: AppColors.background,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          onPressed: () => AiScreenGeneratorDialog.show(
+                            context,
+                            widget.project,
+                          ),
+                          icon: const Icon(Icons.auto_awesome_rounded, size: 15),
+                          label: const Text(
+                            'Generate Screen with AI',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: _buildNodeInspector(selectedNode, notifier),
-          ),
-        ],
-      ],
+
+            // Node Inspector Sidebar (When a node is selected)
+            if (selectedNode != null) ...[
+              Container(
+                width: sidebarWidth,
+                decoration: const BoxDecoration(
+                  color: AppColors.backgroundSecondary,
+                  border: Border(
+                    left: BorderSide(color: AppColors.borderSubtle),
+                  ),
+                ),
+                child: _buildNodeInspector(selectedNode, notifier),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -657,117 +691,133 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   }
 
   Widget _buildRouteDetailsContent(RouteNode node, StudioNotifier notifier) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Route Path
-        const Text(
-          'GoRouter Route Path',
-          style: TextStyle(
-            color: AppColors.textMuted,
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: AppColors.borderSubtle),
-          ),
-          child: Text(
-            node.path,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              color: AppColors.secondary,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Route Path
+                  const Text(
+                    'GoRouter Route Path',
+                    style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.borderSubtle),
+                    ),
+                    child: Text(
+                      node.path,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        color: AppColors.secondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
 
-        // File Path
-        const Text(
-          'Source Code File',
-          style: TextStyle(
-            color: AppColors.textMuted,
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          node.filePath,
-          style: const TextStyle(
-            fontFamily: 'monospace',
-            color: AppColors.textSecondary,
-            fontSize: 11,
-          ),
-        ),
-        const SizedBox(height: 14),
+                  // File Path
+                  const Text(
+                    'Source Code File',
+                    style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    node.filePath,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
 
-        // Protection Badge
-        Row(
-          children: [
-            Icon(
-              node.isProtected ? Icons.lock_rounded : Icons.lock_open_rounded,
-              size: 14,
-              color: node.isProtected ? AppColors.primary : AppColors.textMuted,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              node.isProtected ? 'Protected by Auth Guard' : 'Public Route',
-              style: TextStyle(
-                color: node.isProtected
-                    ? AppColors.textPrimary
-                    : AppColors.textMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
+                  // Protection Badge
+                  Row(
+                    children: [
+                      Icon(
+                        node.isProtected ? Icons.lock_rounded : Icons.lock_open_rounded,
+                        size: 14,
+                        color: node.isProtected ? AppColors.primary : AppColors.textMuted,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        node.isProtected ? 'Protected by Auth Guard' : 'Public Route',
+                        style: TextStyle(
+                          color: node.isProtected
+                              ? AppColors.textPrimary
+                              : AppColors.textMuted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  const SizedBox(height: 16),
+
+                  // Node Actions
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.border),
+                        backgroundColor: AppColors.surface,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: _openVsCode,
+                      icon: const Icon(Icons.code_rounded, size: 14),
+                      label: const Text(
+                        'Open File in VS Code',
+                        style: TextStyle(color: AppColors.textPrimary, fontSize: 11),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (node.id != 'root')
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                        ),
+                        onPressed: () => notifier.removeNode(node.id),
+                        icon: const Icon(Icons.delete_outline_rounded, size: 14),
+                        label: const Text('Remove Route from Graph',
+                            style: TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                ],
               ),
             ),
-          ],
-        ),
-        const Spacer(),
-
-        // Node Actions
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: AppColors.border),
-              backgroundColor: AppColors.surface,
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            onPressed: _openVsCode,
-            icon: const Icon(Icons.code_rounded, size: 14),
-            label: const Text(
-              'Open File in VS Code',
-              style: TextStyle(color: AppColors.textPrimary, fontSize: 11),
-            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        if (node.id != 'root')
-          SizedBox(
-            width: double.infinity,
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.danger,
-              ),
-              onPressed: () => notifier.removeNode(node.id),
-              icon: const Icon(Icons.delete_outline_rounded, size: 14),
-              label: const Text('Remove Route from Graph',
-                  style: TextStyle(fontSize: 11)),
-            ),
-          ),
-      ],
+        );
+      },
     );
   }
 

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 import '../../wizard/models/project_config.dart';
 
@@ -10,7 +11,15 @@ class IosPlistInjector {
     required String projectRoot,
     required Set<DevicePermission> permissions,
   }) async {
-    final plistFile = File('$projectRoot/ios/Runner/Info.plist');
+    final plistPath = p.normalize(
+      p.join(
+        projectRoot.isEmpty ? '.' : projectRoot,
+        'ios',
+        'Runner',
+        'Info.plist',
+      ),
+    );
+    final plistFile = File(plistPath);
 
     if (!await plistFile.exists()) {
       return false;
@@ -47,6 +56,8 @@ class IosPlistInjector {
 
       await plistFile.writeAsString(document.toXmlString(pretty: true, indent: '\t'));
       return true;
+    } on FileSystemException {
+      return false;
     } catch (_) {
       return false;
     }

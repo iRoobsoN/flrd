@@ -5,9 +5,12 @@ import '../models/template_submission.dart';
 class TemplateGuardianService {
   static const double maxAllowedSimilarity = 0.70; // 70% max similarity to prevent clones
 
-  /// Validates that the requested price meets or exceeds the mandatory category floor
+  /// Validates that the requested price meets or exceeds the mandatory category floor.
+  /// Rejects zero, negative values, NaN, and infinity to prevent floor price bypasses.
   bool isPriceFloorValid({required TemplateTier tier, required double priceUsd}) {
-    if (priceUsd == 0.0) return true; // Free community templates are permitted
+    if (priceUsd.isNaN || priceUsd.isInfinite || priceUsd <= 0.0) {
+      return false;
+    }
     return priceUsd >= tier.minimumPriceUsd;
   }
 
@@ -196,8 +199,11 @@ class TemplateGuardianService {
     );
 
     if (!isPriceFloorMet) {
+      final formattedPrice = (submission.priceUsd.isNaN || submission.priceUsd.isInfinite)
+          ? 'inválido'
+          : '\$${submission.priceUsd.toStringAsFixed(2)}';
       errors.add(
-        'O preço (\$${submission.priceUsd.toStringAsFixed(2)}) é inferior ao piso mínimo da categoria "${submission.tier.label}" (\$${submission.tier.minimumPriceUsd.toStringAsFixed(2)}). Para manter a integridade e evitar prostituição de mercado, ajuste o valor.',
+        'O preço ($formattedPrice) é inferior ao piso mínimo da categoria "${submission.tier.label}" (\$${submission.tier.minimumPriceUsd.toStringAsFixed(2)}). Para manter a integridade e evitar prostituição de mercado, ajuste o valor.',
       );
     }
 
@@ -274,9 +280,13 @@ class TemplateGuardianService {
         'platform_split': 0.25,
       },
       'commercial': {
-        'price_usd': submission.priceUsd,
+        'price_usd': (submission.priceUsd.isNaN || submission.priceUsd.isInfinite)
+            ? 0.0
+            : submission.priceUsd,
         'currency': 'USD',
-        'creator_earnings_usd': submission.creatorEarningsUsd,
+        'creator_earnings_usd': (submission.priceUsd.isNaN || submission.priceUsd.isInfinite)
+            ? 0.0
+            : submission.creatorEarningsUsd,
         'license_type': 'FLRD_COMMERCIAL_LICENSE_V1',
         'no_resale_clause': true,
       },

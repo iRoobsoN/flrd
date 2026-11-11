@@ -96,9 +96,18 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
   }
 
   Future<void> _copyToClipboard(String text, String successMessage) async {
-    await Clipboard.setData(ClipboardData(text: text));
+    if (text.isEmpty) return;
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+    } catch (e) {
+      debugPrint('Failed to copy to clipboard: $e');
+      return;
+    }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
       SnackBar(
         content: Row(
           children: [
@@ -120,13 +129,24 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
   }
 
   Future<void> _openUrl(String url) async {
-    final uri = Uri.parse(url);
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('Invalid link: $url'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(
             content: Text('Could not open link: $url'),
             backgroundColor: AppColors.danger,
@@ -135,7 +155,7 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text('Error opening link: $e'),
           backgroundColor: AppColors.danger,
@@ -407,28 +427,34 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     // Health Score text: e.g. "6/7 Componentes Prontos - 85%"
-                    Row(
-                      children: [
-                        Icon(
-                          report.isAllHealthy
-                              ? Icons.check_circle_rounded
-                              : (report.hasIssues
-                                  ? Icons.health_and_safety_rounded
-                                  : Icons.info_outline_rounded),
-                          size: 15,
-                          color: progressColor,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${report.healthyCount}/${report.totalCount} $readyLabel - $scorePercentage%',
-                          style: TextStyle(
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(
+                            report.isAllHealthy
+                                ? Icons.check_circle_rounded
+                                : (report.hasIssues
+                                    ? Icons.health_and_safety_rounded
+                                    : Icons.info_outline_rounded),
+                            size: 15,
                             color: progressColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              '${report.healthyCount}/${report.totalCount} $readyLabel - $scorePercentage%',
+                              style: TextStyle(
+                                color: progressColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
 
                     // Status Pill Badge
                     if (isScanning)
@@ -574,70 +600,66 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              // "Re-escanear Agora" Button
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isScanning ? AppColors.surfaceHover : AppColors.primary,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                onPressed: isScanning ? null : _handleRescan,
-                icon: isScanning
-                    ? const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.secondary,
-                        ),
-                      )
-                    : const Icon(Icons.refresh_rounded, size: 14),
-                label: Text(
-                  isScanning ? scanningBtnLabel : strings.doctorRescan,
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              ),
+          // "Re-escanear Agora" Button
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isScanning ? AppColors.surfaceHover : AppColors.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: isScanning ? null : _handleRescan,
+            icon: isScanning
+                ? const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.secondary,
+                    ),
+                  )
+                : const Icon(Icons.refresh_rounded, size: 14),
+            label: Text(
+              isScanning ? scanningBtnLabel : strings.doctorRescan,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
 
-              // Filter Segmented Buttons
-              Container(
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.borderSubtle),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+          // Filter Segmented Buttons
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildFilterButton(
+                    label: '$filterAllLabel (${report.totalCount})',
+                    isSelected: _filter == null,
+                    onTap: () => setState(() => _filter = null),
+                  ),
+                  if (report.warningCount + report.missingCount > 0)
                     _buildFilterButton(
-                      label: '$filterAllLabel (${report.totalCount})',
-                      isSelected: _filter == null,
-                      onTap: () => setState(() => _filter = null),
+                      label: '$filterIssuesLabel (${report.warningCount + report.missingCount})',
+                      isSelected: _filter == 'issues',
+                      color: AppColors.warning,
+                      onTap: () => setState(() => _filter = 'issues'),
                     ),
-                    if (report.warningCount + report.missingCount > 0)
-                      _buildFilterButton(
-                        label: '$filterIssuesLabel (${report.warningCount + report.missingCount})',
-                        isSelected: _filter == 'issues',
-                        color: AppColors.warning,
-                        onTap: () => setState(() => _filter = 'issues'),
-                      ),
-                    _buildFilterButton(
-                      label: '$filterHealthyLabel (${report.healthyCount})',
-                      isSelected: _filter == 'healthy',
-                      color: AppColors.success,
-                      onTap: () => setState(() => _filter = 'healthy'),
-                    ),
-                  ],
-                ),
+                  _buildFilterButton(
+                    label: '$filterHealthyLabel (${report.healthyCount})',
+                    isSelected: _filter == 'healthy',
+                    color: AppColors.success,
+                    onTap: () => setState(() => _filter = 'healthy'),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
 
           // Expand All / Collapse All Button

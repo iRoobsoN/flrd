@@ -5,7 +5,9 @@ class LanguageNotifier extends StateNotifier<AppLanguage> {
   LanguageNotifier() : super(AppLanguage.en);
 
   void setLanguage(AppLanguage language) {
-    state = language;
+    if (mounted) {
+      state = language;
+    }
   }
 }
 
