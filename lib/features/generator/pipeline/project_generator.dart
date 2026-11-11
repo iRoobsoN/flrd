@@ -139,7 +139,12 @@ class ProjectGenerator {
       onLog('🎉 Step 5/5: FLRD scaffolding complete! Opening project...');
       return true;
     } catch (e) {
-      onLog('❌ Unexpected error: $e');
+      if (e.toString().contains('cannot find') || e.toString().contains('not found')) {
+        onLog('⚠️ Flutter executable not found in system PATH.');
+        onLog('💡 Download Flutter SDK at: https://docs.flutter.dev/get-started/install');
+      } else {
+        onLog('❌ Unexpected error: $e');
+      }
       return false;
     }
   }

@@ -2,7 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:process_run/process_run.dart';
+import '../../../core/services/flutter_sdk_service.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/flutter_sdk_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
 import 'controllers/wizard_controller.dart';
 import 'widgets/wizard_sidebar.dart';
@@ -36,6 +38,24 @@ class WizardScreen extends ConsumerWidget {
   }
 
   void _showGenerationDialog(BuildContext context, WidgetRef ref) {
+    final sdk = ref.read(flutterSdkProvider);
+
+    if (!kIsWeb && !sdk.isInstalled) {
+      FlutterSdkDialog.show(
+        context,
+        requiredForGeneration: true,
+        onProceedDryRun: () {
+          Navigator.of(context).pop();
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => _GenerationProgressDialog(),
+          );
+        },
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,

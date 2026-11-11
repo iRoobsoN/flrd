@@ -220,4 +220,40 @@ class AppStrings {
     AppLanguage.en => 'Settings & Billing',
     AppLanguage.es => 'Configuración y Facturación',
   };
+
+  String get flutterSdkChecking => switch (language) {
+    AppLanguage.pt => 'Checando Flutter...',
+    AppLanguage.en => 'Checking Flutter...',
+    AppLanguage.es => 'Comprobando Flutter...',
+  };
+
+  String get flutterSdkMissing => switch (language) {
+    AppLanguage.pt => 'Flutter Ausente',
+    AppLanguage.en => 'Flutter Missing',
+    AppLanguage.es => 'Flutter Ausente',
+  };
+
+  String get flutterSdkReady => switch (language) {
+    AppLanguage.pt => 'Flutter Pronto',
+    AppLanguage.en => 'Flutter Ready',
+    AppLanguage.es => 'Flutter Listo',
+  };
+
+  String get flutterSdkDialogTitle => switch (language) {
+    AppLanguage.pt => 'Ambiente do Flutter SDK',
+    AppLanguage.en => 'Flutter SDK Environment',
+    AppLanguage.es => 'Entorno del Flutter SDK',
+  };
+
+  String get downloadFlutter => switch (language) {
+    AppLanguage.pt => 'Baixar Flutter SDK (Oficial)',
+    AppLanguage.en => 'Download Flutter SDK (Official)',
+    AppLanguage.es => 'Descargar Flutter SDK (Oficial)',
+  };
+
+  String get recheckSdk => switch (language) {
+    AppLanguage.pt => 'Verificar Novamente',
+    AppLanguage.en => 'Re-check System',
+    AppLanguage.es => 'Verificar Nuevamente',
+  };
 }

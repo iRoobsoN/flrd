@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 import '../localization/language_provider.dart';
 import '../localization/language_selector_widget.dart';
+import '../services/flutter_sdk_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/flutter_sdk_dialog.dart';
 import '../../features/settings/presentation/settings_and_billing_dialog.dart';
 
 class CustomTitleBar extends ConsumerWidget {
@@ -22,6 +24,7 @@ class CustomTitleBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = ref.watch(appStringsProvider);
+    final sdkStatus = ref.watch(flutterSdkProvider);
 
     Widget titleContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -102,35 +105,68 @@ class CustomTitleBar extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // Status Pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: AppColors.success.withOpacity(0.12),
+          // Dynamic Flutter SDK Status Pill
+          Tooltip(
+            message: sdkStatus.isInstalled
+                ? 'Flutter SDK active (${sdkStatus.version ?? "Ready"}). Click for details.'
+                : 'Flutter SDK missing in PATH. Click to resolve.',
+            child: InkWell(
+              onTap: () => FlutterSdkDialog.show(context),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.success.withOpacity(0.3)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: AppColors.success,
-                    shape: BoxShape.circle,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: sdkStatus.isInstalled
+                      ? AppColors.success.withOpacity(0.12)
+                      : (sdkStatus.isChecking
+                          ? AppColors.secondary.withOpacity(0.12)
+                          : AppColors.warning.withOpacity(0.15)),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: sdkStatus.isInstalled
+                        ? AppColors.success.withOpacity(0.3)
+                        : (sdkStatus.isChecking
+                            ? AppColors.secondary.withOpacity(0.3)
+                            : AppColors.warning.withOpacity(0.4)),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  strings.engineStatus,
-                  style: const TextStyle(
-                    color: AppColors.success,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: sdkStatus.isInstalled
+                            ? AppColors.success
+                            : (sdkStatus.isChecking
+                                ? AppColors.secondary
+                                : AppColors.warning),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      sdkStatus.isChecking
+                          ? strings.flutterSdkChecking
+                          : (sdkStatus.isInstalled
+                              ? (sdkStatus.version != null
+                                  ? 'Flutter ${sdkStatus.version}'
+                                  : strings.engineStatus)
+                              : strings.flutterSdkMissing),
+                      style: TextStyle(
+                        color: sdkStatus.isInstalled
+                            ? AppColors.success
+                            : (sdkStatus.isChecking
+                                ? AppColors.secondary
+                                : AppColors.warning),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],
@@ -145,8 +181,11 @@ class CustomTitleBar extends ConsumerWidget {
       ),
       child: Row(
         children: [
+          titleContent,
           Expanded(
-            child: kIsWeb ? titleContent : DragToMoveArea(child: titleContent),
+            child: kIsWeb
+                ? const SizedBox.expand()
+                : const DragToMoveArea(child: SizedBox.expand()),
           ),
           trailing ??
               const Padding(
