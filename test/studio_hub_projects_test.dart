@@ -10,6 +10,7 @@ import 'package:flrd/features/projects/providers/projects_provider.dart';
 import 'package:flrd/features/projects/services/project_analyzer_service.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
+import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/embedded_code_viewer.dart';
 import 'package:flrd/features/studio/presentation/widgets/route_node_card.dart';
 import 'package:flrd/features/studio/providers/studio_provider.dart';
@@ -352,6 +353,131 @@ dependencies:
       expect(err, isNull);
       expect(find.text('Narrow Test Project With Long Name'), findsOneWidget);
       expect(find.text('Routes Flowchart'), findsOneWidget);
+    });
+
+    testWidgets('AppStudioScreen inspector switcher displays 3 tabs and renders DeviceScreenEmulator on tab 2',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final project = RegisteredProject(
+        id: 'emulator_test_proj',
+        name: 'Emulator Test App',
+        orgId: 'com.emulator.test',
+        path: tempDir.path,
+        preset: PresetType.saas,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: const {},
+        lastModified: DateTime.now(),
+        routeCount: 3,
+      );
+
+      final container = ProviderContainer();
+      // Select the first node
+      final firstNode = container.read(studioProvider).nodes.first;
+      container.read(studioProvider.notifier).selectNode(firstNode.id);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: AppStudioScreen(project: project),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Verify all 3 tabs are present in inspector switcher
+      expect(find.text('⚙️ Details'), findsOneWidget);
+      expect(find.text('💻 Code'), findsOneWidget);
+      expect(find.text('📱 Emulate'), findsOneWidget);
+
+      // Initially on tab 0 (Details)
+      expect(find.text('GoRouter Route Path'), findsOneWidget);
+      expect(find.byType(DeviceScreenEmulator), findsNothing);
+
+      // Switch to tab 1 (Code)
+      await tester.tap(find.text('💻 Code'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
+      expect(find.byType(DeviceScreenEmulator), findsNothing);
+
+      // Switch to tab 2 (Emulate)
+      await tester.tap(find.text('📱 Emulate'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Verify DeviceScreenEmulator is rendered
+      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+
+      // Verify no RenderFlex overflow
+      final err = tester.takeException();
+      expect(err, isNull);
+    });
+
+    testWidgets('AppStudioScreen inspector panel widens to 480px on desktop when in emulate mode',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final project = RegisteredProject(
+        id: 'width_test_proj',
+        name: 'Width Test App',
+        orgId: 'com.width.test',
+        path: tempDir.path,
+        preset: PresetType.cleanLite,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: const {},
+        lastModified: DateTime.now(),
+        routeCount: 3,
+      );
+
+      final container = ProviderContainer();
+      final firstNode = container.read(studioProvider).nodes.first;
+      container.read(studioProvider.notifier).selectNode(firstNode.id);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: AppStudioScreen(project: project),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // When tab 0 is active, sidebar width is 440px
+      // Look for the sidebar Container (which has Border(left: BorderSide(...)))
+      final sidebarFinder = find.byWidgetPredicate(
+        (widget) =>
+            widget is Container &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration as BoxDecoration).border is Border &&
+            ((widget.decoration as BoxDecoration).border as Border).top == BorderSide.none &&
+            ((widget.decoration as BoxDecoration).border as Border).left != BorderSide.none,
+      );
+      expect(sidebarFinder, findsOneWidget);
+      RenderBox sidebarBox = tester.renderObject(sidebarFinder);
+      expect(sidebarBox.size.width, closeTo(440.0, 1.0));
+
+      // Tap tab 2 (Emulate)
+      await tester.tap(find.text('📱 Emulate'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Sidebar should expand to 480px on desktop
+      sidebarBox = tester.renderObject(sidebarFinder);
+      expect(sidebarBox.size.width, closeTo(480.0, 1.0));
+
+      final err = tester.takeException();
+      expect(err, isNull);
     });
   });
 }

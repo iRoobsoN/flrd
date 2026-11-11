@@ -111,6 +111,9 @@ void main() {
       expect(stringsPt.newProjectTitle, 'Criar Novo Projeto');
       expect(stringsPt.myProjectsTitle, 'Meus Projetos');
       expect(stringsPt.engineStatus, 'Engine Pronta');
+      expect(stringsPt.routeDetailsTab, 'Detalhes');
+      expect(stringsPt.viewCodeTab, 'Código');
+      expect(stringsPt.emulateScreenTab, 'Emular');
     });
 
     test('English language returns correct localized strings', () {
@@ -119,6 +122,9 @@ void main() {
       expect(stringsEn.newProjectTitle, 'Create New Project');
       expect(stringsEn.myProjectsTitle, 'My Projects');
       expect(stringsEn.engineStatus, 'Engine Ready');
+      expect(stringsEn.routeDetailsTab, 'Details');
+      expect(stringsEn.viewCodeTab, 'Code');
+      expect(stringsEn.emulateScreenTab, 'Emulate');
     });
 
     test('Spanish language returns correct localized strings', () {
@@ -127,6 +133,9 @@ void main() {
       expect(stringsEs.newProjectTitle, 'Crear Nuevo Proyecto');
       expect(stringsEs.myProjectsTitle, 'Mis Proyectos');
       expect(stringsEs.engineStatus, 'Motor Listo');
+      expect(stringsEs.routeDetailsTab, 'Detalles');
+      expect(stringsEs.viewCodeTab, 'Código');
+      expect(stringsEs.emulateScreenTab, 'Emular');
     });
   });
 

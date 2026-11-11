@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/localization/language_provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/window/custom_titlebar.dart';
 import '../../marketplace/presentation/widgets/publish_template_dialog.dart';
@@ -9,6 +10,7 @@ import '../../projects/models/registered_project.dart';
 import '../models/route_node.dart';
 import '../providers/studio_provider.dart';
 import 'widgets/ai_screen_generator_dialog.dart';
+import 'widgets/device_screen_emulator.dart';
 import 'widgets/embedded_code_viewer.dart';
 import 'widgets/route_connector_painter.dart';
 import 'widgets/route_node_card.dart';
@@ -63,7 +65,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   late TabController _tabController;
   final TransformationController _transformationController =
       TransformationController();
-  int _inspectorTabIndex = 0; // 0: Detalhes da Rota, 1: Ver Código Dart
+  int _inspectorTabIndex = 0; // 0: Route Details, 1: View Dart Code, 2: Device Screen Emulator
 
   @override
   void initState() {
@@ -397,12 +399,14 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isNarrowScreen = constraints.maxWidth < 800;
+        final isEmulate = _inspectorTabIndex == 2;
+        final defaultWidth = isEmulate ? 480.0 : 440.0;
+        final isNarrowScreen = constraints.maxWidth < (defaultWidth + 360.0);
         final sidebarWidth = isNarrowScreen
-            ? (constraints.maxWidth < 500
-                ? constraints.maxWidth
-                : constraints.maxWidth * 0.5)
-            : 440.0;
+            ? (constraints.maxWidth < 600
+                ? (constraints.maxWidth * 0.55).clamp(280.0, constraints.maxWidth - 120.0)
+                : (constraints.maxWidth * (isEmulate ? 0.55 : 0.5)))
+            : defaultWidth;
         final canvasWidth = selectedNode != null
             ? constraints.maxWidth - sidebarWidth
             : constraints.maxWidth;
@@ -608,22 +612,41 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           ),
           const SizedBox(height: 12),
 
-          // Segmented Switcher: [⚙️ Detalhes da Rota] vs [💻 Ver Código Dart]
+          // Segmented Switcher: [⚙️ Details] vs [💻 Code] vs [📱 Emulate]
           _buildInspectorSwitcher(),
           const SizedBox(height: 14),
 
           // Inspector Tab Body
           Expanded(
-            child: _inspectorTabIndex == 0
-                ? _buildRouteDetailsContent(node, notifier)
-                : _buildDartCodeContent(node),
+            child: _buildInspectorBody(node, notifier),
           ),
         ],
       ),
     );
   }
 
+  Widget _buildInspectorBody(RouteNode node, StudioNotifier notifier) {
+    switch (_inspectorTabIndex) {
+      case 0:
+        return _buildRouteDetailsContent(node, notifier);
+      case 1:
+        return _buildDartCodeContent(node);
+      case 2:
+      default:
+        return DeviceScreenEmulator(
+          node: node,
+          project: widget.project,
+          onToggleExpand: () => DeviceScreenEmulator.showModal(
+            context,
+            node: node,
+            project: widget.project,
+          ),
+        );
+    }
+  }
+
   Widget _buildInspectorSwitcher() {
+    final strings = ref.watch(appStringsProvider);
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
@@ -635,7 +658,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
         children: [
           Expanded(
             child: _buildSegmentButton(
-              title: '⚙️ Route Details',
+              title: '⚙️ ${strings.routeDetailsTab}',
               isSelected: _inspectorTabIndex == 0,
               onTap: () => setState(() => _inspectorTabIndex = 0),
             ),
@@ -643,9 +666,17 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           const SizedBox(width: 4),
           Expanded(
             child: _buildSegmentButton(
-              title: '💻 View Dart Code',
+              title: '💻 ${strings.viewCodeTab}',
               isSelected: _inspectorTabIndex == 1,
               onTap: () => setState(() => _inspectorTabIndex = 1),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _buildSegmentButton(
+              title: '📱 ${strings.emulateScreenTab}',
+              isSelected: _inspectorTabIndex == 2,
+              onTap: () => setState(() => _inspectorTabIndex = 2),
             ),
           ),
         ],

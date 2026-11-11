@@ -453,7 +453,7 @@ void main() {
       expect(renderBox.size.width, 440.0);
     });
 
-    testWidgets('Switcher alternates between [⚙️ Detalhes da Rota] and [💻 Ver Código Dart]',
+    testWidgets('Switcher alternates between [⚙️ Details], [💻 Code], and [📱 Emulate]',
         (tester) async {
       tester.view.physicalSize = const Size(1920, 1080);
       tester.view.devicePixelRatio = 1.0;
@@ -474,16 +474,17 @@ void main() {
       await tester.pumpAndSettle();
 
       // Switcher options exist
-      expect(find.text('⚙️ Route Details'), findsOneWidget);
-      expect(find.text('💻 View Dart Code'), findsOneWidget);
+      expect(find.text('⚙️ Details'), findsOneWidget);
+      expect(find.text('💻 Code'), findsOneWidget);
+      expect(find.text('📱 Emulate'), findsOneWidget);
 
       // Default: Route Details tab is active
       expect(find.text('GoRouter Route Path'), findsOneWidget);
       expect(find.text('Source Code File'), findsOneWidget);
       expect(find.byType(EmbeddedCodeViewer), findsNothing);
 
-      // Switch to '💻 View Dart Code'
-      await tester.tap(find.text('💻 View Dart Code'));
+      // Switch to '💻 Code'
+      await tester.tap(find.text('💻 Code'));
       await tester.pumpAndSettle();
 
       // EmbeddedCodeViewer and modal button are now visible
@@ -491,8 +492,8 @@ void main() {
       expect(find.text('Open in Fullscreen Modal'), findsOneWidget);
       expect(find.text('GoRouter Route Path'), findsNothing);
 
-      // Switch back to '⚙️ Route Details'
-      await tester.tap(find.text('⚙️ Route Details'));
+      // Switch back to '⚙️ Details'
+      await tester.tap(find.text('⚙️ Details'));
       await tester.pumpAndSettle();
 
       expect(find.byType(EmbeddedCodeViewer), findsNothing);
@@ -520,7 +521,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Switch to Code Tab
-      await tester.tap(find.text('💻 View Dart Code'));
+      await tester.tap(find.text('💻 Code'));
       await tester.pumpAndSettle();
 
       // Tap 'Open in Fullscreen Modal'

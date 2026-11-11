@@ -326,4 +326,23 @@ class AppStrings {
     AppLanguage.en => 'Action required on some system components.',
     AppLanguage.es => 'Atención requerida en algunos componentes del sistema.',
   };
+
+  // Studio Inspector Tabs
+  String get routeDetailsTab => switch (language) {
+    AppLanguage.pt => 'Detalhes',
+    AppLanguage.en => 'Details',
+    AppLanguage.es => 'Detalles',
+  };
+
+  String get viewCodeTab => switch (language) {
+    AppLanguage.pt => 'Código',
+    AppLanguage.en => 'Code',
+    AppLanguage.es => 'Código',
+  };
+
+  String get emulateScreenTab => switch (language) {
+    AppLanguage.pt => 'Emular',
+    AppLanguage.en => 'Emulate',
+    AppLanguage.es => 'Emular',
+  };
 }
