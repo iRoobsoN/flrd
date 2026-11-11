@@ -69,6 +69,17 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (kIsWeb && Uri.base.queryParameters['inspect'] == 'true') {
+        final nodes = ref.read(studioProvider).nodes;
+        if (nodes.isNotEmpty) {
+          ref.read(studioProvider.notifier).selectNode(nodes.first.id);
+          setState(() {
+            _inspectorTabIndex = 1;
+          });
+        }
+      }
+    });
   }
 
   @override

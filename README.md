@@ -21,10 +21,10 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/preview.jpg" alt="FLRD Desktop Interface" width="100%" style="border-radius: 10px;" />
+  <img src="assets/screenshots/preview.png" alt="FLRD Desktop Interface" width="100%" style="border-radius: 10px;" />
 </p>
 
-[Features](#-key-features) • [App Studio](#-visual-app-studio--route-flowchart) • [Embedded Editor](#-embedded-code-viewer--editor) • [AI Studio](#-real-ai-screen-studio-gemini-15-flash) • [Marketplace](#-community-templates-marketplace) • [Reverse Engineering](#-reverse-engineering--project-ingestion) • [Download](#-download--getting-started) • [Donate](#-support-the-project--apoie-o-projeto)
+[Features](#-key-features) • [App Studio](#-visual-app-studio--route-flowchart) • [Embedded Editor](#-embedded-code-viewer--editor) • [Wizard](#-interactive-6-step-project-wizard) • [AI Studio](#-real-ai-screen-studio-gemini-15-flash) • [Marketplace](#-community-templates-marketplace) • [Billing & Plans](#-multi-tier-stripe-monetization-starter--studio-pro) • [Reverse Engineering](#-reverse-engineering--project-ingestion) • [Download](#-download--getting-started) • [Donate](#-support-the-project--apoie-o-projeto)
 
 </div>
 
@@ -89,7 +89,7 @@ To turn that into a real application, you spend the next **2 to 3 hours** doing 
 ## 🗺️ Visual App Studio & Route Flowchart
 
 <p align="center">
-  <img src="assets/screenshots/studio_showcase.jpg" alt="FLRD Visual App Studio Showcase" width="100%" style="border-radius: 10px;" />
+  <img src="assets/screenshots/studio_showcase.png" alt="FLRD Visual App Studio Showcase" width="100%" style="border-radius: 10px;" />
 </p>
 
 FLRD provides an interactive visual studio where developers can visually inspect, connect, and configure their entire application flow:
@@ -120,6 +120,22 @@ Never leave the studio to check your Dart code. Click on any route node in the f
 
 ---
 
+## 🧙‍♂️ Interactive 6-Step Project Wizard
+
+<p align="center">
+  <img src="assets/screenshots/wizard_showcase.png" alt="FLRD Interactive Project Wizard" width="100%" style="border-radius: 10px;" />
+</p>
+
+Scaffold brand new production-grade Flutter apps in under 30 seconds with curated decisions:
+1. **Curated Presets**: SaaS Indie Hacker (Riverpod + Supabase), Clean-Lite Enterprise (BLoC + Dio), or Offline-First Utility (SQLite).
+2. **Navigation Engine**: Bottom Navigation Bar (Mobile), Responsive Navigation Rail (Desktop/Web), or Drawer.
+3. **Authentication Layer**: Supabase, Firebase, or Mock Auth with pre-wired route guards.
+4. **Native Device Permissions**: Camera, Location, Gallery, Notifications, and Biometrics safely injected into native files.
+5. **Theme & Contrast Engine**: WCAG AAA compliant light and dark modes with persistent user preferences.
+6. **Instant Scaffold**: Generates complete directory structures, tests, and configurations ready for your feature code.
+
+---
+
 ## 🧠 Real AI Screen Studio (Gemini 1.5 Flash)
 
 Generate complete, production-ready Flutter screens straight from plain-text prompts:
@@ -133,8 +149,13 @@ Generate complete, production-ready Flutter screens straight from plain-text pro
 
 ## 🛍️ Community Templates Marketplace
 
+<p align="center">
+  <img src="assets/screenshots/marketplace_showcase.png" alt="FLRD Template Marketplace" width="100%" style="border-radius: 10px;" />
+</p>
+
 Discover and share complete, production-grade application starters:
 
+- **Curated Starter Kits**: NovaBank (FinTech), SaaSHero (Subscription SaaS), FoodDelivery Pro (Logistics), OfflineVault (Encrypted Local Storage), and FitPulse (Health Tracking).
 - **Anti-Drift Consistency Manifest (`.flrd/manifest.json`)**:
   Every marketplace template locks its design tokens, state management rules, and AI prompts:
 
@@ -148,7 +169,28 @@ flowchart LR
 ```
 
 - **Fair Monetization for Creators**:
-  75% of every template sale is transferred directly to the creator's payout account (Pix, PayPal, Stripe), with 25% sustaining FLRD's open-source infrastructure.
+  75% of every template sale is transferred directly to the creator's payout account via Stripe Connect, with 25% sustaining FLRD's open-source infrastructure.
+
+---
+
+## 💳 Multi-Tier Stripe Monetization (Starter & Studio Pro)
+
+<p align="center">
+  <img src="assets/screenshots/billing_showcase.png" alt="FLRD Multi-Tier Stripe Billing Dialog" width="100%" style="border-radius: 10px;" />
+</p>
+
+FLRD includes native multi-tier recurring billing powered by **Stripe**, offering monthly and annual subscriptions with 2 months free:
+
+| Feature / Capability | FLRD Starter (\$15/mo or \$149/yr) | FLRD Studio Pro (\$35/mo or \$299/yr) |
+| :--- | :---: | :---: |
+| **Unlimited Project Scaffolding** | ✅ Included | ✅ Included |
+| **Visual App Studio & Flowchart** | ✅ Included | ✅ Included |
+| **Curated Community Templates** | ✅ Included | ✅ Included |
+| **AI Screen Generation Quota** | ⚡ Managed Quota (100 screens/mo) | 🚀 **Unlimited BYOK** (No limits) |
+| **Reverse Engineering Local Codebases** | ❌ Studio Pro Only | 📂 **Full AST & Native Ingestion** |
+| **Marketplace Seller Permissions** | ❌ Standard User | 💎 **Verified Seller (75% Payout)** |
+| **Batch Screen Generation** | ❌ Standard User | 🧠 **Batch Multi-Screen Synthesis** |
+| **VIP Core Support & Early Presets** | ❌ Standard | ⭐ **Priority Channel** |
 
 ---
 
