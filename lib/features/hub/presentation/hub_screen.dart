@@ -9,6 +9,7 @@ import '../../../core/localization/language_selector_widget.dart';
 import '../../../core/services/flutter_sdk_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/donate_dialog.dart';
+import '../../../core/widgets/flutter_doctor_dialog.dart';
 import '../../../core/widgets/flutter_sdk_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
 import '../../marketplace/presentation/marketplace_view.dart';
@@ -354,6 +355,38 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                       strings.hubStatsPillar3,
                       AppColors.success,
                     ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => FlutterDoctorDialog.show(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceCard,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: AppColors.secondary.withOpacity(0.35),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('🩺', style: TextStyle(fontSize: 12)),
+                            SizedBox(width: 6),
+                            Text(
+                              'FLRD Doctor',
+                              style: TextStyle(
+                                color: AppColors.secondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -361,39 +394,71 @@ class _HubScreenState extends ConsumerState<HubScreen> {
           ),
           const SizedBox(width: 24),
 
-          // Header Right: Full Language Selector & Quick Star
+          // Header Right: Full Language Selector & Actions
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               const LanguageSelectorWidget(compact: false),
               const SizedBox(height: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: AppColors.surfaceCard,
-                  side: const BorderSide(color: AppColors.border),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: AppColors.surfaceCard,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () => FlutterDoctorDialog.show(context),
+                    icon: const Text(
+                      '🩺',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    label: const Text(
+                      'FLRD Doctor',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: AppColors.surfaceCard,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () =>
+                        _openUrl(context, 'https://github.com/iRoobsoN/flrd'),
+                    icon: const Icon(
+                      Icons.star_rounded,
+                      size: 16,
+                      color: Colors.amber,
+                    ),
+                    label: const Text(
+                      'GitHub ⭐',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                ),
-                onPressed: () =>
-                    _openUrl(context, 'https://github.com/iRoobsoN/flrd'),
-                icon: const Icon(
-                  Icons.star_rounded,
-                  size: 16,
-                  color: Colors.amber,
-                ),
-                label: const Text(
-                  'GitHub ⭐',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                ],
               ),
             ],
           ),
@@ -865,6 +930,24 @@ class _HubScreenState extends ConsumerState<HubScreen> {
             ],
           );
 
+          final doctorButton = ElevatedButton.icon(
+            onPressed: () => FlutterDoctorDialog.show(context),
+            icon: const Text('🩺', style: TextStyle(fontSize: 14)),
+            label: const Text('FLRD Doctor'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.secondary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              textStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          );
+
           final ctaButton = ElevatedButton.icon(
             onPressed: () => FlutterSdkDialog.show(context),
             icon: const Icon(Icons.build_circle_rounded, size: 16),
@@ -889,7 +972,14 @@ class _HubScreenState extends ConsumerState<HubScreen> {
               children: [
                 content,
                 const SizedBox(height: 12),
-                ctaButton,
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    doctorButton,
+                    ctaButton,
+                  ],
+                ),
               ],
             );
           }
@@ -898,6 +988,8 @@ class _HubScreenState extends ConsumerState<HubScreen> {
             children: [
               Expanded(child: content),
               const SizedBox(width: 12),
+              doctorButton,
+              const SizedBox(width: 8),
               ctaButton,
             ],
           );

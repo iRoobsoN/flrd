@@ -6,7 +6,7 @@ import '../localization/language_provider.dart';
 import '../localization/language_selector_widget.dart';
 import '../services/flutter_sdk_service.dart';
 import '../theme/app_colors.dart';
-import '../widgets/flutter_sdk_dialog.dart';
+import '../widgets/flutter_doctor_dialog.dart';
 import '../../features/settings/presentation/settings_and_billing_dialog.dart';
 
 class CustomTitleBar extends ConsumerWidget {
@@ -108,10 +108,10 @@ class CustomTitleBar extends ConsumerWidget {
           // Dynamic Flutter SDK Status Pill
           Tooltip(
             message: sdkStatus.isInstalled
-                ? 'Flutter SDK active (${sdkStatus.version ?? "Ready"}). Click for details.'
-                : 'Flutter SDK missing in PATH. Click to resolve.',
+                ? 'Flutter SDK active (${sdkStatus.version ?? "Ready"}). Click to run FLRD Doctor.'
+                : 'Flutter SDK missing in PATH. Click to run FLRD Doctor.',
             child: InkWell(
-              onTap: () => FlutterSdkDialog.show(context),
+              onTap: () => FlutterDoctorDialog.show(context),
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

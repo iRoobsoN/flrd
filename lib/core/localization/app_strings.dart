@@ -277,4 +277,53 @@ class AppStrings {
     AppLanguage.en => 'Setup Flutter SDK',
     AppLanguage.es => 'Configurar Flutter SDK',
   };
+
+  // FLRD Doctor Strings
+  String get doctorTitle => switch (language) {
+    AppLanguage.pt => 'FLRD Doctor - Diagnóstico do Sistema',
+    AppLanguage.en => 'FLRD Doctor - System Diagnostics',
+    AppLanguage.es => 'FLRD Doctor - Diagnóstico del Sistema',
+  };
+
+  String get doctorHealthScore => switch (language) {
+    AppLanguage.pt => 'Saúde do Ambiente',
+    AppLanguage.en => 'Environment Health',
+    AppLanguage.es => 'Salud del Entorno',
+  };
+
+  String get doctorRescan => switch (language) {
+    AppLanguage.pt => 'Re-escanear Agora',
+    AppLanguage.en => 'Rescan Now',
+    AppLanguage.es => 'Reescanear Ahora',
+  };
+
+  String get doctorCopyCommand => switch (language) {
+    AppLanguage.pt => 'Copiar Comando',
+    AppLanguage.en => 'Copy Command',
+    AppLanguage.es => 'Copiar Comando',
+  };
+
+  String get doctorCopied => switch (language) {
+    AppLanguage.pt => 'Comando copiado para a área de transferência!',
+    AppLanguage.en => 'Command copied to clipboard!',
+    AppLanguage.es => '¡Comando copiado al portapapeles!',
+  };
+
+  String get doctorDownload => switch (language) {
+    AppLanguage.pt => 'Baixar / Documentação',
+    AppLanguage.en => 'Download / Docs',
+    AppLanguage.es => 'Descargar / Documentación',
+  };
+
+  String get doctorAllGreen => switch (language) {
+    AppLanguage.pt => 'Todos os componentes estão prontos e saudáveis!',
+    AppLanguage.en => 'All components are ready and healthy!',
+    AppLanguage.es => '¡Todos los componentes están listos y saludables!',
+  };
+
+  String get doctorIssuesFound => switch (language) {
+    AppLanguage.pt => 'Atenção necessária em alguns componentes do sistema.',
+    AppLanguage.en => 'Action required on some system components.',
+    AppLanguage.es => 'Atención requerida en algunos componentes del sistema.',
+  };
 }

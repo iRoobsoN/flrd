@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flrd/core/services/flutter_doctor_service.dart';
 import 'package:flrd/core/services/flutter_sdk_service.dart';
+import 'package:flrd/core/widgets/flutter_doctor_dialog.dart';
 import 'package:flrd/core/widgets/flutter_sdk_dialog.dart';
 import 'package:flrd/core/window/custom_titlebar.dart';
 import 'package:flrd/features/hub/presentation/hub_screen.dart';
@@ -113,7 +115,7 @@ void main() {
   });
 
   group('CustomTitleBar Status Pill Integration Tests', () {
-    testWidgets('Displays Flutter version in status pill and opens dialog on click', (tester) async {
+    testWidgets('Displays Flutter version in status pill and opens doctor dialog on click', (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -128,6 +130,23 @@ void main() {
                   sdkPath: 'C:\\src\\flutter\\bin\\flutter.bat',
                 ),
               ),
+            ),
+            flutterDoctorProvider.overrideWith(
+              (ref) => FlutterDoctorService(
+                autoScan: false,
+              )..state = const DoctorReport(
+                  isScanning: false,
+                  healthyCount: 1,
+                  totalCount: 1,
+                  items: [
+                    DoctorItem(
+                      id: 'flutter_engine',
+                      title: 'Flutter Engine (Channel stable, 3.24.5)',
+                      status: DoctorItemStatus.healthy,
+                      details: 'Flutter version 3.24.5',
+                    ),
+                  ],
+                ),
             ),
           ],
           child: const MaterialApp(
@@ -150,17 +169,17 @@ void main() {
       await tester.tap(find.text('Flutter v3.24.5'));
       await tester.pumpAndSettle();
 
-      // Verify dialog opened
-      expect(find.byType(FlutterSdkDialog), findsOneWidget);
-      expect(find.text('C:\\src\\flutter\\bin\\flutter.bat'), findsOneWidget);
+      // Verify doctor dialog opened
+      expect(find.byType(FlutterDoctorDialog), findsOneWidget);
+      expect(find.text('FLRD Doctor - System Diagnostics'), findsOneWidget);
 
       // Dismiss dialog
-      await tester.tap(find.text('Close'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
-      expect(find.byType(FlutterSdkDialog), findsNothing);
+      expect(find.byType(FlutterDoctorDialog), findsNothing);
     });
 
-    testWidgets('Displays Flutter Missing warning when SDK not installed and opens guide on click',
+    testWidgets('Displays Flutter Missing warning when SDK not installed and opens doctor on click',
         (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
@@ -173,6 +192,11 @@ void main() {
               (ref) => _MockFlutterSdkNotifier(
                 FlutterSdkStatus.missing(error: 'Missing'),
               ),
+            ),
+            flutterDoctorProvider.overrideWith(
+              (ref) => FlutterDoctorService(
+                autoScan: false,
+              )..state = DoctorReport.missingSdk(error: 'Missing'),
             ),
           ],
           child: const MaterialApp(
@@ -195,9 +219,9 @@ void main() {
       await tester.tap(find.text('Flutter Missing'));
       await tester.pumpAndSettle();
 
-      // Verify guide dialog opened
-      expect(find.byType(FlutterSdkDialog), findsOneWidget);
-      expect(find.text('Download Flutter SDK (Official)'), findsOneWidget);
+      // Verify doctor dialog opened
+      expect(find.byType(FlutterDoctorDialog), findsOneWidget);
+      expect(find.text('Flutter SDK'), findsOneWidget);
     });
   });
 
@@ -263,6 +287,91 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Flutter SDK not found on system'), findsNothing);
+    });
+
+    testWidgets('Tapping FLRD Doctor in missing SDK banner opens FlutterDoctorDialog', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            flutterSdkProvider.overrideWith(
+              (ref) => _MockFlutterSdkNotifier(
+                FlutterSdkStatus.missing(error: 'Not found in PATH'),
+              ),
+            ),
+            flutterDoctorProvider.overrideWith(
+              (ref) => FlutterDoctorService(
+                autoScan: false,
+              )..state = DoctorReport.missingSdk(error: 'Missing'),
+            ),
+          ],
+          child: const MaterialApp(
+            home: HubScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap on FLRD Doctor button in missing banner
+      final bannerDoctorBtn = find.widgetWithText(ElevatedButton, 'FLRD Doctor');
+      expect(bannerDoctorBtn, findsOneWidget);
+      await tester.tap(bannerDoctorBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FlutterDoctorDialog), findsOneWidget);
+    });
+
+    testWidgets('Tapping discreet FLRD Doctor in action area opens FlutterDoctorDialog', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            flutterSdkProvider.overrideWith(
+              (ref) => _MockFlutterSdkNotifier(
+                FlutterSdkStatus.detected(
+                  version: 'v3.24.5',
+                  sdkPath: 'C:\\flutter\\bin\\flutter.bat',
+                ),
+              ),
+            ),
+            flutterDoctorProvider.overrideWith(
+              (ref) => FlutterDoctorService(
+                autoScan: false,
+              )..state = const DoctorReport(
+                  isScanning: false,
+                  healthyCount: 1,
+                  totalCount: 1,
+                  items: [
+                    DoctorItem(
+                      id: 'flutter_engine',
+                      title: 'Flutter Engine (Channel stable, 3.24.5)',
+                      status: DoctorItemStatus.healthy,
+                      details: 'Flutter version 3.24.5',
+                    ),
+                  ],
+                ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: HubScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Find discreet action button in header actions
+      final doctorBtn = find.widgetWithText(OutlinedButton, 'FLRD Doctor');
+      expect(doctorBtn, findsOneWidget);
+      await tester.tap(doctorBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FlutterDoctorDialog), findsOneWidget);
     });
 
     testWidgets('Does not render banner when Flutter is detected', (tester) async {
