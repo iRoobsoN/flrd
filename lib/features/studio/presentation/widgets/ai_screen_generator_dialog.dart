@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../ai/providers/ai_settings_provider.dart';
 import '../../../ai/services/gemini_ai_service.dart';
 import '../../../auth/providers/auth_provider.dart';
@@ -220,42 +221,17 @@ class _AiScreenGeneratorDialogState
 
       Navigator.of(context).pop();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle_rounded, color: AppColors.success),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  widget.targetMaterial != null
-                      ? 'Widget "${widget.targetMaterial!.displayName}" refinado com IA e injetado com sucesso! (${result.filePath})'
-                      : 'Tela "$cleanTitle" gerada via IA e injetada no Fluxograma! (${result.filePath})',
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.surfaceSelected,
-          duration: const Duration(seconds: 4),
-        ),
+      AppToast.success(
+        context,
+        widget.targetMaterial != null
+            ? 'Widget "${widget.targetMaterial!.displayName}" refinado com IA e injetado com sucesso! (${result.filePath})'
+            : 'Tela "$cleanTitle" gerada via IA e injetada no Fluxograma! (${result.filePath})',
+        duration: const Duration(seconds: 4),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _isGenerating = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline_rounded, color: AppColors.danger),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text('Falha ao gerar tela com IA: $e'),
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.surfaceCard,
-        ),
-      );
+      AppToast.error(context, 'Falha ao gerar tela com IA: $e');
     }
   }
 

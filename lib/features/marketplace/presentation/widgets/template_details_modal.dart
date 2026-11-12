@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../projects/providers/projects_provider.dart';
 import '../../models/marketplace_template.dart';
 
@@ -30,20 +31,10 @@ class TemplateDetailsModal extends ConsumerWidget {
 
     Navigator.of(context).pop();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded, color: AppColors.success),
-            const SizedBox(width: 10),
-            Text(
-              'Template "${template.title}" instalado e adicionado aos Meus Projetos!',
-            ),
-          ],
-        ),
-        backgroundColor: AppColors.surfaceSelected,
-        duration: const Duration(seconds: 3),
-      ),
+    AppToast.success(
+      context,
+      'Template "${template.title}" instalado e adicionado aos Meus Projetos!',
+      duration: const Duration(seconds: 3),
     );
   }
 
@@ -406,14 +397,10 @@ class TemplateDetailsModal extends ConsumerWidget {
             ),
             onPressed: () {
               Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Checkout Seguro Stripe simulado: \$${t.priceUsd.toStringAsFixed(0)} USD (75% ao criador ${t.author} / 25% FLRD Platform Fee).',
-                  ),
-                  backgroundColor: AppColors.surfaceSelected,
-                  duration: const Duration(seconds: 4),
-                ),
+              AppToast.info(
+                context,
+                'Checkout Seguro Stripe simulado: \$${t.priceUsd.toStringAsFixed(0)} USD (75% ao criador ${t.author} / 25% FLRD Platform Fee).',
+                duration: const Duration(seconds: 4),
               );
             },
             icon: const Icon(Icons.shopping_bag_rounded, size: 16),

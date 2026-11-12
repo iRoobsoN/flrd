@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../models/connected_device.dart';
 import '../../providers/android_debug_provider.dart';
 
@@ -60,12 +61,7 @@ class AndroidDebugToolbarControls extends ConsumerWidget {
                     if (updated.devices.isEmpty) {
                       final message = updated.errorMessage ??
                           'Nenhum aparelho Android encontrado. Ative a Depuração USB ou conecte um emulador Android.';
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(message),
-                          backgroundColor: AppColors.surfaceCard,
-                        ),
-                      );
+                      AppToast.warning(context, message);
                     }
                   },
           ),
@@ -780,12 +776,7 @@ class _UriCopyChip extends StatelessWidget {
         onTap: () async {
           await Clipboard.setData(ClipboardData(text: uri));
           if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('$label copiado: $uri'),
-              backgroundColor: AppColors.surfaceCard,
-            ),
-          );
+          AppToast.success(context, '$label copiado: $uri');
         },
         borderRadius: BorderRadius.circular(4),
         child: Container(

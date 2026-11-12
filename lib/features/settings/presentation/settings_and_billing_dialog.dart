@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/config/monetization_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../ai/providers/ai_settings_provider.dart';
 import '../../auth/presentation/user_account_dialog.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -69,60 +70,32 @@ class _SettingsAndBillingDialogState
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Não foi possível abrir o link: $url'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        AppToast.error(context, 'Não foi possível abrir o link: $url');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erro ao abrir link: $e'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
+      AppToast.error(context, 'Erro ao abrir link: $e');
     }
   }
 
   void _copyPixKey(BuildContext context) {
     Clipboard.setData(const ClipboardData(text: MonetizationConfig.pixKey));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
-            SizedBox(width: 8),
-            Text('Chave Pix copiada com sucesso: ${MonetizationConfig.pixKey}'),
-          ],
-        ),
-        backgroundColor: AppColors.surfaceSelected,
-        duration: Duration(seconds: 3),
-      ),
+    AppToast.success(
+      context,
+      'Chave Pix copiada com sucesso: ${MonetizationConfig.pixKey}',
+      duration: const Duration(seconds: 3),
     );
   }
 
   void _saveApiKey() {
     final key = _apiKeyController.text.trim();
     ref.read(aiSettingsProvider.notifier).setApiKey(key.isEmpty ? null : key);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
-            const SizedBox(width: 8),
-            Text(
-              key.isEmpty
-                  ? 'API key removed. Using standard synthetic generator.'
-                  : 'Gemini API Key saved successfully!',
-            ),
-          ],
-        ),
-        backgroundColor: AppColors.surfaceSelected,
-        duration: const Duration(seconds: 2),
-      ),
+    AppToast.success(
+      context,
+      key.isEmpty
+          ? 'API key removed. Using standard synthetic generator.'
+          : 'Gemini API Key saved successfully!',
+      duration: const Duration(seconds: 2),
     );
   }
 
@@ -952,16 +925,12 @@ class _SettingsAndBillingDialogState
                 TextButton(
                   onPressed: () {
                     ref.read(aiSettingsProvider.notifier).toggleProActive();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          !aiSettings.isProActive
-                              ? 'FLRD Pro license activated!'
-                              : 'Reverted to Community edition.',
-                        ),
-                        backgroundColor: AppColors.surfaceSelected,
-                        duration: const Duration(seconds: 2),
-                      ),
+                    AppToast.info(
+                      context,
+                      !aiSettings.isProActive
+                          ? 'FLRD Pro license activated!'
+                          : 'Reverted to Community edition.',
+                      duration: const Duration(seconds: 2),
                     );
                   },
                   child: Text(

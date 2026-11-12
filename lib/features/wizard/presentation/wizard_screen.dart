@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:process_run/process_run.dart';
 import '../../../core/services/flutter_sdk_service.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/flutter_sdk_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
 import 'controllers/wizard_controller.dart';
@@ -45,24 +46,14 @@ class WizardScreen extends ConsumerWidget {
     final nameError = ProjectNameValidator.validate(config.projectName);
     if (nameError != null) {
       ref.read(wizardProvider.notifier).setStep(WizardStep.project);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.danger,
-          content: Text('Invalid Project Name: $nameError'),
-        ),
-      );
+      AppToast.error(context, 'Invalid Project Name: $nameError');
       return;
     }
 
     final orgError = OrgIdValidator.validate(config.orgId);
     if (orgError != null) {
       ref.read(wizardProvider.notifier).setStep(WizardStep.project);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.danger,
-          content: Text('Invalid Organization ID: $orgError'),
-        ),
-      );
+      AppToast.error(context, 'Invalid Organization ID: $orgError');
       return;
     }
 
@@ -359,14 +350,9 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
                       if (!kIsWeb) {
                         runExecutableArguments('code', [targetPath]);
                       } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            backgroundColor: AppColors.surfaceCard,
-                            content: Text(
-                              'Open project in terminal: code $targetPath',
-                              style: const TextStyle(color: AppColors.textPrimary),
-                            ),
-                          ),
+                        AppToast.info(
+                          context,
+                          'Open project in terminal: code $targetPath',
                         );
                       }
                     },

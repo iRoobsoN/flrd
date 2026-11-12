@@ -2315,7 +2315,12 @@ class _${screenClassName}State extends State<$screenClassName> {
           children: const [
             Icon(Icons.check_circle_rounded, color: AppColors.success),
             SizedBox(width: 8),
-            Text('$displayTitle ação executada com sucesso!'),
+            Expanded(
+              child: Text(
+                '$displayTitle ação executada com sucesso!',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+            ),
           ],
         ),
         backgroundColor: AppColors.surfaceCard,

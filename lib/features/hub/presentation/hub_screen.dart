@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/localization/app_strings.dart';
 import '../../../core/localization/language_provider.dart';
 import '../../../core/localization/language_selector_widget.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../core/services/flutter_sdk_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/donate_dialog.dart';
@@ -647,12 +648,10 @@ class _HubScreenState extends ConsumerState<HubScreen> {
               Clipboard.setData(
                 const ClipboardData(text: 'dart run bin/flrd.dart'),
               );
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Comando copiado: dart run bin/flrd.dart'),
-                  duration: Duration(seconds: 2),
-                  backgroundColor: AppColors.success,
-                ),
+              AppToast.success(
+                context,
+                'Comando copiado: dart run bin/flrd.dart',
+                duration: const Duration(seconds: 2),
               );
             },
             child: Container(
@@ -730,14 +729,10 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                       if (context.mounted) {
                         final count =
                             ref.read(projectsProvider).projects.length;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Scan complete: $count Flutter ${count == 1 ? "project" : "projects"} recognized on this machine!',
-                            ),
-                            backgroundColor: AppColors.surfaceSelected,
-                            duration: const Duration(seconds: 2),
-                          ),
+                        AppToast.info(
+                          context,
+                          'Scan complete: $count Flutter ${count == 1 ? "project" : "projects"} recognized on this machine!',
+                          duration: const Duration(seconds: 2),
                         );
                       }
                     },

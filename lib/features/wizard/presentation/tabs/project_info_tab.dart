@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../models/project_name_validator.dart';
 import '../controllers/wizard_controller.dart';
 
@@ -48,15 +49,10 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
   Future<void> _pickFolder() async {
     if (kIsWeb) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.surfaceCard,
-            duration: Duration(seconds: 4),
-            content: Text(
-              'In web browser mode, use the shortcuts below or type a destination path (e.g. C:/Projects). Native directory picker is active in Desktop build.',
-              style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
-            ),
-          ),
+        AppToast.info(
+          context,
+          'In web browser mode, use the shortcuts below or type a destination path (e.g. C:/Projects). Native directory picker is active in Desktop build.',
+          duration: const Duration(seconds: 4),
         );
       }
       return;

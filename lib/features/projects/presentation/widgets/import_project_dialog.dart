@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../studio/presentation/app_studio_screen.dart';
 import '../../../studio/providers/studio_provider.dart';
 import '../../providers/projects_provider.dart';
@@ -43,13 +44,9 @@ class _ImportProjectDialogState extends ConsumerState<ImportProjectDialog> {
 
   Future<void> _pickFolder() async {
     if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.surfaceCard,
-          content: Text(
-            'A seleção de pastas do sistema está disponível no aplicativo Desktop.',
-          ),
-        ),
+      AppToast.info(
+        context,
+        'A seleção de pastas do sistema está disponível no aplicativo Desktop.',
       );
       return;
     }
@@ -144,20 +141,10 @@ class _ImportProjectDialogState extends ConsumerState<ImportProjectDialog> {
       );
 
       // Show success feedback
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle_rounded, color: AppColors.success),
-              const SizedBox(width: 10),
-              Text(
-                'Projeto importado com sucesso! ${result.routeNodes.length} rotas mapeadas.',
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.surfaceSelected,
-          duration: const Duration(seconds: 4),
-        ),
+      AppToast.success(
+        context,
+        'Projeto importado com sucesso! ${result.routeNodes.length} rotas mapeadas.',
+        duration: const Duration(seconds: 4),
       );
     } catch (e) {
       if (!mounted) return;
@@ -167,20 +154,10 @@ class _ImportProjectDialogState extends ConsumerState<ImportProjectDialog> {
         _errorMessage = cleanMessage;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline_rounded, color: AppColors.danger),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text('Erro ao importar projeto: $cleanMessage'),
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.surfaceCard,
-          duration: const Duration(seconds: 4),
-        ),
+      AppToast.error(
+        context,
+        'Erro ao importar projeto: $cleanMessage',
+        duration: const Duration(seconds: 4),
       );
     }
   }

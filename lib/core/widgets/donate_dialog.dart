@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../config/monetization_config.dart';
 import '../theme/app_colors.dart';
+import 'app_toast.dart';
 
 class DonateDialog extends StatelessWidget {
   const DonateDialog({super.key});
@@ -117,16 +118,10 @@ class DonateDialog extends StatelessWidget {
                             );
                           } catch (_) {}
                           if (!context.mounted) return;
-                          final messenger = ScaffoldMessenger.maybeOf(context);
-                          messenger?.hideCurrentSnackBar();
-                          messenger?.showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Chave Pix copiada: ${MonetizationConfig.pixKey}',
-                              ),
-                              backgroundColor: AppColors.success,
-                              duration: Duration(seconds: 2),
-                            ),
+                          AppToast.success(
+                            context,
+                            'Chave Pix copiada: ${MonetizationConfig.pixKey}',
+                            duration: const Duration(seconds: 2),
                           );
                         },
                         icon: const Icon(

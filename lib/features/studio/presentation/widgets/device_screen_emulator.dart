@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../projects/models/registered_project.dart';
 import '../../models/route_node.dart';
 
@@ -259,28 +260,10 @@ class DeviceScreenEmulatorState extends State<DeviceScreenEmulator> {
       final displayPath = 'screenshots/$filename';
       final effectiveContext = targetContext ?? (mounted ? context : null);
       if (effectiveContext != null && effectiveContext.mounted) {
-        ScaffoldMessenger.of(effectiveContext).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '📸 Screenshot salvo em: $displayPath',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: AppColors.surfaceCard,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: AppColors.borderSubtle),
-            ),
-            duration: const Duration(seconds: 3),
-          ),
+        AppToast.success(
+          effectiveContext,
+          '📸 Screenshot salvo em: $displayPath',
+          duration: const Duration(seconds: 3),
         );
       }
       return filePath;
@@ -288,12 +271,7 @@ class DeviceScreenEmulatorState extends State<DeviceScreenEmulator> {
       debugPrint('Error capturing screenshot: $e');
       final effectiveContext = targetContext ?? (mounted ? context : null);
       if (effectiveContext != null && effectiveContext.mounted) {
-        ScaffoldMessenger.of(effectiveContext).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao capturar screenshot: $e'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        AppToast.error(effectiveContext, 'Erro ao capturar screenshot: $e');
       }
       return null;
     } finally {
@@ -1183,8 +1161,10 @@ class DeviceScreenEmulatorState extends State<DeviceScreenEmulator> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Triggered ${node.label}')),
+              AppToast.info(
+                context,
+                'Triggered ${node.label}',
+                duration: const Duration(seconds: 2),
               );
             },
             icon: node.icon != null ? Icon(node.icon, size: 16) : const SizedBox.shrink(),
@@ -1202,8 +1182,10 @@ class DeviceScreenEmulatorState extends State<DeviceScreenEmulator> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Triggered ${node.label}')),
+              AppToast.info(
+                context,
+                'Triggered ${node.label}',
+                duration: const Duration(seconds: 2),
               );
             },
             icon: node.icon != null ? Icon(node.icon, size: 16) : const SizedBox.shrink(),
@@ -1219,8 +1201,10 @@ class DeviceScreenEmulatorState extends State<DeviceScreenEmulator> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Triggered ${node.label}')),
+              AppToast.info(
+                context,
+                'Triggered ${node.label}',
+                duration: const Duration(seconds: 2),
               );
             },
             icon: node.icon != null ? Icon(node.icon, size: 16) : const SizedBox.shrink(),

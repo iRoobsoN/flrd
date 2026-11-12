@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/monetization_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../domain/user_account.dart';
 import '../providers/auth_provider.dart';
 
@@ -76,21 +77,11 @@ class _UserAccountDialogState extends ConsumerState<UserAccountDialog>
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Não foi possível abrir: $url'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        AppToast.error(context, 'Não foi possível abrir: $url');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erro ao abrir link: $e'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
+      AppToast.error(context, 'Erro ao abrir link: $e');
     }
   }
 
@@ -99,12 +90,7 @@ class _UserAccountDialogState extends ConsumerState<UserAccountDialog>
     final password = _loginPasswordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor, informe seu email e senha.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
+      AppToast.warning(context, 'Por favor, informe seu email e senha.');
       return;
     }
 
@@ -113,18 +99,10 @@ class _UserAccountDialogState extends ConsumerState<UserAccountDialog>
         .signInWithEmailAndPassword(email, password);
 
     if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle_rounded, color: AppColors.success, size: 16),
-              SizedBox(width: 8),
-              Text('Login efetuado com sucesso!'),
-            ],
-          ),
-          backgroundColor: AppColors.surfaceSelected,
-          duration: Duration(seconds: 2),
-        ),
+      AppToast.success(
+        context,
+        'Login efetuado com sucesso!',
+        duration: const Duration(seconds: 2),
       );
     }
   }
@@ -135,11 +113,9 @@ class _UserAccountDialogState extends ConsumerState<UserAccountDialog>
     final password = _signupPasswordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor, informe email e senha para criar a conta.'),
-          backgroundColor: AppColors.warning,
-        ),
+      AppToast.warning(
+        context,
+        'Por favor, informe email e senha para criar a conta.',
       );
       return;
     }
@@ -149,18 +125,10 @@ class _UserAccountDialogState extends ConsumerState<UserAccountDialog>
         .signUpWithEmailAndPassword(email, password, name.isNotEmpty ? name : null);
 
     if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle_rounded, color: AppColors.success, size: 16),
-              SizedBox(width: 8),
-              Text('Conta criada com sucesso! Seja bem-vindo ao FLRD.'),
-            ],
-          ),
-          backgroundColor: AppColors.surfaceSelected,
-          duration: Duration(seconds: 2),
-        ),
+      AppToast.success(
+        context,
+        'Conta criada com sucesso! Seja bem-vindo ao FLRD.',
+        duration: const Duration(seconds: 2),
       );
     }
   }
@@ -171,18 +139,10 @@ class _UserAccountDialogState extends ConsumerState<UserAccountDialog>
         .signInWithOAuth(provider, 'mock_${provider}_token');
 
     if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 16),
-              const SizedBox(width: 8),
-              Text('Autenticado com sucesso via $provider!'),
-            ],
-          ),
-          backgroundColor: AppColors.surfaceSelected,
-          duration: const Duration(seconds: 2),
-        ),
+      AppToast.success(
+        context,
+        'Autenticado com sucesso via $provider!',
+        duration: const Duration(seconds: 2),
       );
     }
   }
@@ -709,11 +669,10 @@ class _UserAccountDialogState extends ConsumerState<UserAccountDialog>
                           borderRadius: BorderRadius.circular(4),
                           onTap: () {
                             Clipboard.setData(ClipboardData(text: user.uid));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('UID copiado para a área de transferência!'),
-                                duration: Duration(seconds: 1),
-                              ),
+                            AppToast.success(
+                              context,
+                              'UID copiado para a área de transferência!',
+                              duration: const Duration(seconds: 2),
                             );
                           },
                           child: const Padding(
@@ -888,11 +847,10 @@ class _UserAccountDialogState extends ConsumerState<UserAccountDialog>
                     : () async {
                         await ref.read(authProvider.notifier).signOut();
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Sessão encerrada com sucesso.'),
-                              duration: Duration(seconds: 1),
-                            ),
+                          AppToast.info(
+                            context,
+                            'Sessão encerrada com sucesso.',
+                            duration: const Duration(seconds: 2),
                           );
                         }
                       },

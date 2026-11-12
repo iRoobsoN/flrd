@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../projects/models/registered_project.dart';
 import '../../domain/screen_material.dart';
 import '../../domain/widget_variation.dart';
@@ -118,12 +119,10 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
   Future<void> _generateVariations() async {
     final prompt = _widgetPromptController.text.trim();
     if (prompt.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor, digite uma ideia de widget.'),
-          backgroundColor: AppColors.primary,
-          duration: Duration(seconds: 2),
-        ),
+      AppToast.warning(
+        context,
+        'Por favor, digite uma ideia de widget.',
+        duration: const Duration(seconds: 2),
       );
       return;
     }
@@ -171,12 +170,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
         setState(() {
           _isGeneratingVariations = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao gerar variações: $e'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        AppToast.error(context, 'Erro ao gerar variações: $e');
       }
     }
   }
@@ -190,20 +184,10 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
     _saveAndNotify(updatedCode);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text('Widget "${variation.title}" inserido na tela com sucesso!'),
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.success,
-          duration: const Duration(seconds: 3),
-        ),
+      AppToast.success(
+        context,
+        'Widget "${variation.title}" inserido na tela com sucesso!',
+        duration: const Duration(seconds: 3),
       );
     }
   }

@@ -5,6 +5,35 @@ import 'app_colors.dart';
 class AppTheme {
   AppTheme._();
 
+  static const ColorScheme darkColorScheme = ColorScheme.dark(
+    primary: AppColors.primary,
+    secondary: AppColors.secondary,
+    surface: AppColors.surface,
+    error: AppColors.danger,
+    onPrimary: Colors.white,
+    onSecondary: Colors.white,
+    onSurface: AppColors.textPrimary,
+    inverseSurface: AppColors.surfaceSelected,
+    onInverseSurface: AppColors.textPrimary,
+  );
+
+  static const SnackBarThemeData darkSnackBarTheme = SnackBarThemeData(
+    backgroundColor: AppColors.surfaceSelected,
+    contentTextStyle: TextStyle(
+      color: AppColors.textPrimary,
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+    ),
+    actionTextColor: AppColors.secondary,
+    closeIconColor: AppColors.textSecondary,
+    behavior: SnackBarBehavior.floating,
+    elevation: 10,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(12)),
+      side: BorderSide(color: AppColors.borderHover, width: 1),
+    ),
+  );
+
   static ThemeData get darkTheme {
     final baseTextTheme = GoogleFonts.plusJakartaSansTextTheme();
 
@@ -12,15 +41,8 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: AppColors.background,
-      colorScheme: const ColorScheme.dark(
-        primary: AppColors.primary,
-        secondary: AppColors.secondary,
-        surface: AppColors.surface,
-        error: AppColors.danger,
-        onPrimary: Colors.white,
-        onSecondary: Colors.white,
-        onSurface: AppColors.textPrimary,
-      ),
+      colorScheme: darkColorScheme,
+      snackBarTheme: darkSnackBarTheme,
       textTheme: baseTextTheme.copyWith(
         displayLarge: baseTextTheme.displayLarge?.copyWith(
           color: AppColors.textPrimary,

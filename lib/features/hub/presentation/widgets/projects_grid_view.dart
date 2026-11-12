@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../projects/models/registered_project.dart';
 import '../../../projects/providers/projects_provider.dart';
 import '../../../studio/presentation/app_studio_screen.dart';
@@ -13,12 +14,7 @@ class ProjectsGridView extends ConsumerWidget {
 
   Future<void> _openVsCode(BuildContext context, String path) async {
     if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Abra no terminal local: code "$path"'),
-          backgroundColor: AppColors.surfaceCard,
-        ),
-      );
+      AppToast.info(context, 'Abra no terminal local: code "$path"');
       return;
     }
     try {

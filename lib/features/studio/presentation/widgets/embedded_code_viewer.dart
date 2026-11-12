@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../models/route_node.dart';
 import '../../providers/android_debug_provider.dart';
 
@@ -402,68 +403,18 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
           _isTemplate = false;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppColors.surfaceCard,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: AppColors.border),
-            ),
-            content: Row(
-              children: [
-                const Icon(
-                  Icons.check_circle_rounded,
-                  color: AppColors.success,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Arquivo salvo com sucesso em ${widget.node.filePath}',
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 3),
-          ),
+        AppToast.success(
+          context,
+          'Arquivo salvo com sucesso em ${widget.node.filePath}',
+          duration: const Duration(seconds: 3),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppColors.surfaceCard,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: AppColors.danger),
-            ),
-            content: Row(
-              children: [
-                const Icon(
-                  Icons.error_outline_rounded,
-                  color: AppColors.danger,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Error saving file to disk: $e',
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 4),
-          ),
+        AppToast.error(
+          context,
+          'Error saving file to disk: $e',
+          duration: const Duration(seconds: 4),
         );
       }
     } finally {
@@ -476,33 +427,10 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
   Future<void> _copyCodeToClipboard() async {
     await Clipboard.setData(ClipboardData(text: _codeController.text));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.surfaceCard,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: AppColors.border),
-          ),
-          content: Row(
-            children: const [
-              Icon(
-                Icons.content_copy_rounded,
-                color: AppColors.secondary,
-                size: 16,
-              ),
-              SizedBox(width: 8),
-              Text(
-                'Code copied to clipboard!',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          duration: const Duration(seconds: 2),
-        ),
+      AppToast.info(
+        context,
+        'Code copied to clipboard!',
+        duration: const Duration(seconds: 2),
       );
     }
   }

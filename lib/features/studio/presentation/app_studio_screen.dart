@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/localization/language_provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../core/window/custom_titlebar.dart';
 import '../../marketplace/presentation/widgets/publish_template_dialog.dart';
 import '../../projects/models/registered_project.dart';
@@ -222,13 +223,9 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
 
   Future<void> _openVsCode() async {
     if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Abra no seu terminal local: code "${widget.project.path}"',
-          ),
-          backgroundColor: AppColors.surfaceCard,
-        ),
+      AppToast.info(
+        context,
+        'Abra no seu terminal local: code "${widget.project.path}"',
       );
       return;
     }
@@ -236,9 +233,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
       await Process.run('code', [widget.project.path], runInShell: true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao abrir VS Code: $e')),
-        );
+        AppToast.error(context, 'Erro ao abrir VS Code: $e');
       }
     }
   }

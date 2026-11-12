@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../localization/app_strings.dart';
 import '../localization/language_provider.dart';
 import '../services/flutter_doctor_service.dart';
+import 'app_toast.dart';
 import '../theme/app_colors.dart';
 
 /// Modal dialog providing comprehensive environment health diagnostics
@@ -104,27 +105,10 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
       return;
     }
     if (!mounted) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                successMessage,
-                style: const TextStyle(color: AppColors.textPrimary, fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: AppColors.surfaceSelected,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
+    AppToast.success(
+      context,
+      successMessage,
+      duration: const Duration(seconds: 3),
     );
   }
 
@@ -132,12 +116,7 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
     final uri = Uri.tryParse(url);
     if (uri == null) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text('Invalid link: $url'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
+      AppToast.error(context, 'Invalid link: $url');
       return;
     }
 
@@ -146,21 +125,11 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(
-            content: Text('Could not open link: $url'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        AppToast.error(context, 'Could not open link: $url');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text('Error opening link: $e'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
+      AppToast.error(context, 'Error opening link: $e');
     }
   }
 
