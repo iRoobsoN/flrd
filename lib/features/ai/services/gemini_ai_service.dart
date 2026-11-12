@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import '../../wizard/models/project_config.dart';
 import '../../studio/domain/screen_material.dart';
+import '../../studio/domain/widget_variation.dart';
 import '../../studio/models/route_node.dart';
 
 /// Encapsulates the output of a generated screen operation.
@@ -177,6 +179,1050 @@ class GeminiAiService {
     }
     return trimmed;
   }
+
+  /// Generates 2 or 3 distinct widget variations using Gemini 1.5 Flash API (when apiKey provided)
+  /// or falls back to diverse architectural synthesis.
+  static Future<List<WidgetVariation>> generateWidgetVariations({
+    required String prompt,
+    required PresetType preset,
+    RouteNode? routeNode,
+    String? apiKey,
+    http.Client? httpClient,
+  }) async {
+    final hasApiKey = apiKey != null &&
+        apiKey.trim().isNotEmpty &&
+        apiKey.trim() != 'null' &&
+        apiKey.trim() != 'undefined';
+
+    if (hasApiKey) {
+      final client = httpClient ?? http.Client();
+      try {
+        final uri = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}',
+        );
+
+        final routeContext = routeNode != null
+            ? ' Target screen: "${routeNode.title}" (${routeNode.path}).'
+            : '';
+
+        final systemPrompt =
+            'You are an expert Flutter engineer and UI/UX designer. '
+            'Given the user widget prompt, generate exactly 3 diverse, production-ready Flutter widget variations in JSON format. '
+            'Each variation must use a distinct visual design, layout architecture, and Flutter widget composition: '
+            'Variation 1: Glassmorphism style (subtle borders, translucent background, refined typography, glow effects). '
+            'Variation 2: Bento Grid / Modern Card style (clean rounded container, pill badges, structured stats, compact layout). '
+            'Variation 3: Hero / Dynamic Banner style (vibrant gradients, prominent focal point, interactive action button). '
+            'Output ONLY a valid JSON array of 3 objects with keys: "id", "title", "styleTag", "description", "techApproach", "dartCode". '
+            'Do NOT wrap in markdown other than optional ```json. Each "dartCode" must be a compilable Flutter widget snippet (e.g. Container(...), Card(...)).';
+
+        final requestPayload = {
+          'contents': [
+            {
+              'role': 'user',
+              'parts': [
+                {
+                  'text':
+                      '$systemPrompt\n\nUser Widget Prompt: "$prompt"\nPreset: ${preset.name}.$routeContext',
+                }
+              ]
+            }
+          ],
+          'system_instruction': {
+            'parts': [
+              {'text': systemPrompt}
+            ]
+          }
+        };
+
+        final response = await client
+            .post(
+              uri,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(requestPayload),
+            )
+            .timeout(const Duration(seconds: 15));
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic> &&
+              decoded['candidates'] is List &&
+              (decoded['candidates'] as List).isNotEmpty) {
+            final candidate = (decoded['candidates'] as List).first;
+            if (candidate is Map<String, dynamic> &&
+                candidate['content'] is Map<String, dynamic>) {
+              final content = candidate['content'] as Map<String, dynamic>;
+              if (content['parts'] is List && (content['parts'] as List).isNotEmpty) {
+                final part = (content['parts'] as List).first;
+                if (part is Map<String, dynamic> && part['text'] is String) {
+                  final text = (part['text'] as String).trim();
+                  final cleanJson = text
+                      .replaceAll(RegExp(r'^```(?:json)?', multiLine: true), '')
+                      .replaceAll(RegExp(r'```$', multiLine: true), '')
+                      .trim();
+                  final parsedList = jsonDecode(cleanJson);
+                  if (parsedList is List && parsedList.isNotEmpty) {
+                    final results = <WidgetVariation>[];
+                    for (int i = 0; i < parsedList.length; i++) {
+                      final item = parsedList[i];
+                      if (item is Map<String, dynamic>) {
+                        results.add(WidgetVariation(
+                          id: item['id']?.toString() ?? 'var_${i + 1}',
+                          title: item['title']?.toString() ?? 'Variação ${i + 1}',
+                          styleTag: item['styleTag']?.toString() ??
+                              (i == 0
+                                  ? 'Glassmorphism Oval'
+                                  : i == 1
+                                      ? 'Bento Grid Profile'
+                                      : 'Hero Banner'),
+                          description: item['description']?.toString() ?? '',
+                          dartCode: extractDartCode(item['dartCode']?.toString() ?? ''),
+                          techApproach: item['techApproach']?.toString() ??
+                              (i == 0
+                                  ? 'CircleAvatar + Glow + Row'
+                                  : i == 1
+                                      ? 'ClipRRect + Bento Grid'
+                                      : 'Gradient Container + Action Button'),
+                          icon: i == 0
+                              ? Icons.auto_awesome_rounded
+                              : i == 1
+                                  ? Icons.grid_view_rounded
+                                  : Icons.view_carousel_rounded,
+                        ));
+                      }
+                    }
+                    if (results.length >= 2) {
+                      return results;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Fall back to architectural synthesis
+      } finally {
+        if (httpClient == null) {
+          client.close();
+        }
+      }
+    }
+
+    return synthesizeWidgetVariations(
+      prompt: prompt,
+      preset: preset,
+      routeNode: routeNode,
+    );
+  }
+
+  /// Synthesizes 3 distinct visual and structural widget variations offline.
+  static List<WidgetVariation> synthesizeWidgetVariations({
+    required String prompt,
+    required PresetType preset,
+    RouteNode? routeNode,
+  }) {
+    final lower = prompt.toLowerCase();
+
+    final isProfile = lower.contains('perfil') ||
+        lower.contains('profile') ||
+        lower.contains('foto') ||
+        lower.contains('avatar') ||
+        lower.contains('usuário') ||
+        lower.contains('usuario') ||
+        lower.contains('user') ||
+        lower.contains('bem vindo') ||
+        lower.contains('bem-vindo') ||
+        lower.contains('boas-vindas') ||
+        lower.contains('logado');
+
+    final isPayment = lower.contains('pix') ||
+        lower.contains('pagamento') ||
+        lower.contains('payment') ||
+        lower.contains('cartão') ||
+        lower.contains('cartao') ||
+        (lower.contains('fatura') && !lower.contains('faturamento')) ||
+        lower.contains('cobrança') ||
+        lower.contains('cobranca');
+
+    final isMetrics = lower.contains('métrica') ||
+        lower.contains('metrica') ||
+        lower.contains('lucro') ||
+        lower.contains('vendas') ||
+        lower.contains('analytics') ||
+        lower.contains('faturamento') ||
+        lower.contains('renda') ||
+        lower.contains('dashboard');
+
+    final isSearch = lower.contains('busca') ||
+        lower.contains('search') ||
+        lower.contains('filtro') ||
+        lower.contains('pesquisa') ||
+        lower.contains('procurar');
+
+    if (isProfile) {
+      return [
+        const WidgetVariation(
+          id: 'var_profile_glass',
+          title: 'Glassmorphism Profile Card',
+          styleTag: 'Glassmorphism Oval',
+          description:
+              'Card translúcido com CircleAvatar em glow border, saudação e status badge.',
+          techApproach: 'CircleAvatar + Glow + Row',
+          icon: Icons.account_circle_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF141B2D).withOpacity(0.85),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.35), width: 1.5),
+    boxShadow: [
+      BoxShadow(
+        color: const Color(0xFF6366F1).withOpacity(0.2),
+        blurRadius: 18,
+        offset: const Offset(0, 4),
+      ),
+    ],
+  ),
+  child: Row(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const LinearGradient(
+            colors: [Color(0xFF6366F1), Color(0xFF38BDF8)],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF6366F1).withOpacity(0.45),
+              blurRadius: 10,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: const CircleAvatar(
+          radius: 26,
+          backgroundColor: Color(0xFF090D16),
+          child: Icon(Icons.person_rounded, size: 28, color: Color(0xFFF8FAFC)),
+        ),
+      ),
+      const SizedBox(width: 14),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  'Olá, Alex!',
+                  style: TextStyle(
+                    color: Color(0xFFF8FAFC),
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
+                  ),
+                  child: const Text(
+                    'PRO',
+                    style: TextStyle(
+                      color: Color(0xFF10B981),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Bem-vindo de volta ao seu painel',
+              style: TextStyle(
+                color: Color(0xFF94A3B8),
+                fontSize: 12.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+      IconButton(
+        onPressed: () {},
+        icon: const Icon(Icons.notifications_none_rounded, color: Color(0xFF94A3B8), size: 20),
+      ),
+    ],
+  ),
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_profile_bento',
+          title: 'Bento Grid Profile Tile',
+          styleTag: 'Bento Grid Profile',
+          description:
+              'Tile modular com ClipRRect, moldura oval, indicador online e stat pill.',
+          techApproach: 'ClipRRect + Bento Grid',
+          icon: Icons.grid_view_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF111726),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: const Color(0x1FFFFFFF)),
+  ),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      color: const Color(0xFF1E293B),
+                      child: const Icon(
+                        Icons.person_outline_rounded,
+                        size: 26,
+                        color: Color(0xFF38BDF8),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 13,
+                      height: 13,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF111726), width: 2),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    'Usuário Conectado',
+                    style: TextStyle(
+                      color: Color(0xFFF8FAFC),
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Online agora',
+                    style: TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF38BDF8).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.bolt_rounded, size: 14, color: Color(0xFF38BDF8)),
+                SizedBox(width: 4),
+                Text(
+                  'Nível 12',
+                  style: TextStyle(
+                    color: Color(0xFF38BDF8),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 14),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF141B2D),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: const [
+            Text('Projetos: 14', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            Text('Tarefas: 38', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            Text('Pontos: 1.250', style: TextStyle(color: Color(0xFFF8FAFC), fontSize: 12, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    ],
+  ),
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_profile_hero',
+          title: 'Hero Banner Boas-Vindas',
+          styleTag: 'Hero Banner',
+          description:
+              'Banner com gradiente de destaque, moldura de avatar realçada e botão de ação.',
+          techApproach: 'Gradient Container + Action Button',
+          icon: Icons.view_carousel_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(18),
+  decoration: BoxDecoration(
+    gradient: const LinearGradient(
+      colors: [Color(0xFF4F46E5), Color(0xFF7C3AED), Color(0xFF06B6D4)],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ),
+    borderRadius: BorderRadius.circular(20),
+    boxShadow: [
+      BoxShadow(
+        color: const Color(0xFF4F46E5).withOpacity(0.35),
+        blurRadius: 18,
+        offset: const Offset(0, 5),
+      ),
+    ],
+  ),
+  child: Row(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(2.5),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withOpacity(0.3),
+        ),
+        child: const CircleAvatar(
+          radius: 26,
+          backgroundColor: Colors.white,
+          child: Icon(Icons.person_rounded, size: 30, color: Color(0xFF4F46E5)),
+        ),
+      ),
+      const SizedBox(width: 14),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Bem-vindo de volta!',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 3),
+            Text(
+              'Pronto para criar novidades hoje?',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+      ElevatedButton(
+        onPressed: () {},
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF4F46E5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          elevation: 0,
+        ),
+        child: const Text('Acessar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+      ),
+    ],
+  ),
+)''',
+        ),
+      ];
+    }
+
+    if (isPayment) {
+      return [
+        const WidgetVariation(
+          id: 'var_payment_1',
+          title: 'Pix Glassmorphism Card',
+          styleTag: 'Glassmorphism Card',
+          description:
+              'Card translúcido com chave Pix Copia e Cola, badge instantâneo e taxa zero.',
+          techApproach: 'CircleAvatar + Glow + Row',
+          icon: Icons.pix_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF141B2D).withOpacity(0.9),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: const Color(0xFF10B981).withOpacity(0.35)),
+  ),
+  child: Row(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF10B981).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Icon(Icons.pix_rounded, color: Color(0xFF10B981), size: 28),
+      ),
+      const SizedBox(width: 14),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('Pagamento via Pix', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 15)),
+            SizedBox(height: 2),
+            Text('Chave: contato@flrd.dev', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+          ],
+        ),
+      ),
+      IconButton(
+        onPressed: () {},
+        icon: const Icon(Icons.copy_rounded, color: Color(0xFF10B981), size: 20),
+      ),
+    ],
+  ),
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_payment_2',
+          title: 'Bento Grid Pix & QR Code',
+          styleTag: 'Bento Grid Tile',
+          description:
+              'Tile modular Bento Grid com preview de QR Code dinâmico e status de liquidação.',
+          techApproach: 'ClipRRect + Bento Grid',
+          icon: Icons.qr_code_2_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF111726),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: const Color(0x1FFFFFFF)),
+  ),
+  child: Row(
+    children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 60,
+          height: 60,
+          color: Colors.white,
+          child: const Icon(Icons.qr_code_2_rounded, color: Color(0xFF090D16), size: 44),
+        ),
+      ),
+      const SizedBox(width: 14),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('QR Code Dinâmico', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14.5)),
+            SizedBox(height: 4),
+            Text('Expira em 10:00 min', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+          ],
+        ),
+      ),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFF10B981).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Text('Taxa 0%', style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
+      ),
+    ],
+  ),
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_payment_3',
+          title: 'Hero Banner Pagamento Pix',
+          styleTag: 'Hero Action Banner',
+          description:
+              'Banner imersivo com gradiente vibrante e botão de ação para pagar com 1 toque.',
+          techApproach: 'Gradient Container + Action Button',
+          icon: Icons.bolt_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(18),
+  decoration: BoxDecoration(
+    gradient: const LinearGradient(
+      colors: [Color(0xFF059669), Color(0xFF0D9488), Color(0xFF0284C7)],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ),
+    borderRadius: BorderRadius.circular(20),
+    boxShadow: [
+      BoxShadow(
+        color: const Color(0xFF059669).withOpacity(0.35),
+        blurRadius: 16,
+        offset: const Offset(0, 4),
+      ),
+    ],
+  ),
+  child: Row(
+    children: [
+      const Icon(Icons.verified_rounded, color: Colors.white, size: 36),
+      const SizedBox(width: 14),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('Pagamento Instantâneo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            SizedBox(height: 2),
+            Text('Confirmação imediata sem taxas', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
+      ),
+      ElevatedButton(
+        onPressed: () {},
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF059669),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          elevation: 0,
+        ),
+        child: const Text('Pagar Agora', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+      ),
+    ],
+  ),
+)''',
+        ),
+      ];
+    }
+
+    if (isMetrics) {
+      return [
+        const WidgetVariation(
+          id: 'var_metrics_1',
+          title: 'Métricas Glassmorphism Card',
+          styleTag: 'Glassmorphism Card',
+          description:
+              'Card translúcido com percentual de lucro, sparkline e indicador de crescimento.',
+          techApproach: 'CircleAvatar + Glow + Row',
+          icon: Icons.trending_up_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF141B2D).withOpacity(0.9),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
+  ),
+  child: Row(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF6366F1).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.insights_rounded, color: Color(0xFF38BDF8), size: 26),
+      ),
+      const SizedBox(width: 14),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('Lucro Líquido Mensal', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            SizedBox(height: 2),
+            Text('R\$ 48.920,00', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 17)),
+          ],
+        ),
+      ),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFF10B981).withOpacity(0.18),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.arrow_upward_rounded, color: Color(0xFF10B981), size: 13),
+            SizedBox(width: 3),
+            Text('+24.8%', style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    ],
+  ),
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_metrics_2',
+          title: 'Bento Grid Lucro & Performance',
+          styleTag: 'Bento Grid Tile',
+          description:
+              'Grid Bento com 3 métricas-chave divididas em blocos de alta legibilidade.',
+          techApproach: 'ClipRRect + Bento Grid',
+          icon: Icons.bar_chart_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF111726),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: const Color(0x1FFFFFFF)),
+  ),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: const [
+          Text('Painel de Performance', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14)),
+          Icon(Icons.more_horiz_rounded, color: Color(0xFF64748B), size: 18),
+        ],
+      ),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: const Color(0xFF141B2D), borderRadius: BorderRadius.circular(10)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('Vendas', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                  SizedBox(height: 3),
+                  Text('1.420', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 15)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: const Color(0xFF141B2D), borderRadius: BorderRadius.circular(10)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('Margem', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                  SizedBox(height: 3),
+                  Text('38.2%', style: TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 15)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ],
+  ),
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_metrics_3',
+          title: 'Hero Banner Faturamento',
+          styleTag: 'Hero Action Banner',
+          description:
+              'Banner hero consolidado com gradiente e botão direto para download de relatórios.',
+          techApproach: 'Gradient Container + Action Button',
+          icon: Icons.insights_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(18),
+  decoration: BoxDecoration(
+    gradient: const LinearGradient(
+      colors: [Color(0xFF1E1B4B), Color(0xFF312E81), Color(0xFF4338CA)],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
+  ),
+  child: Row(
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('Faturamento Total Acumulado', style: TextStyle(color: Colors.white70, fontSize: 12)),
+            SizedBox(height: 4),
+            Text('R\$ 284.150,00', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+      ),
+      ElevatedButton.icon(
+        onPressed: () {},
+        icon: const Icon(Icons.file_download_outlined, size: 16),
+        label: const Text('Exportar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF6366F1),
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          elevation: 0,
+        ),
+      ),
+    ],
+  ),
+)''',
+        ),
+      ];
+    }
+
+    if (isSearch) {
+      return [
+        const WidgetVariation(
+          id: 'var_search_1',
+          title: 'Barra de Busca Glassmorphism',
+          styleTag: 'Glassmorphism Card',
+          description:
+              'Barra de pesquisa em vidro escuro com ícone integrado e filtro rápido.',
+          techApproach: 'TextField + Glass Container',
+          icon: Icons.search_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+  decoration: BoxDecoration(
+    color: const Color(0xFF141B2D).withOpacity(0.85),
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
+  ),
+  child: Row(
+    children: const [
+      Icon(Icons.search_rounded, color: Color(0xFF38BDF8), size: 22),
+      SizedBox(width: 10),
+      Expanded(
+        child: TextField(
+          decoration: InputDecoration(
+            hintText: 'Pesquise por nome, tag ou categoria...',
+            hintStyle: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+            border: InputBorder.none,
+            isDense: true,
+          ),
+          style: TextStyle(color: Color(0xFFF8FAFC), fontSize: 13),
+        ),
+      ),
+      Icon(Icons.mic_none_rounded, color: Color(0xFF94A3B8), size: 20),
+    ],
+  ),
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_search_2',
+          title: 'Bento Grid Filtros & Busca',
+          styleTag: 'Bento Grid Tile',
+          description:
+              'Grid modular com chips de categorias e contador de itens encontrados.',
+          techApproach: 'ClipRRect + Bento Grid',
+          icon: Icons.tune_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(14),
+  decoration: BoxDecoration(
+    color: const Color(0xFF111726),
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: const Color(0x1FFFFFFF)),
+  ),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: const [
+          Text('Filtros Populares', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 13)),
+          Text('128 resultados', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+        ],
+      ),
+      const SizedBox(height: 10),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: const Color(0xFF6366F1), borderRadius: BorderRadius.circular(8)),
+              child: const Text('Todos', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: const Color(0xFF141B2D), borderRadius: BorderRadius.circular(8)),
+              child: const Text('Recentes', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: const Color(0xFF141B2D), borderRadius: BorderRadius.circular(8)),
+              child: const Text('Favoritos', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_search_3',
+          title: 'Hero Search Action Banner',
+          styleTag: 'Hero Action Banner',
+          description:
+              'Header dinâmico com campo amplo de busca, gradiente de destaque e tags de filtro.',
+          techApproach: 'Gradient Container + Action Button',
+          icon: Icons.filter_list_rounded,
+          dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    gradient: const LinearGradient(
+      colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+    ),
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.35)),
+  ),
+  child: Row(
+    children: [
+      Expanded(
+        child: Row(
+          children: const [
+            Icon(Icons.search_rounded, color: Color(0xFF38BDF8), size: 22),
+            SizedBox(width: 10),
+            Text('Buscar no sistema...', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+          ],
+        ),
+      ),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF38BDF8),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Text('Filtrar', style: TextStyle(color: Color(0xFF090D16), fontWeight: FontWeight.bold, fontSize: 12)),
+      ),
+    ],
+  ),
+)''',
+        ),
+      ];
+    }
+
+    // Default / Custom synthesis
+    final cleanTitle = prompt.length > 24 ? '${prompt.substring(0, 24)}...' : prompt;
+    return [
+      WidgetVariation(
+        id: 'var_custom_1',
+        title: '$cleanTitle Glass Card',
+        styleTag: 'Glassmorphism Card',
+        description: 'Card translúcido com borda sutil e hierarquia Obsidian Glass.',
+        techApproach: 'CircleAvatar + Glow + Row',
+        icon: Icons.auto_awesome_rounded,
+        dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF141B2D).withOpacity(0.85),
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
+  ),
+  child: Row(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF6366F1).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.auto_awesome_rounded, color: Color(0xFF38BDF8), size: 22),
+      ),
+      const SizedBox(width: 14),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('$cleanTitle', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 15)),
+            SizedBox(height: 2),
+            Text('Componente gerado com IA', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+          ],
+        ),
+      ),
+    ],
+  ),
+)''',
+      ),
+      WidgetVariation(
+        id: 'var_custom_2',
+        title: '$cleanTitle Bento Tile',
+        styleTag: 'Bento Grid Tile',
+        description: 'Layout modular Bento Grid com bordas arredondadas e organização compacta.',
+        techApproach: 'ClipRRect + Bento Grid',
+        icon: Icons.grid_view_rounded,
+        dartCode: '''Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF111726),
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: const Color(0x1FFFFFFF)),
+  ),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: const [
+      Text('$cleanTitle', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14)),
+      SizedBox(height: 6),
+      Text('Visual modular e responsivo.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+    ],
+  ),
+)''',
+      ),
+      WidgetVariation(
+        id: 'var_custom_3',
+        title: '$cleanTitle Hero Banner',
+        styleTag: 'Hero Action Banner',
+        description: 'Banner imersivo com gradiente de alta energia e botão de ação interativo.',
+        techApproach: 'Gradient Container + Action Button',
+        icon: Icons.view_carousel_rounded,
+        dartCode: '''Container(
+  padding: const EdgeInsets.all(18),
+  decoration: BoxDecoration(
+    gradient: const LinearGradient(
+      colors: [Color(0xFF4F46E5), Color(0xFF06B6D4)],
+    ),
+    borderRadius: BorderRadius.circular(18),
+  ),
+  child: Row(
+    children: [
+      Expanded(
+        child: Text('$cleanTitle', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+      ),
+      ElevatedButton(
+        onPressed: () {},
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF4F46E5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          elevation: 0,
+        ),
+        child: const Text('Executar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+      ),
+    ],
+  ),
+)''',
+      ),
+    ];
+  }
+
 
   /// Generates clean, architectural, compilable Dart code adhering to the FLRD Obsidian Glass design
   /// system and the selected project architecture preset.

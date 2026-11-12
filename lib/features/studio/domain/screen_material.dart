@@ -516,6 +516,63 @@ class ScreenMaterialCodeUpdater {
     return -1;
   }
 
+  static int _findMatchingBracket(
+    String text,
+    int openBracketIndex,
+    String openChar,
+    String closeChar,
+  ) {
+    int depth = 0;
+    bool inSingleQuote = false;
+    bool inDoubleQuote = false;
+    for (int i = openBracketIndex; i < text.length; i++) {
+      final char = text[i];
+      final prev = i > 0 ? text[i - 1] : '';
+      if (char == "'" && prev != r'\' && !inDoubleQuote) {
+        inSingleQuote = !inSingleQuote;
+      } else if (char == '"' && prev != r'\' && !inSingleQuote) {
+        inDoubleQuote = !inDoubleQuote;
+      } else if (!inSingleQuote && !inDoubleQuote) {
+        if (char == '/' && i + 1 < text.length && text[i + 1] == '/') {
+          final nextNewline = text.indexOf('\n', i + 2);
+          if (nextNewline != -1) {
+            i = nextNewline;
+            continue;
+          } else {
+            break;
+          }
+        }
+        if (char == openChar) {
+          depth++;
+        } else if (char == closeChar) {
+          depth--;
+          if (depth == 0) return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  static String _indentSnippet(String snippet, String baseIndent) {
+    final lines = snippet.trimRight().split('\n');
+    int? minIndent;
+    for (final l in lines) {
+      if (l.trim().isEmpty) continue;
+      final match = RegExp(r'^[ \t]*').firstMatch(l);
+      final len = match?.group(0)?.length ?? 0;
+      if (minIndent == null || len < minIndent) {
+        minIndent = len;
+      }
+    }
+    minIndent ??= 0;
+    return lines.map((l) {
+      if (l.trim().isEmpty) return '';
+      final stripped =
+          l.length >= minIndent! ? l.substring(minIndent) : l.trimLeft();
+      return '$baseIndent$stripped';
+    }).join('\n');
+  }
+
   static bool _isRangeConsumed(int pos, List<List<int>> ranges) {
     for (final r in ranges) {
       if (pos >= r[0] && pos < r[1]) return true;
@@ -1378,6 +1435,100 @@ class _${screenClassName}State extends State<$screenClassName> {
     );
   }
 
+  /// Safely inserts a widget snippet into the screen's main `children: [...]` of Column/ListView,
+  /// formatting indentation properly and returning the updated screen code.
+  static String insertWidgetSnippetIntoScreenCode(
+    String screenCode,
+    String widgetSnippet,
+  ) {
+    final cleanSnippet = widgetSnippet.trim();
+    if (cleanSnippet.isEmpty) return screenCode;
+
+    if (screenCode.trim().isEmpty) {
+      return '''import 'package:flutter/material.dart';
+
+class GeneratedScreen extends StatelessWidget {
+  const GeneratedScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF090D16),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              $cleanSnippet,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+''';
+    }
+
+    // Try finding the main Scaffold body to prioritize the primary children list
+    int searchStart = 0;
+    final bodyMatch = RegExp(r'\bbody:\s*').firstMatch(screenCode);
+    if (bodyMatch != null) {
+      searchStart = bodyMatch.end;
+    }
+
+    final childrenMatches =
+        RegExp(r'children:\s*(?:<Widget>\s*)?\[').allMatches(screenCode).toList();
+
+    RegExpMatch? targetMatch;
+    if (childrenMatches.isNotEmpty) {
+      targetMatch = childrenMatches.firstWhere(
+        (m) => m.start >= searchStart,
+        orElse: () => childrenMatches.first,
+      );
+    }
+
+    if (targetMatch != null) {
+      final openBracket = screenCode.indexOf('[', targetMatch.start);
+      final closeBracket =
+          _findMatchingBracket(screenCode, openBracket, '[', ']');
+      if (closeBracket != -1) {
+        int lineStart = screenCode.lastIndexOf('\n', closeBracket);
+        String parentIndent = '            ';
+        if (lineStart != -1) {
+          final prefix = screenCode.substring(lineStart + 1, closeBracket);
+          if (prefix.trim().isEmpty) {
+            parentIndent = prefix;
+          }
+        }
+        final childIndent = '$parentIndent  ';
+
+        final inside = screenCode.substring(openBracket + 1, closeBracket);
+        final trimmedInside = inside.trim();
+        final needsLeadingComma =
+            trimmedInside.isNotEmpty && !trimmedInside.endsWith(',');
+
+        final formattedSnippet = _indentSnippet(cleanSnippet, childIndent);
+
+        final buffer = StringBuffer();
+        buffer.write(screenCode.substring(0, closeBracket));
+        if (needsLeadingComma) {
+          buffer.write(',');
+        }
+        buffer.write('\n');
+        buffer.write(formattedSnippet);
+        buffer.write(',\n');
+        buffer.write(parentIndent);
+        buffer.write(screenCode.substring(closeBracket));
+
+        return buffer.toString();
+      }
+    }
+
+    return screenCode;
+  }
+
   // ---------------------------------------------------------------------------
   // 4. AI PROMPT GENERATOR
   // ---------------------------------------------------------------------------
@@ -1720,6 +1871,15 @@ class ScreenMaterialParser {
         routeNode: routeNode,
         existingRoutes: existingRoutes,
         preset: preset,
+      );
+
+  static String insertWidgetSnippetIntoScreenCode(
+    String screenCode,
+    String widgetSnippet,
+  ) =>
+      ScreenMaterialCodeUpdater.insertWidgetSnippetIntoScreenCode(
+        screenCode,
+        widgetSnippet,
       );
 }
 

@@ -718,4 +718,134 @@ class DashboardScreen extends StatelessWidget {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('ScreenMaterialsBuilder Criador de Widgets com IA Integration', () {
+    testWidgets('renders Criador de Widgets com IA prompt input, inspiration chips, and generation button',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      String currentCode = sampleDartCode;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ScreenMaterialsBuilder(
+                node: testNode,
+                project: dummyProject,
+                currentCode: currentCode,
+                onCodeChanged: (newCode) => currentCode = newCode,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify header and creator components
+      expect(find.text('Criador de Widgets com IA'), findsOneWidget);
+      expect(find.byKey(const ValueKey('widget_creator_prompt_input')), findsOneWidget);
+      expect(find.text('👤 Foto de Perfil & Boas-Vindas'), findsOneWidget);
+      expect(find.text('📊 Métricas & Lucro'), findsOneWidget);
+      expect(find.text('💳 Seletor de Pagamento Pix'), findsOneWidget);
+      expect(find.text('🔍 Busca com Filtros'), findsOneWidget);
+      expect(find.byKey(const ValueKey('generate_widget_variations_button')), findsOneWidget);
+      expect(find.text('✨ Gerar 3 Variações'), findsOneWidget);
+
+      // Verify Screen Materials Stack below remains intact
+      expect(find.text('Materiais & Componentes da Tela'), findsOneWidget);
+    });
+
+    testWidgets('clicking an inspiration chip fills the prompt input field', (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      String currentCode = sampleDartCode;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ScreenMaterialsBuilder(
+                node: testNode,
+                project: dummyProject,
+                currentCode: currentCode,
+                onCodeChanged: (newCode) => currentCode = newCode,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Click on '👤 Foto de Perfil & Boas-Vindas'
+      await tester.tap(find.text('👤 Foto de Perfil & Boas-Vindas'));
+      await tester.pumpAndSettle();
+
+      final input = tester.widget<TextField>(
+        find.byKey(const ValueKey('widget_creator_prompt_input')),
+      );
+      expect(input.controller?.text, contains('foto de perfil'));
+    });
+
+    testWidgets(
+        'generating variations and clicking [Escolher este Widget / Inserir na Tela] invokes onCodeChanged with inserted widget',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      String currentCode = sampleDartCode;
+      bool onCodeChangedCalled = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ScreenMaterialsBuilder(
+                node: testNode,
+                project: dummyProject,
+                currentCode: currentCode,
+                onCodeChanged: (newCode) {
+                  currentCode = newCode;
+                  onCodeChangedCalled = true;
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Select inspiration chip and click generate
+      await tester.tap(find.text('👤 Foto de Perfil & Boas-Vindas'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('generate_widget_variations_button')));
+      await tester.pumpAndSettle();
+
+      // Variations cards rendered
+      expect(find.text('Variações Geradas (3):'), findsOneWidget);
+      expect(find.text('Glassmorphism Oval'), findsOneWidget);
+      expect(find.text('Bento Grid Profile'), findsOneWidget);
+      expect(find.text('Hero Banner'), findsOneWidget);
+
+      // Tap choose variation button 0
+      final chooseBtn = find.byKey(const ValueKey('choose_variation_button_0'));
+      expect(chooseBtn, findsOneWidget);
+      await tester.tap(chooseBtn);
+      await tester.pumpAndSettle();
+
+      // Verify callback was invoked and code contains the inserted CircleAvatar widget
+      expect(onCodeChangedCalled, isTrue);
+      expect(currentCode, contains('CircleAvatar'));
+      expect(find.byType(SnackBar), findsOneWidget);
+    });
+  });
 }

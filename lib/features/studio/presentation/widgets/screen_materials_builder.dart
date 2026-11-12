@@ -5,8 +5,11 @@ import 'package:path/path.dart' as p;
 import '../../../../core/theme/app_colors.dart';
 import '../../../projects/models/registered_project.dart';
 import '../../domain/screen_material.dart';
+import '../../domain/widget_variation.dart';
 import '../../models/route_node.dart';
 import '../../providers/studio_provider.dart';
+import '../../../ai/providers/ai_settings_provider.dart';
+import '../../../ai/services/gemini_ai_service.dart';
 import 'ai_screen_generator_dialog.dart';
 
 /// Interactive visual builder panel displaying materials currently in a screen,
@@ -38,6 +41,113 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
   int? _hoveredDropIndex;
   bool _isDropAreaHovered = false;
   final Map<String, String> _localNotes = {};
+
+  late final TextEditingController _widgetPromptController;
+  bool _isGeneratingVariations = false;
+  List<WidgetVariation> _variations = [];
+  final Set<int> _expandedCodeIndices = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _widgetPromptController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _widgetPromptController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _generateVariations() async {
+    final prompt = _widgetPromptController.text.trim();
+    if (prompt.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, digite uma ideia de widget.'),
+          backgroundColor: AppColors.primary,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isGeneratingVariations = true;
+      _expandedCodeIndices.clear();
+    });
+
+    String? apiKey;
+    if (widget.ref != null) {
+      try {
+        apiKey = widget.ref!.read(aiSettingsProvider).apiKey;
+      } catch (_) {}
+    }
+    if (apiKey == null) {
+      try {
+        if (context.findAncestorWidgetOfExactType<ProviderScope>() != null) {
+          apiKey = ProviderScope.containerOf(context, listen: false)
+              .read(aiSettingsProvider)
+              .apiKey;
+        }
+      } catch (_) {}
+    }
+
+    try {
+      final results = await GeminiAiService.generateWidgetVariations(
+        prompt: prompt,
+        preset: widget.project.preset,
+        routeNode: widget.node,
+        apiKey: apiKey,
+      );
+
+      if (mounted) {
+        setState(() {
+          _variations = results;
+          _isGeneratingVariations = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isGeneratingVariations = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao gerar variações: $e'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    }
+  }
+
+  void _insertVariation(WidgetVariation variation) {
+    final updatedCode = ScreenMaterialCodeUpdater.insertWidgetSnippetIntoScreenCode(
+      _effectiveCode,
+      variation.dartCode,
+    );
+
+    _saveAndNotify(updatedCode);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Widget "${variation.title}" inserido na tela com sucesso!'),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.success,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
 
   List<RouteNode>? get _effectiveExistingRoutes {
     if (widget.existingRoutes != null) return widget.existingRoutes;
@@ -407,6 +517,15 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
+        // =====================================================================
+        // CRIADOR DE WIDGETS COM IA
+        // =====================================================================
+        _buildWidgetCreatorSection(),
+
+        const SizedBox(height: 16),
+        const Divider(color: AppColors.borderSubtle, height: 1),
+        const SizedBox(height: 16),
+
         // ---------------------------------------------------------------------
         // Header: Title & Materials Count Badge
         // ---------------------------------------------------------------------
@@ -589,6 +708,405 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildWidgetCreatorSection() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header: Icon + Title "Criador de Widgets com IA" + active count badge
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 15,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Criador de Widgets com IA',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _variations.isNotEmpty
+                      ? AppColors.secondary.withOpacity(0.15)
+                      : AppColors.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: _variations.isNotEmpty
+                        ? AppColors.secondary.withOpacity(0.4)
+                        : AppColors.borderSubtle,
+                  ),
+                ),
+                child: Text(
+                  _variations.isNotEmpty
+                      ? '${_variations.length} variações ativas'
+                      : '3 Variações',
+                  style: TextStyle(
+                    color: _variations.isNotEmpty
+                        ? AppColors.secondary
+                        : AppColors.textMuted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Idea prompt input field
+          TextField(
+            key: const ValueKey('widget_creator_prompt_input'),
+            controller: _widgetPromptController,
+            maxLines: 2,
+            minLines: 1,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 12,
+            ),
+            decoration: InputDecoration(
+              hintText:
+                  'Descreva sua ideia de widget (ex: Caixinha com a foto de perfil do usuário logado e um bem-vindo)...',
+              hintStyle: TextStyle(
+                color: AppColors.textMuted.withOpacity(0.65),
+                fontSize: 11.5,
+              ),
+              filled: true,
+              fillColor: AppColors.surface,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppColors.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Quick inspiration chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: [
+                _buildInspirationChip(
+                  label: '👤 Foto de Perfil & Boas-Vindas',
+                  prompt:
+                      'Caixinha com a foto de perfil do usuário logado e um bem-vindo',
+                ),
+                const SizedBox(width: 6),
+                _buildInspirationChip(
+                  label: '📊 Métricas & Lucro',
+                  prompt: 'Card de métricas com faturamento mensal e lucro',
+                ),
+                const SizedBox(width: 6),
+                _buildInspirationChip(
+                  label: '💳 Seletor de Pagamento Pix',
+                  prompt: 'Seletor de pagamento rápido com chave Pix e QR Code',
+                ),
+                const SizedBox(width: 6),
+                _buildInspirationChip(
+                  label: '🔍 Busca com Filtros',
+                  prompt: 'Barra de busca moderna com chips de filtros rápidos',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Button [✨ Gerar 3 Variações]
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              key: const ValueKey('generate_widget_variations_button'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: _isGeneratingVariations ? null : _generateVariations,
+              child: _isGeneratingVariations
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Gerando variações...',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    )
+                  : const Text(
+                      '✨ Gerar 3 Variações',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+            ),
+          ),
+
+          // Variations Section
+          if (_variations.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Icon(
+                  Icons.auto_awesome_motion_rounded,
+                  size: 13,
+                  color: AppColors.secondary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Variações Geradas (${_variations.length}):',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _variations.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final variation = _variations[index];
+                return _buildVariationCard(variation, index);
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInspirationChip({
+    required String label,
+    required String prompt,
+  }) {
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _widgetPromptController.text = prompt;
+        });
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.borderSubtle),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVariationCard(WidgetVariation variation, int index) {
+    final isCodeExpanded = _expandedCodeIndices.contains(index);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Style tag pill & tech approach badge
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.35)),
+                ),
+                child: Text(
+                  variation.styleTag,
+                  style: const TextStyle(
+                    color: AppColors.secondary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceCard,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.borderSubtle),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.code_rounded,
+                      size: 11,
+                      color: AppColors.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      variation.techApproach,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+
+          // Title
+          Text(
+            variation.title,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          // Description
+          Text(
+            variation.description,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 11,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Code viewer toggle & Choose button
+          Row(
+            children: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    if (isCodeExpanded) {
+                      _expandedCodeIndices.remove(index);
+                    } else {
+                      _expandedCodeIndices.add(index);
+                    }
+                  });
+                },
+                child: Text(
+                  isCodeExpanded ? '👁️ Ocultar Código' : '👁️ Ver Código',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              ElevatedButton(
+                key: ValueKey('choose_variation_button_$index'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.success,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                onPressed: () => _insertVariation(variation),
+                child: const Text(
+                  '✅ Escolher este Widget / Inserir na Tela',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+
+          // Code Viewer
+          if (isCodeExpanded) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF090D16),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SelectableText(
+                  variation.dartCode,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    color: Color(0xFFE2E8F0),
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
