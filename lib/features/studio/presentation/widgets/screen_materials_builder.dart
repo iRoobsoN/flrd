@@ -219,6 +219,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       initialPrompt: prompt,
       initialRoutePath: widget.node.path,
       initialScreenTitle: widget.node.title,
+      initialMaterials: annotatedMaterials,
     );
   }
 

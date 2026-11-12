@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import '../../../../core/theme/app_colors.dart';
 import '../../../ai/providers/ai_settings_provider.dart';
 import '../../../ai/services/gemini_ai_service.dart';
@@ -16,6 +17,8 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
   final String? initialRoutePath;
   final String? initialScreenTitle;
   final ScreenMaterialItem? targetMaterial;
+  final List<ScreenMaterialItem>? initialMaterials;
+  final http.Client? httpClient;
 
   const AiScreenGeneratorDialog({
     super.key,
@@ -24,6 +27,8 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
     this.initialRoutePath,
     this.initialScreenTitle,
     this.targetMaterial,
+    this.initialMaterials,
+    this.httpClient,
   });
 
   static Future<void> show(
@@ -33,6 +38,8 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
     String? initialRoutePath,
     String? initialScreenTitle,
     ScreenMaterialItem? targetMaterial,
+    List<ScreenMaterialItem>? initialMaterials,
+    http.Client? httpClient,
   }) {
     return showDialog(
       context: context,
@@ -42,8 +49,28 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
         initialRoutePath: initialRoutePath,
         initialScreenTitle: initialScreenTitle,
         targetMaterial: targetMaterial,
+        initialMaterials: initialMaterials,
+        httpClient: httpClient,
       ),
     );
+  }
+
+  /// Resolves the active Gemini API key to use based on mode selection and available credentials.
+  /// In Pro Cloud mode (selectedMode == 0), passes `aiSettings.apiKey` if a key is stored.
+  static String? resolveActiveApiKey({
+    required int selectedMode,
+    required AiSettingsState aiSettings,
+    required String byokInputKey,
+  }) {
+    return (selectedMode == 0)
+        ? ((aiSettings.apiKey != null && aiSettings.apiKey!.trim().isNotEmpty)
+            ? aiSettings.apiKey!.trim()
+            : null)
+        : (byokInputKey.trim().isNotEmpty
+            ? byokInputKey.trim()
+            : (aiSettings.apiKey != null && aiSettings.apiKey!.trim().isNotEmpty
+                ? aiSettings.apiKey!.trim()
+                : null));
   }
 
   @override
@@ -124,11 +151,11 @@ class _AiScreenGeneratorDialogState
           : _titleController.text.trim();
 
       final aiSettings = ref.read(aiSettingsProvider);
-      final activeApiKey = (_selectedMode == 1)
-          ? (_apiKeyController.text.trim().isNotEmpty
-              ? _apiKeyController.text.trim()
-              : aiSettings.apiKey)
-          : null;
+      final activeApiKey = AiScreenGeneratorDialog.resolveActiveApiKey(
+        selectedMode: _selectedMode,
+        aiSettings: aiSettings,
+        byokInputKey: _apiKeyController.text,
+      );
 
       // Update provider if user typed key in BYOK mode
       if (_selectedMode == 1 && _apiKeyController.text.trim().isNotEmpty) {
@@ -146,7 +173,9 @@ class _AiScreenGeneratorDialogState
         prompt: _promptController.text.trim(),
         preset: widget.project.preset,
         existingRoutes: existingNodes,
+        materials: widget.initialMaterials,
         apiKey: activeApiKey,
+        httpClient: widget.httpClient,
       );
 
       if (!mounted) return;

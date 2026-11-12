@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:flrd/features/ai/services/gemini_ai_service.dart';
 import 'package:flrd/features/auth/domain/user_account.dart';
 import 'package:flrd/features/auth/providers/auth_provider.dart';
 import 'package:flrd/features/auth/services/firebase_auth_service.dart';
@@ -593,6 +594,156 @@ class CheckoutScreen extends StatelessWidget {
       expect(find.byType(AiScreenGeneratorDialog), findsOneWidget);
       expect(find.textContaining('Refinar Widget com IA:'), findsOneWidget);
       expect(find.text('✨ Refinar e Injetar Widget'), findsOneWidget);
+    });
+  });
+
+  group('6. Note-Driven Synthesis and Prompt Leakage Prevention Tests', () {
+    test('synthesizeScreenCode produces valid Dart code without syntax errors when given a complex multi-line prompt containing "###", "Descrição do fluxo:", etc.', () {
+      const fullPrompt = '''
+Crie uma tela Flutter profissional e completa para a rota "/billing/invoices" (Faturas).
+Descrição do fluxo: Histórico de faturamento e download de notas fiscais em PDF.
+Preset de Arquitetura: saas (SaaS Full-Stack).
+### App Navigation Graph & Available Routes:
+- Início ("/home"): Dashboard
+- Perfil ("/profile"): Configurações
+### User Component Notes & Behavioral Prompts:
+- Component: Tabela de Faturas -> User Note: 'paginação de 10 itens com skeleton loading'
+- Component: Baixar Tudo -> User Note: 'exportar arquivo zip compactado'
+''';
+
+      final code = GeminiAiService.synthesizeScreenCode(
+        screenClassName: 'InvoicesScreen',
+        routePath: '/billing/invoices',
+        prompt: fullPrompt,
+        preset: PresetType.saas,
+      );
+
+      // Verify compilable structure
+      expect(code, contains("import 'package:flutter/material.dart';"));
+      expect(code, contains('class InvoicesScreen extends StatefulWidget'));
+      expect(code, contains('class _InvoicesScreenState extends State<InvoicesScreen>'));
+      expect(code, contains('class AppColors'));
+
+      // Verify that multi-line markdown was placed entirely in Dart comments
+      expect(code, contains('/// Crie uma tela Flutter profissional'));
+      expect(code, contains('/// Descrição do fluxo: Histórico de faturamento'));
+      expect(code, contains('/// ### App Navigation Graph & Available Routes:'));
+      expect(code, contains('/// ### User Component Notes & Behavioral Prompts:'));
+
+      // Validate balanced syntax tokens
+      final openBraces = RegExp(r'\{').allMatches(code).length;
+      final closeBraces = RegExp(r'\}').allMatches(code).length;
+      expect(openBraces, equals(closeBraces));
+
+      final openParens = RegExp(r'\(').allMatches(code).length;
+      final closeParens = RegExp(r'\)').allMatches(code).length;
+      expect(openParens, equals(closeParens));
+    });
+
+    test('synthesizeScreenCode NEVER contains the full raw prompt in any Text(...) widget', () {
+      const fullPrompt = '''
+Crie uma tela Flutter profissional e completa para a rota "/analytics/performance".
+Descrição do fluxo: Visão detalhada de conversões e funil de vendas.
+Preset de Arquitetura: saas (SaaS Full-Stack).
+### App Navigation Graph & Available Routes:
+- Home ("/home")
+- Checkout ("/checkout")
+### User Component Notes & Behavioral Prompts:
+- Component: Gráfico -> User Note: 'gráfico de funil 3D'
+''';
+
+      final code = GeminiAiService.synthesizeScreenCode(
+        screenClassName: 'PerformanceScreen',
+        routePath: '/analytics/performance',
+        prompt: fullPrompt,
+        preset: PresetType.saas,
+      );
+
+      // Raw prompt strings must not be dumped into Text widgets
+      expect(code.contains("Text('$fullPrompt')"), isFalse);
+      expect(code.contains('Text("""$fullPrompt""")'), isFalse);
+      expect(code.contains("Text('''$fullPrompt''')"), isFalse);
+
+      // Ensure no raw markdown or header leak inside Text widgets
+      expect(RegExp(r'Text\s*\([^)]*###[^)]*\)').hasMatch(code), isFalse);
+      expect(RegExp(r'Text\s*\([^)]*Descrição do fluxo:[^)]*\)').hasMatch(code), isFalse);
+
+      // Clean extracted description must be rendered instead
+      expect(code, contains('Visão detalhada de conversões e funil de vendas.'));
+    });
+
+    test('synthesizeScreenCode respects user notes: dynamic title cycling ("trocando de nome aleatoriamente")', () {
+      const materials = [
+        ScreenMaterialItem(
+          id: 'mat_app_bar_dynamic',
+          type: ScreenMaterialType.appBar,
+          label: 'Título Mágico',
+          note: 'trocando de nome aleatoriamente ao clicar',
+        ),
+      ];
+
+      final code = GeminiAiService.synthesizeScreenCode(
+        screenClassName: 'MagicScreen',
+        routePath: '/magic',
+        prompt: 'Tela mágica com dynamic title.',
+        preset: PresetType.saas,
+        materials: materials,
+      );
+
+      expect(code, contains('int _titleIndex = 0;'));
+      expect(code, contains('final List<String> _titles = const ['));
+      expect(code, contains("'Magic',"));
+      expect(code, contains("'Explorar',"));
+      expect(code, contains("'Novidades',"));
+      expect(code, contains("'Destaques',"));
+      expect(code, contains('_titleIndex = (_titleIndex + 1) % _titles.length;'));
+      expect(code, contains('Icons.shuffle_rounded'));
+    });
+
+    test('synthesizeScreenCode respects user notes: centered alignment ("centralizado no meio da tela")', () {
+      const materials = [
+        ScreenMaterialItem(
+          id: 'mat_center',
+          type: ScreenMaterialType.containerCard,
+          label: 'Apresentação',
+          note: 'conteúdo centralizado no meio da tela',
+        ),
+      ];
+
+      final code = GeminiAiService.synthesizeScreenCode(
+        screenClassName: 'CenterIntroScreen',
+        routePath: '/center-intro',
+        prompt: 'Tela de introdução.',
+        preset: PresetType.saas,
+        materials: materials,
+      );
+
+      expect(code, contains('crossAxisAlignment: CrossAxisAlignment.center'));
+      expect(code, contains('textAlign: TextAlign.center'));
+      expect(code, contains('Center(child:'));
+    });
+
+    test('synthesizeScreenCode respects user notes: color switching state ("trocar de cor")', () {
+      const materials = [
+        ScreenMaterialItem(
+          id: 'mat_btn_color',
+          type: ScreenMaterialType.primaryButton,
+          label: 'Alternar Tema',
+          note: 'botão para trocar de cor',
+        ),
+      ];
+
+      final code = GeminiAiService.synthesizeScreenCode(
+        screenClassName: 'ThemeToggleScreen',
+        routePath: '/theme-toggle',
+        prompt: 'Tela com botão dinâmico.',
+        preset: PresetType.saas,
+        materials: materials,
+      );
+
+      expect(code, contains('Color _buttonColor = AppColors.primary;'));
+      expect(code, contains('_buttonColor = _buttonColor == AppColors.primary ? AppColors.secondary : AppColors.primary;'));
+      expect(code, contains('backgroundColor: _buttonColor'));
     });
   });
 }
