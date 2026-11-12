@@ -1,14 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:flrd/features/ai/providers/ai_settings_provider.dart';
 import 'package:flrd/features/ai/services/gemini_ai_service.dart';
 import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/studio/domain/screen_material.dart';
 import 'package:flrd/features/studio/domain/widget_variation.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
+import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/screen_materials_builder.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 
@@ -197,14 +200,23 @@ class DashboardScreen extends StatelessWidget {
       expect(variations.any((v) => v.styleTag.contains('Hero')), isTrue);
     });
 
-    test('synthesizes 3 distinct variations for metrics prompt', () {
+    test('synthesizes 3 distinct variations for metrics prompt with extracted user terms (Faturamento Mensal, Lucro)', () {
       final variations = GeminiAiService.synthesizeWidgetVariations(
-        prompt: 'Métricas de lucro mensal',
+        prompt: 'Card de métricas com faturamento mensal e lucro',
         preset: PresetType.cleanLite,
       );
 
       expect(variations.length, 3);
-      expect(variations[0].dartCode, contains('Container'));
+      expect(variations[0].title, contains('Faturamento Mensal'));
+      expect(variations[0].title, contains('Lucro'));
+      expect(variations[0].dartCode, contains('Faturamento Mensal'));
+      expect(variations[0].dartCode, contains('Lucro'));
+
+      expect(variations[1].title, contains('Faturamento Mensal'));
+      expect(variations[1].title, contains('Lucro'));
+      expect(variations[1].dartCode, contains('Lucro'));
+
+      expect(variations[2].dartCode, contains('Faturamento Total Acumulado'));
     });
 
     test('synthesizes 3 distinct variations for search prompt', () {
@@ -215,6 +227,63 @@ class DashboardScreen extends StatelessWidget {
 
       expect(variations.length, 3);
       expect(variations.any((v) => v.dartCode.contains('TextField')), isTrue);
+    });
+
+    test('synthesizes 3 distinct variations for bouncing physics ball prompt asserting animation, Curves.bounceOut, and spherical decorations', () {
+      final variations = GeminiAiService.synthesizeWidgetVariations(
+        prompt: 'Uma bola que fica pingando',
+        preset: PresetType.cleanLite,
+      );
+
+      expect(variations.length, 3);
+
+      // Var 1: Bouncing Physics Ball with Curves.bounceOut and spherical decorations
+      expect(variations[0].title, contains('Bouncing Physics Ball'));
+      expect(variations[0].techApproach, contains('CurvedAnimation(curve: Curves.bounceOut)'));
+      expect(variations[0].dartCode, contains('TweenAnimationBuilder'));
+      expect(variations[0].dartCode, contains('Curves.bounceOut'));
+      expect(variations[0].dartCode, contains('BoxShape.circle'));
+      expect(variations[0].dartCode, contains('RadialGradient'));
+      expect(variations[0].dartCode, contains('shadowScale'));
+
+      // Var 2: Glowing Pulse Sphere
+      expect(variations[1].title, contains('Glowing Pulse Sphere'));
+      expect(variations[1].techApproach, contains('TweenAnimationBuilder + Scale & Neon Aura'));
+      expect(variations[1].dartCode, contains('TweenAnimationBuilder'));
+      expect(variations[1].dartCode, contains('BoxShape.circle'));
+      expect(variations[1].dartCode, contains('RadialGradient'));
+
+      // Var 3: Interactive Spring Ball with Curves.elasticOut
+      expect(variations[2].title, contains('Interactive Spring Ball'));
+      expect(variations[2].techApproach, contains('Curves.elasticOut'));
+      expect(variations[2].dartCode, contains('Curves.elasticOut'));
+      expect(variations[2].dartCode, contains('BoxShape.circle'));
+    });
+
+    test('synthesizes 3 distinct variations for counter prompt', () {
+      final variations = GeminiAiService.synthesizeWidgetVariations(
+        prompt: 'contador de itens com mais e menos',
+        preset: PresetType.cleanLite,
+      );
+
+      expect(variations.length, 3);
+      expect(variations[0].title, contains('Stepper Counter'));
+      expect(variations[0].dartCode, contains('StatefulBuilder'));
+      expect(variations[1].title, contains('Goal Counter'));
+      expect(variations[2].title, contains('Counter Banner'));
+    });
+
+    test('synthesizes 3 distinct variations for custom prompt extracting keywords', () {
+      final variations = GeminiAiService.synthesizeWidgetVariations(
+        prompt: 'painel solar inteligente com telemetria de voltagem',
+        preset: PresetType.cleanLite,
+      );
+
+      expect(variations.length, 3);
+      expect(variations[0].title, contains('Painel Solar Inteligente'));
+      expect(variations[0].styleTag, contains('Glassmorphism'));
+      expect(variations[1].styleTag, contains('Bento Grid'));
+      expect(variations[2].styleTag, contains('Hero'));
     });
 
     test('generateWidgetVariations falls back to synthesis when apiKey is null', () async {
@@ -322,17 +391,19 @@ class DashboardScreen extends StatelessWidget {
 
       // Check Inspiration Chips
       expect(find.text('👤 Foto de Perfil & Boas-Vindas'), findsOneWidget);
-      expect(find.text('📊 Métricas & Lucro'), findsOneWidget);
-      expect(find.text('💳 Seletor de Pagamento Pix'), findsOneWidget);
-      expect(find.text('🔍 Busca com Filtros'), findsOneWidget);
+      expect(find.text('📊 Faturamento & Lucro'), findsOneWidget);
+      expect(find.text('⚽ Bola Pingando (Física/Animação)'), findsOneWidget);
+      expect(find.text('💳 Seletor Pix/Cartão'), findsOneWidget);
+      expect(find.text('🔍 Busca com Filtro'), findsOneWidget);
 
       // Check Generate Button
       expect(find.byKey(const ValueKey('generate_widget_variations_button')), findsOneWidget);
-      expect(find.text('✨ Gerar 3 Variações'), findsOneWidget);
+      expect(find.text('✨ Gerar 3 Variações de Widgets com IA'), findsOneWidget);
 
       // Verify Screen Materials Stack still rendered below
-      expect(find.text('Materiais & Componentes da Tela'), findsOneWidget);
+      expect(find.textContaining('Widgets nesta Tela'), findsOneWidget);
       expect(find.byKey(const ValueKey('ai_enhance_materials_button')), findsOneWidget);
+      expect(find.text('✨ Refinar Tela Inteira com IA'), findsOneWidget);
     });
 
     testWidgets('clicking inspiration chip fills the prompt input field', (tester) async {
@@ -428,6 +499,172 @@ class DashboardScreen extends StatelessWidget {
       expect(codeChanged, isTrue);
       expect(code, contains('CircleAvatar'));
       expect(find.byType(SnackBar), findsOneWidget);
+    });
+
+    testWidgets('asserts legacy palette chips are COMPLETELY GONE from ScreenMaterialsBuilder', (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ScreenMaterialsBuilder(
+                node: testNode,
+                project: testProject,
+                currentCode: sampleScreenCode,
+                onCodeChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Assert legacy chips, drag target, and palette scroll are completely gone
+      expect(find.text('Adicionar Componente (clique ou arraste):'), findsNothing);
+      expect(find.text('+ AppBar'), findsNothing);
+      expect(find.text('+ Título'), findsNothing);
+      expect(find.text('+ Subtítulo'), findsNothing);
+      expect(find.text('+ Input'), findsNothing);
+      expect(find.text('+ Senha'), findsNothing);
+      expect(find.text('+ Botão Primário'), findsNothing);
+      expect(find.text('+ Botão Social'), findsNothing);
+      expect(find.text('+ Card VIP'), findsNothing);
+      expect(find.text('+ Switch'), findsNothing);
+      expect(find.text('+ Checkbox'), findsNothing);
+      expect(find.text('+ Ícone'), findsNothing);
+      expect(find.byKey(const ValueKey('screen_materials_palette_scroll')), findsNothing);
+      expect(find.byKey(const ValueKey('screen_materials_drop_target')), findsNothing);
+    });
+
+    testWidgets('tests AI provider and API key toggle (Pro Cloud vs BYOK) with auto-save', (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final container = ProviderContainer();
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ScreenMaterialsBuilder(
+                  node: testNode,
+                  project: testProject,
+                  currentCode: sampleScreenCode,
+                  onCodeChanged: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Default Pro Cloud
+      expect(find.byKey(const ValueKey('widget_creator_provider_cloud')), findsOneWidget);
+      expect(find.byKey(const ValueKey('widget_creator_provider_byok')), findsOneWidget);
+      expect(find.byKey(const ValueKey('widget_creator_api_key_input')), findsNothing);
+      expect(find.text('🟢 Gemini 1.5 Flash Ativo'), findsOneWidget);
+
+      // Tap BYOK
+      await tester.tap(find.byKey(const ValueKey('widget_creator_provider_byok')));
+      await tester.pumpAndSettle();
+
+      // Key input appears
+      final keyField = find.byKey(const ValueKey('widget_creator_api_key_input'));
+      expect(keyField, findsOneWidget);
+      expect(find.text('⚡ Motor Neural Local'), findsOneWidget);
+
+      // Enter key
+      await tester.enterText(keyField, 'AIzaEngineTestKey888');
+      await tester.pumpAndSettle();
+
+      expect(container.read(aiSettingsProvider).apiKey, 'AIzaEngineTestKey888');
+      expect(find.text('🟢 Gemini 1.5 Flash Ativo'), findsOneWidget);
+
+      // Toggle back to Pro Cloud
+      await tester.tap(find.byKey(const ValueKey('widget_creator_provider_cloud')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('widget_creator_api_key_input')), findsNothing);
+      expect(find.text('🟢 Gemini 1.5 Flash Ativo'), findsOneWidget);
+    });
+
+    testWidgets('choosing widget variation correctly inserts into code and updates DeviceScreenEmulator Live Preview', (tester) async {
+      tester.view.physicalSize = const Size(1280, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      String liveCode = sampleScreenCode;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                return Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: ScreenMaterialsBuilder(
+                          node: testNode,
+                          project: testProject,
+                          currentCode: liveCode,
+                          onCodeChanged: (newCode) => setState(() => liveCode = newCode),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: DeviceScreenEmulator(
+                        node: testNode,
+                        project: testProject,
+                        sourceCode: liveCode,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Enter ball prompt
+      await tester.enterText(
+        find.byKey(const ValueKey('widget_creator_prompt_input')),
+        'Uma bola que fica pingando',
+      );
+      await tester.pumpAndSettle();
+
+      // Generate
+      await tester.tap(find.byKey(const ValueKey('generate_widget_variations_button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Variações Geradas (3):'), findsOneWidget);
+
+      // Choose variation 0
+      final chooseBtn = find.byKey(const ValueKey('choose_variation_button_0'));
+      expect(chooseBtn, findsOneWidget);
+      await tester.tap(chooseBtn);
+      await tester.pumpAndSettle();
+
+      // Code contains Curves.bounceOut
+      expect(liveCode, contains('Curves.bounceOut'));
+      expect(find.byType(SnackBar), findsOneWidget);
+
+      // Live Preview emulator receives updated code
+      final emulator = tester.widget<DeviceScreenEmulator>(find.byType(DeviceScreenEmulator));
+      expect(emulator.sourceCode, contains('Curves.bounceOut'));
+      expect(tester.takeException(), isNull);
     });
   });
 }

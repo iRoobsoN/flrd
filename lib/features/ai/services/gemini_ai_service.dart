@@ -180,7 +180,79 @@ class GeminiAiService {
     return trimmed;
   }
 
-  /// Generates 2 or 3 distinct widget variations using Gemini 1.5 Flash API (when apiKey provided)
+  /// Parses JSON variations from Gemini response, handling markdown fences and partial JSON.
+  static List<WidgetVariation>? _parseVariationsJson(String rawText) {
+    if (rawText.trim().isEmpty) return null;
+    try {
+      String text = rawText.trim();
+      if (text.startsWith('```')) {
+        final firstNewline = text.indexOf('\n');
+        if (firstNewline != -1) {
+          text = text.substring(firstNewline + 1);
+        }
+        final lastFence = text.lastIndexOf('```');
+        if (lastFence != -1) {
+          text = text.substring(0, lastFence);
+        }
+      }
+      text = text.trim();
+
+      final startIndex = text.indexOf('[');
+      final endIndex = text.lastIndexOf(']');
+      if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
+        text = text.substring(startIndex, endIndex + 1);
+      } else if (startIndex != -1) {
+        final lastObj = text.lastIndexOf('}');
+        if (lastObj > startIndex) {
+          text = '${text.substring(startIndex, lastObj + 1)}]';
+        }
+      }
+
+      // Remove trailing commas before closing braces/brackets
+      text = text.replaceAll(RegExp(r',\s*([\]}])'), r'$1');
+
+      final decoded = jsonDecode(text);
+      if (decoded is List && decoded.isNotEmpty) {
+        final results = <WidgetVariation>[];
+        for (int i = 0; i < decoded.length; i++) {
+          final item = decoded[i];
+          if (item is Map<String, dynamic>) {
+            results.add(WidgetVariation(
+              id: item['id']?.toString() ?? 'var_${i + 1}',
+              title: item['title']?.toString() ?? 'Variação ${i + 1}',
+              styleTag: item['styleTag']?.toString() ??
+                  (i == 0
+                      ? 'Glassmorphism Card'
+                      : i == 1
+                          ? 'Bento Grid Tile'
+                          : 'Hero Action Banner'),
+              description: item['description']?.toString() ?? '',
+              dartCode: extractDartCode(item['dartCode']?.toString() ?? ''),
+              techApproach: item['techApproach']?.toString() ??
+                  (i == 0
+                      ? 'Glassmorphism Card'
+                      : i == 1
+                          ? 'Bento Grid'
+                          : 'Hero Action Banner'),
+              icon: i == 0
+                  ? Icons.auto_awesome_rounded
+                  : i == 1
+                      ? Icons.grid_view_rounded
+                      : Icons.view_carousel_rounded,
+            ));
+          }
+        }
+        if (results.length >= 2) {
+          return results;
+        }
+      }
+    } catch (e) {
+      debugPrint('GeminiAiService: Error parsing widget variations JSON: $e');
+    }
+    return null;
+  }
+
+  /// Generates 3 distinct widget variations using Gemini 1.5 Flash API (when apiKey provided)
   /// or falls back to diverse architectural synthesis.
   static Future<List<WidgetVariation>> generateWidgetVariations({
     required String prompt,
@@ -207,13 +279,14 @@ class GeminiAiService {
 
         final systemPrompt =
             'You are an expert Flutter engineer and UI/UX designer. '
-            'Given the user widget prompt, generate exactly 3 diverse, production-ready Flutter widget variations in JSON format. '
-            'Each variation must use a distinct visual design, layout architecture, and Flutter widget composition: '
-            'Variation 1: Glassmorphism style (subtle borders, translucent background, refined typography, glow effects). '
-            'Variation 2: Bento Grid / Modern Card style (clean rounded container, pill badges, structured stats, compact layout). '
-            'Variation 3: Hero / Dynamic Banner style (vibrant gradients, prominent focal point, interactive action button). '
-            'Output ONLY a valid JSON array of 3 objects with keys: "id", "title", "styleTag", "description", "techApproach", "dartCode". '
-            'Do NOT wrap in markdown other than optional ```json. Each "dartCode" must be a compilable Flutter widget snippet (e.g. Container(...), Card(...)).';
+            'Given the user widget prompt, generate exactly 3 REAL, DIVERSE, PRODUCTION-GRADE Flutter widget variations in JSON format tailored to the user prompt.\n'
+            'Each variation must use a distinct visual design, layout architecture, and Flutter widget composition:\n'
+            '- Variation 1: Glassmorphism style (subtle borders, translucent background, refined typography, glow effects).\n'
+            '- Variation 2: Bento Grid / Modern Card style (clean rounded container, pill badges, structured stats, compact layout).\n'
+            '- Variation 3: Hero Action Banner style (vibrant gradients, prominent focal point, interactive action button).\n'
+            'CRITICAL ANIMATION REQUIREMENT: If the user prompt asks for animations, physics, bouncing ball, pulses, bounce, or dynamic movement, you MUST output animated Flutter code (using AnimationController, CurvedAnimation, TweenAnimationBuilder, or StatefulBuilder with curves like Curves.bounceOut, Curves.elasticOut).\n'
+            'Output ONLY a valid JSON array of 3 objects with keys: "id", "title", "styleTag", "description", "techApproach", "dartCode".\n'
+            'Each "dartCode" MUST be a complete, self-contained, compilable Flutter widget snippet (e.g. Container(...), TweenAnimationBuilder(...), StatefulBuilder(...)). Do NOT wrap in markdown other than optional ```json.';
 
         final requestPayload = {
           'contents': [
@@ -254,45 +327,10 @@ class GeminiAiService {
               if (content['parts'] is List && (content['parts'] as List).isNotEmpty) {
                 final part = (content['parts'] as List).first;
                 if (part is Map<String, dynamic> && part['text'] is String) {
-                  final text = (part['text'] as String).trim();
-                  final cleanJson = text
-                      .replaceAll(RegExp(r'^```(?:json)?', multiLine: true), '')
-                      .replaceAll(RegExp(r'```$', multiLine: true), '')
-                      .trim();
-                  final parsedList = jsonDecode(cleanJson);
-                  if (parsedList is List && parsedList.isNotEmpty) {
-                    final results = <WidgetVariation>[];
-                    for (int i = 0; i < parsedList.length; i++) {
-                      final item = parsedList[i];
-                      if (item is Map<String, dynamic>) {
-                        results.add(WidgetVariation(
-                          id: item['id']?.toString() ?? 'var_${i + 1}',
-                          title: item['title']?.toString() ?? 'Variação ${i + 1}',
-                          styleTag: item['styleTag']?.toString() ??
-                              (i == 0
-                                  ? 'Glassmorphism Oval'
-                                  : i == 1
-                                      ? 'Bento Grid Profile'
-                                      : 'Hero Banner'),
-                          description: item['description']?.toString() ?? '',
-                          dartCode: extractDartCode(item['dartCode']?.toString() ?? ''),
-                          techApproach: item['techApproach']?.toString() ??
-                              (i == 0
-                                  ? 'CircleAvatar + Glow + Row'
-                                  : i == 1
-                                      ? 'ClipRRect + Bento Grid'
-                                      : 'Gradient Container + Action Button'),
-                          icon: i == 0
-                              ? Icons.auto_awesome_rounded
-                              : i == 1
-                                  ? Icons.grid_view_rounded
-                                  : Icons.view_carousel_rounded,
-                        ));
-                      }
-                    }
-                    if (results.length >= 2) {
-                      return results;
-                    }
+                  final text = part['text'] as String;
+                  final parsedVariations = _parseVariationsJson(text);
+                  if (parsedVariations != null && parsedVariations.isNotEmpty) {
+                    return parsedVariations;
                   }
                 }
               }
@@ -358,6 +396,292 @@ class GeminiAiService {
         lower.contains('filtro') ||
         lower.contains('pesquisa') ||
         lower.contains('procurar');
+
+    final isCounter = lower.contains('contador') ||
+        lower.contains('counter') ||
+        lower.contains('increment') ||
+        lower.contains('contar');
+
+    final isBounce = lower.contains('bola') ||
+        lower.contains('pingando') ||
+        lower.contains('quicando') ||
+        lower.contains('bounce') ||
+        lower.contains('animad') ||
+        lower.contains('física') ||
+        lower.contains('fisica') ||
+        lower.contains('pular') ||
+        lower.contains('pulando');
+
+    // -------------------------------------------------------------------------
+    // 1. BOUNCING PHYSICS BALL & ANIMATIONS
+    // -------------------------------------------------------------------------
+    if (isBounce) {
+      return [
+        const WidgetVariation(
+          id: 'var_bounce_physics_1',
+          title: 'Bouncing Physics Ball',
+          styleTag: 'Physics Animation',
+          description:
+              'Bola que fica pingando com física vertical Curves.bounceOut e sombra sincronizada no chão.',
+          techApproach: 'CurvedAnimation(curve: Curves.bounceOut) + Ground Shadow',
+          icon: Icons.sports_soccer_rounded,
+          dartCode: '''TweenAnimationBuilder<double>(
+  tween: Tween<double>(begin: 0.0, end: 1.0),
+  duration: const Duration(milliseconds: 1400),
+  curve: Curves.bounceOut,
+  builder: (context, value, child) {
+    final double ballY = (1.0 - value) * -90.0;
+    final double shadowScale = 0.4 + (value * 0.6);
+    final double shadowOpacity = (0.2 + (value * 0.6)).clamp(0.0, 1.0);
+    return Container(
+      height: 190,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141B2D).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.35), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6366F1).withOpacity(0.2),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned(
+                  bottom: 12,
+                  child: Container(
+                    width: 56 * shadowScale,
+                    height: 12 * shadowScale,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(shadowOpacity),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF6366F1).withOpacity(shadowOpacity * 0.4),
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 24 - ballY,
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const RadialGradient(
+                        colors: [Color(0xFF818CF8), Color(0xFF4F46E5), Color(0xFF312E81)],
+                        center: Alignment(-0.3, -0.4),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF6366F1).withOpacity(0.55),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.sports_soccer_rounded, color: Colors.white, size: 28),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Física de Salto Real • Curves.bounceOut',
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  },
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_bounce_pulse_2',
+          title: 'Glowing Pulse Sphere',
+          styleTag: 'Neon Pulse Sphere',
+          description:
+              'Esfera com escala animada contínua, aura neon luminosa e visual futurista.',
+          techApproach: 'TweenAnimationBuilder + Scale & Neon Aura',
+          icon: Icons.blur_on_rounded,
+          dartCode: '''TweenAnimationBuilder<double>(
+  tween: Tween<double>(begin: 0.85, end: 1.15),
+  duration: const Duration(milliseconds: 900),
+  curve: Curves.easeInOut,
+  builder: (context, scale, child) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111726),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.35)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF38BDF8).withOpacity(0.15),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Transform.scale(
+            scale: scale,
+            child: Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const RadialGradient(
+                  colors: [Color(0xFF38BDF8), Color(0xFF0284C7), Color(0xFF0F172A)],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF38BDF8).withOpacity(0.65),
+                    blurRadius: 26 * scale,
+                    spreadRadius: 4 * scale,
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: Icon(Icons.blur_on_rounded, color: Colors.white, size: 34),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Esfera de Pulso Neon',
+            style: TextStyle(color: Color(0xFFF8FAFC), fontSize: 14, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Escala pulsante contínua com aura holográfica',
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
+          ),
+        ],
+      ),
+    );
+  },
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_bounce_spring_3',
+          title: 'Interactive Spring Ball',
+          styleTag: 'Interactive Spring Ball',
+          description:
+              'Bola interativa que dispara salto elástico Curves.elasticOut ao toque do usuário.',
+          techApproach: 'Tap-to-Bounce + Curves.elasticOut Physics',
+          icon: Icons.touch_app_rounded,
+          dartCode: '''StatefulBuilder(
+  builder: (context, setState) {
+    bool isBouncing = false;
+    return GestureDetector(
+      onTap: () => setState(() => isBouncing = !isBouncing),
+      child: TweenAnimationBuilder<double>(
+        key: ValueKey(isBouncing),
+        tween: Tween<double>(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 750),
+        curve: Curves.elasticOut,
+        builder: (context, value, child) {
+          final double offsetY = -35.0 * (1.0 - value);
+          return Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF1E1B4B), Color(0xFF312E81), Color(0xFF4338CA)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF818CF8).withOpacity(0.4)),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF6366F1).withOpacity(0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Transform.translate(
+                  offset: Offset(0, offsetY),
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const RadialGradient(
+                        colors: [Color(0xFFF43F5E), Color(0xFFBE123C)],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFF43F5E).withOpacity(0.5),
+                          blurRadius: 14,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.touch_app_rounded, color: Colors.white, size: 28),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Text(
+                        'Spring Ball Interativo',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.5),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Toque no card para ativar o efeito elástico',
+                        style: TextStyle(color: Colors.white70, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    'Toque Aqui',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  },
+)''',
+        ),
+      ];
+    }
 
     if (isProfile) {
       return [
@@ -667,7 +991,7 @@ class GeminiAiService {
       return [
         const WidgetVariation(
           id: 'var_payment_1',
-          title: 'Pix Glassmorphism Card',
+          title: 'Pix Copia-e-Cola Card',
           styleTag: 'Glassmorphism Card',
           description:
               'Card translúcido com chave Pix Copia e Cola, badge instantâneo e taxa zero.',
@@ -711,48 +1035,58 @@ class GeminiAiService {
         ),
         const WidgetVariation(
           id: 'var_payment_2',
-          title: 'Bento Grid Pix & QR Code',
-          styleTag: 'Bento Grid Tile',
+          title: 'Cartão de Crédito Radio Tile',
+          styleTag: 'Hero Credit Card Tile',
           description:
-              'Tile modular Bento Grid com preview de QR Code dinâmico e status de liquidação.',
-          techApproach: 'ClipRRect + Bento Grid',
-          icon: Icons.qr_code_2_rounded,
+              'Tile de seleção de cartão com bandeira, número mascarado e radio button selecionado.',
+          techApproach: 'RadioListTile + Chip EMV Badge',
+          icon: Icons.credit_card_rounded,
           dartCode: '''Container(
   padding: const EdgeInsets.all(16),
   decoration: BoxDecoration(
-    color: const Color(0xFF111726),
+    color: const Color(0xFF141B2D).withOpacity(0.9),
     borderRadius: BorderRadius.circular(20),
-    border: Border.all(color: const Color(0x1FFFFFFF)),
+    border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.4)),
+    boxShadow: [
+      BoxShadow(
+        color: const Color(0xFF6366F1).withOpacity(0.15),
+        blurRadius: 14,
+        offset: const Offset(0, 3),
+      ),
+    ],
   ),
   child: Row(
     children: [
-      ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: 60,
-          height: 60,
-          color: Colors.white,
-          child: const Icon(Icons.qr_code_2_rounded, color: Color(0xFF090D16), size: 44),
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+          ),
+          borderRadius: BorderRadius.circular(12),
         ),
+        child: const Icon(Icons.credit_card_rounded, color: Colors.white, size: 24),
       ),
       const SizedBox(width: 14),
       Expanded(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: const [
-            Text('QR Code Dinâmico', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14.5)),
-            SizedBox(height: 4),
-            Text('Expira em 10:00 min', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+            Text('Mastercard •••• 4289', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14.5)),
+            SizedBox(height: 2),
+            Text('Expira em 08/29 • Débito e Crédito', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5)),
           ],
         ),
       ),
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        width: 22,
+        height: 22,
         decoration: BoxDecoration(
-          color: const Color(0xFF10B981).withOpacity(0.15),
-          borderRadius: BorderRadius.circular(8),
+          shape: BoxShape.circle,
+          color: const Color(0xFF6366F1),
+          border: Border.all(color: Colors.white, width: 2),
         ),
-        child: const Text('Taxa 0%', style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
+        child: const Icon(Icons.check, size: 14, color: Colors.white),
       ),
     ],
   ),
@@ -760,53 +1094,83 @@ class GeminiAiService {
         ),
         const WidgetVariation(
           id: 'var_payment_3',
-          title: 'Hero Banner Pagamento Pix',
-          styleTag: 'Hero Action Banner',
+          title: 'Bento Payment Method Grid',
+          styleTag: 'Bento Grid Tile',
           description:
-              'Banner imersivo com gradiente vibrante e botão de ação para pagar com 1 toque.',
-          techApproach: 'Gradient Container + Action Button',
-          icon: Icons.bolt_rounded,
+              'Grid modular Bento Grid com opções Pix, Cartão e Boleto organizados visualmente.',
+          techApproach: 'ClipRRect + Bento Grid',
+          icon: Icons.grid_view_rounded,
           dartCode: '''Container(
-  padding: const EdgeInsets.all(18),
+  padding: const EdgeInsets.all(16),
   decoration: BoxDecoration(
-    gradient: const LinearGradient(
-      colors: [Color(0xFF059669), Color(0xFF0D9488), Color(0xFF0284C7)],
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-    ),
+    color: const Color(0xFF111726),
     borderRadius: BorderRadius.circular(20),
-    boxShadow: [
-      BoxShadow(
-        color: const Color(0xFF059669).withOpacity(0.35),
-        blurRadius: 16,
-        offset: const Offset(0, 4),
-      ),
-    ],
+    border: Border.all(color: const Color(0x1FFFFFFF)),
   ),
-  child: Row(
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Icon(Icons.verified_rounded, color: Colors.white, size: 36),
-      const SizedBox(width: 14),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text('Pagamento Instantâneo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-            SizedBox(height: 2),
-            Text('Confirmação imediata sem taxas', style: TextStyle(color: Colors.white70, fontSize: 12)),
-          ],
-        ),
+      const Text(
+        'Métodos de Pagamento',
+        style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14),
       ),
-      ElevatedButton(
-        onPressed: () {},
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: const Color(0xFF059669),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          elevation: 0,
-        ),
-        child: const Text('Pagar Agora', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
+              ),
+              child: Column(
+                children: const [
+                  Icon(Icons.pix_rounded, color: Color(0xFF10B981), size: 24),
+                  SizedBox(height: 6),
+                  Text('Pix (0%)', style: TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 11)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141B2D),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
+              ),
+              child: Column(
+                children: const [
+                  Icon(Icons.credit_card_rounded, color: Color(0xFF818CF8), size: 24),
+                  SizedBox(height: 6),
+                  Text('Cartão', style: TextStyle(color: Color(0xFFF8FAFC), fontSize: 11)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141B2D),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF64748B).withOpacity(0.3)),
+              ),
+              child: Column(
+                children: const [
+                  Icon(Icons.receipt_long_rounded, color: Color(0xFF94A3B8), size: 24),
+                  SizedBox(height: 6),
+                  Text('Boleto', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     ],
   ),
@@ -816,13 +1180,26 @@ class GeminiAiService {
     }
 
     if (isMetrics) {
+      String metricTitle = 'Faturamento & Lucro';
+      if (lower.contains('faturamento') && lower.contains('mensal') && lower.contains('lucro')) {
+        metricTitle = 'Faturamento Mensal & Lucro';
+      } else if (lower.contains('faturamento') && lower.contains('lucro')) {
+        metricTitle = 'Faturamento & Lucro';
+      } else if (lower.contains('faturamento')) {
+        metricTitle = 'Faturamento Mensal';
+      } else if (lower.contains('lucro')) {
+        metricTitle = 'Lucro Líquido';
+      } else if (lower.contains('financeiro')) {
+        metricTitle = 'Painel Financeiro';
+      }
+
       return [
-        const WidgetVariation(
+        WidgetVariation(
           id: 'var_metrics_1',
-          title: 'Métricas Glassmorphism Card',
-          styleTag: 'Glassmorphism Card',
+          title: '$metricTitle KPI Card',
+          styleTag: 'Glassmorphism KPI',
           description:
-              'Card translúcido com percentual de lucro, sparkline e indicador de crescimento.',
+              'Card translúcido KPI com indicador de crescimento percentual e sparkline.',
           techApproach: 'CircleAvatar + Glow + Row',
           icon: Icons.trending_up_rounded,
           dartCode: '''Container(
@@ -847,7 +1224,7 @@ class GeminiAiService {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: const [
-            Text('Lucro Líquido Mensal', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            Text('$metricTitle', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
             SizedBox(height: 2),
             Text('R\$ 48.920,00', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 17)),
           ],
@@ -872,12 +1249,12 @@ class GeminiAiService {
   ),
 )''',
         ),
-        const WidgetVariation(
+        WidgetVariation(
           id: 'var_metrics_2',
-          title: 'Bento Grid Lucro & Performance',
+          title: '$metricTitle Bento Tile',
           styleTag: 'Bento Grid Tile',
           description:
-              'Grid Bento com 3 métricas-chave divididas em blocos de alta legibilidade.',
+              'Grid Bento com 3 métricas-chave divididas em blocos modulares de alta legibilidade.',
           techApproach: 'ClipRRect + Bento Grid',
           icon: Icons.bar_chart_rounded,
           dartCode: '''Container(
@@ -893,7 +1270,7 @@ class GeminiAiService {
       Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: const [
-          Text('Painel de Performance', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14)),
+          Text('$metricTitle', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14)),
           Icon(Icons.more_horiz_rounded, color: Color(0xFF64748B), size: 18),
         ],
       ),
@@ -929,15 +1306,30 @@ class GeminiAiService {
               ),
             ),
           ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: const Color(0xFF141B2D), borderRadius: BorderRadius.circular(10)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('Lucro', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                  SizedBox(height: 3),
+                  Text('R\$ 18k', style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 15)),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     ],
   ),
 )''',
         ),
-        const WidgetVariation(
+        WidgetVariation(
           id: 'var_metrics_3',
-          title: 'Hero Banner Faturamento',
+          title: 'Hero $metricTitle Banner',
           styleTag: 'Hero Action Banner',
           description:
               'Banner hero consolidado com gradiente e botão direto para download de relatórios.',
@@ -1119,14 +1511,247 @@ class GeminiAiService {
       ];
     }
 
-    // Default / Custom synthesis
-    final cleanTitle = prompt.length > 24 ? '${prompt.substring(0, 24)}...' : prompt;
+    // -------------------------------------------------------------------------
+    // 6. INTERACTIVE COUNTER WIDGETS
+    // -------------------------------------------------------------------------
+    if (isCounter) {
+      return [
+        const WidgetVariation(
+          id: 'var_counter_1',
+          title: 'Stepper Counter Glassmorphism',
+          styleTag: 'Glassmorphism Stepper',
+          description:
+              'Contador interativo com botões de incremento/decremento e indicador de quantidade.',
+          techApproach: 'StatefulBuilder + Stepper Controls',
+          icon: Icons.exposure_rounded,
+          dartCode: '''StatefulBuilder(
+  builder: (context, setState) {
+    int counter = 1;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141B2D).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.35)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6366F1).withOpacity(0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.inventory_2_outlined, color: Color(0xFF38BDF8), size: 22),
+              SizedBox(width: 10),
+              Text(
+                'Quantidade:',
+                style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => setState(() { if (counter > 0) counter--; }),
+                icon: const Icon(Icons.remove_circle_outline_rounded, color: Color(0xFF94A3B8), size: 22),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.4)),
+                ),
+                child: Text(
+                  '\$counter',
+                  style: const TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+              IconButton(
+                onPressed: () => setState(() => counter++),
+                icon: const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF10B981), size: 22),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  },
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_counter_2',
+          title: 'Bento Goal Counter Tile',
+          styleTag: 'Bento Grid Goal Counter',
+          description:
+              'Tile modular com meta numérica, barra de progresso calculada e botões de atalho (+1, +5).',
+          techApproach: 'StatefulBuilder + Progress Bar',
+          icon: Icons.sports_score_rounded,
+          dartCode: '''StatefulBuilder(
+  builder: (context, setState) {
+    int count = 15;
+    const int target = 50;
+    final double progress = (count / target).clamp(0.0, 1.0);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111726),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0x1FFFFFFF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Meta Diária', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14)),
+              Text('\$count de \$target', style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 12)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: const Color(0xFF1E293B),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => setState(() => count = (count + 1).clamp(0, target)),
+                child: const Text('+1'),
+              ),
+              const SizedBox(width: 6),
+              ElevatedButton(
+                onPressed: () => setState(() => count = (count + 5).clamp(0, target)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF38BDF8),
+                  foregroundColor: const Color(0xFF090D16),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('+5', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  },
+)''',
+        ),
+        const WidgetVariation(
+          id: 'var_counter_3',
+          title: 'Hero Interactive Counter Banner',
+          styleTag: 'Hero Action Counter',
+          description:
+              'Banner de destaque com contador em tempo real, gradiente dinâmico e controle de zerar.',
+          techApproach: 'StatefulBuilder + Hero Banner',
+          icon: Icons.view_carousel_rounded,
+          dartCode: '''StatefulBuilder(
+  builder: (context, setState) {
+    int total = 42;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4F46E5).withOpacity(0.35),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              '\$total',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 24),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text('Contador de Ações', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                SizedBox(height: 2),
+                Text('Clique em adicionar para somar', style: TextStyle(color: Colors.white70, fontSize: 11.5)),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => setState(() => total++),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF4F46E5),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              elevation: 0,
+            ),
+            child: const Text('+ Somar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  },
+)''',
+        ),
+      ];
+    }
+
+    // -------------------------------------------------------------------------
+    // 7. CUSTOM KEYWORD-AWARE PROMPT SYNTHESIS
+    // -------------------------------------------------------------------------
+    final stopWords = {
+      'um', 'uma', 'uns', 'umas', 'o', 'a', 'os', 'as', 'de', 'do', 'da', 'dos', 'das',
+      'com', 'para', 'em', 'no', 'na', 'nos', 'nas', 'por', 'sem', 'sobre', 'e', 'ou',
+      'que', 'se', 'seu', 'sua', 'meu', 'minha', 'card', 'widget', 'tela', 'caixa', 'caixinha',
+    };
+    final words = prompt
+        .split(RegExp(r'\s+'))
+        .map((w) => w.replaceAll(RegExp(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚãõÃÕâêîôûÂÊÎÔÛçÇ]'), ''))
+        .where((w) => w.length > 2 && !stopWords.contains(w.toLowerCase()))
+        .toList();
+
+    String smartTitle = prompt.length > 24 ? '${prompt.substring(0, 24)}...' : prompt;
+    if (words.isNotEmpty) {
+      smartTitle = words.take(3).map((w) {
+        if (w.isEmpty) return '';
+        return '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}';
+      }).join(' ');
+    }
+
     return [
       WidgetVariation(
         id: 'var_custom_1',
-        title: '$cleanTitle Glass Card',
+        title: '$smartTitle Glass Card',
         styleTag: 'Glassmorphism Card',
-        description: 'Card translúcido com borda sutil e hierarquia Obsidian Glass.',
+        description: 'Card translúcido com borda sutil neon e layout refinado para $smartTitle.',
         techApproach: 'CircleAvatar + Glow + Row',
         icon: Icons.auto_awesome_rounded,
         dartCode: '''Container(
@@ -1151,9 +1776,9 @@ class GeminiAiService {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: const [
-            Text('$cleanTitle', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 15)),
+            Text('$smartTitle', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 15)),
             SizedBox(height: 2),
-            Text('Componente gerado com IA', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            Text('Componente customizado com IA', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
           ],
         ),
       ),
@@ -1163,7 +1788,7 @@ class GeminiAiService {
       ),
       WidgetVariation(
         id: 'var_custom_2',
-        title: '$cleanTitle Bento Tile',
+        title: '$smartTitle Bento Tile',
         styleTag: 'Bento Grid Tile',
         description: 'Layout modular Bento Grid com bordas arredondadas e organização compacta.',
         techApproach: 'ClipRRect + Bento Grid',
@@ -1178,16 +1803,16 @@ class GeminiAiService {
   child: Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: const [
-      Text('$cleanTitle', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14)),
+      Text('$smartTitle', style: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.bold, fontSize: 14)),
       SizedBox(height: 6),
-      Text('Visual modular e responsivo.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+      Text('Visual modular, responsivo e contextual.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
     ],
   ),
 )''',
       ),
       WidgetVariation(
         id: 'var_custom_3',
-        title: '$cleanTitle Hero Banner',
+        title: '$smartTitle Hero Banner',
         styleTag: 'Hero Action Banner',
         description: 'Banner imersivo com gradiente de alta energia e botão de ação interativo.',
         techApproach: 'Gradient Container + Action Button',
@@ -1203,7 +1828,7 @@ class GeminiAiService {
   child: Row(
     children: [
       Expanded(
-        child: Text('$cleanTitle', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+        child: Text('$smartTitle', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
       ),
       ElevatedButton(
         onPressed: () {},

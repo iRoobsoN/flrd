@@ -12,9 +12,9 @@ import '../../../ai/providers/ai_settings_provider.dart';
 import '../../../ai/services/gemini_ai_service.dart';
 import 'ai_screen_generator_dialog.dart';
 
-/// Interactive visual builder panel displaying materials currently in a screen,
-/// a quick-add palette with 1-click & drag-and-drop addition, reordering,
-/// per-component notes & prompts, focused widget AI generation, and full-screen AI elevation.
+/// Interactive AI visual builder panel displaying widgets currently in a screen,
+/// prompt-based AI widget synthesis with variations gallery, inline provider/BYOK controls,
+/// per-component notes & prompts, focused widget AI refinement, and full-screen AI elevation.
 class ScreenMaterialsBuilder extends StatefulWidget {
   final RouteNode node;
   final RegisteredProject project;
@@ -38,25 +38,80 @@ class ScreenMaterialsBuilder extends StatefulWidget {
 }
 
 class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
-  int? _hoveredDropIndex;
-  bool _isDropAreaHovered = false;
   final Map<String, String> _localNotes = {};
 
   late final TextEditingController _widgetPromptController;
+  late final TextEditingController _apiKeyController;
   bool _isGeneratingVariations = false;
   List<WidgetVariation> _variations = [];
   final Set<int> _expandedCodeIndices = {};
+  bool _isByokSelected = false;
+  bool _obscureApiKey = true;
 
   @override
   void initState() {
     super.initState();
     _widgetPromptController = TextEditingController();
+    _widgetPromptController.addListener(() {
+      setState(() {});
+    });
+    _apiKeyController = TextEditingController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_apiKeyController.text.isEmpty) {
+      String? existingKey;
+      if (widget.ref != null) {
+        try {
+          existingKey = widget.ref!.read(aiSettingsProvider).apiKey;
+        } catch (_) {}
+      }
+      if (existingKey == null) {
+        try {
+          existingKey = ProviderScope.containerOf(context, listen: false)
+              .read(aiSettingsProvider)
+              .apiKey;
+        } catch (_) {}
+      }
+      if (existingKey != null && existingKey.isNotEmpty) {
+        _apiKeyController.text = existingKey;
+        _isByokSelected = true;
+      }
+    }
   }
 
   @override
   void dispose() {
     _widgetPromptController.dispose();
+    _apiKeyController.dispose();
     super.dispose();
+  }
+
+  void _onApiKeyChanged(String val) {
+    final clean = val.trim();
+    if (widget.ref != null) {
+      try {
+        widget.ref!.read(aiSettingsProvider.notifier).setApiKey(clean.isEmpty ? null : clean);
+      } catch (_) {}
+    }
+    try {
+      ProviderScope.containerOf(context, listen: false)
+          .read(aiSettingsProvider.notifier)
+          .setApiKey(clean.isEmpty ? null : clean);
+    } catch (_) {}
+    setState(() {});
+  }
+
+  bool get _hasApiKey => _apiKeyController.text.trim().isNotEmpty;
+
+  String get _statusIndicatorText {
+    if (_isByokSelected) {
+      return _hasApiKey ? '🟢 Gemini 1.5 Flash Ativo' : '⚡ Motor Neural Local';
+    } else {
+      return '🟢 Gemini 1.5 Flash Ativo';
+    }
   }
 
   Future<void> _generateVariations() async {
@@ -78,19 +133,22 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
     });
 
     String? apiKey;
-    if (widget.ref != null) {
-      try {
-        apiKey = widget.ref!.read(aiSettingsProvider).apiKey;
-      } catch (_) {}
-    }
-    if (apiKey == null) {
-      try {
-        if (context.findAncestorWidgetOfExactType<ProviderScope>() != null) {
+    if (_isByokSelected) {
+      apiKey = _apiKeyController.text.trim();
+      if (apiKey.isEmpty) apiKey = null;
+    } else {
+      if (widget.ref != null) {
+        try {
+          apiKey = widget.ref!.read(aiSettingsProvider).apiKey;
+        } catch (_) {}
+      }
+      if (apiKey == null) {
+        try {
           apiKey = ProviderScope.containerOf(context, listen: false)
               .read(aiSettingsProvider)
               .apiKey;
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
 
     try {
@@ -206,28 +264,6 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       return (note != null && note.isNotEmpty) ? note : null;
     }
     return item.note;
-  }
-
-  void _addMaterial(ScreenMaterialItem prototype, {int? index}) {
-    final baseCode = _effectiveCode.isNotEmpty
-        ? _effectiveCode
-        : ScreenMaterialParser.buildDartCodeFromMaterials(
-            screenClassName: widget.node.title,
-            routePath: widget.node.path,
-            materials: [],
-            isProtected: widget.node.isProtected,
-          );
-    final newMaterial = prototype.createInstance();
-    final updatedCode = ScreenMaterialCodeUpdater.addMaterialToCode(
-      currentCode: baseCode,
-      newMaterial: newMaterial,
-      index: index,
-      screenClassName: widget.node.title,
-      routePath: widget.node.path,
-      routeTitle: widget.node.title,
-      isProtected: widget.node.isProtected,
-    );
-    _saveAndNotify(updatedCode);
   }
 
   void _removeMaterial(int index) {
@@ -480,35 +516,6 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
     );
   }
 
-  String _getChipEmoji(ScreenMaterialType type) {
-    switch (type) {
-      case ScreenMaterialType.textInput:
-        return '📝';
-      case ScreenMaterialType.passwordInput:
-        return '🔒';
-      case ScreenMaterialType.primaryButton:
-        return '🔘';
-      case ScreenMaterialType.headerText:
-        return '🔤';
-      case ScreenMaterialType.subtitleText:
-        return '📄';
-      case ScreenMaterialType.containerCard:
-        return '📑';
-      case ScreenMaterialType.socialButton:
-        return '🌐';
-      case ScreenMaterialType.icon:
-        return '🖼️';
-      case ScreenMaterialType.appBar:
-        return '🧭';
-      case ScreenMaterialType.secondaryButton:
-        return '🔘';
-      case ScreenMaterialType.switchTile:
-        return '🔲';
-      case ScreenMaterialType.checkboxTile:
-        return '☑️';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final materials = _materials;
@@ -518,7 +525,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       mainAxisSize: MainAxisSize.min,
       children: [
         // =====================================================================
-        // CRIADOR DE WIDGETS COM IA
+        // TOP: CRIADOR DE WIDGETS COM IA
         // =====================================================================
         _buildWidgetCreatorSection(),
 
@@ -526,9 +533,10 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
         const Divider(color: AppColors.borderSubtle, height: 1),
         const SizedBox(height: 16),
 
-        // ---------------------------------------------------------------------
+        // =====================================================================
+        // BOTTOM: WIDGETS NESTA TELA (N)
+        // =====================================================================
         // Header: Title & Materials Count Badge
-        // ---------------------------------------------------------------------
         Row(
           children: [
             Container(
@@ -544,12 +552,12 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
               ),
             ),
             const SizedBox(width: 8),
-            const Expanded(
+            Expanded(
               child: Text(
-                'Materiais & Componentes da Tela',
+                'Widgets nesta Tela (${materials.length})',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
+                style: const TextStyle(
                   color: AppColors.textPrimary,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
@@ -577,9 +585,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
         ),
         const SizedBox(height: 10),
 
-        // ---------------------------------------------------------------------
-        // Prominent Button: ✨ Melhorar & Organizar com IA
-        // ---------------------------------------------------------------------
+        // Prominent Button: ✨ Refinar Tela Inteira com IA
         SizedBox(
           width: double.infinity,
           child: DecoratedBox(
@@ -613,7 +619,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
                 color: Colors.white,
               ),
               label: const Text(
-                '✨ Melhorar & Organizar com IA',
+                '✨ Refinar Tela Inteira com IA',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -625,89 +631,62 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
         ),
         const SizedBox(height: 12),
 
-        // ---------------------------------------------------------------------
-        // Quick Add Palette (1-Click & Drag-and-Drop)
-        // ---------------------------------------------------------------------
-        Row(
-          children: [
-            const Icon(
-              Icons.add_circle_outline_rounded,
-              size: 12,
-              color: AppColors.textMuted,
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                'Adicionar Componente (clique ou arraste):',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppColors.textMuted.withOpacity(0.9),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        _buildPaletteScroll(availableMaterialPalette),
-        const SizedBox(height: 12),
-
-        // ---------------------------------------------------------------------
-        // Materials Stack in the Screen
-        // ---------------------------------------------------------------------
-        DragTarget<ScreenMaterialItem>(
-          key: const ValueKey('materials_drag_target'),
-          onWillAcceptWithDetails: (details) => true,
-          onAcceptWithDetails: (details) {
-            setState(() => _isDropAreaHovered = false);
-            _addMaterial(details.data);
-          },
-          onMove: (details) {
-            if (!_isDropAreaHovered) {
-              setState(() => _isDropAreaHovered = true);
-            }
-          },
-          onLeave: (details) {
-            if (_isDropAreaHovered) {
-              setState(() => _isDropAreaHovered = false);
-            }
-          },
-          builder: (context, candidateData, rejectedData) {
-            if (materials.isEmpty) {
-              return _buildEmptyDropZone();
-            }
-
-            return Container(
-              decoration: BoxDecoration(
-                color: _isDropAreaHovered
-                    ? AppColors.primary.withOpacity(0.06)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                border: _isDropAreaHovered
-                    ? Border.all(color: AppColors.primary.withOpacity(0.4), width: 1.5)
-                    : null,
-              ),
-              child: ListView.separated(
-                key: const ValueKey('screen_materials_list'),
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: materials.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 6),
-                itemBuilder: (context, index) {
-                  final item = materials[index];
-                  return _buildMaterialItemCard(
-                    item: item,
-                    index: index,
-                    totalCount: materials.length,
-                  );
-                },
-              ),
-            );
-          },
-        ),
+        // List of widgets in screen
+        if (materials.isEmpty)
+          _buildEmptyMaterialsView()
+        else
+          ListView.separated(
+            key: const ValueKey('screen_materials_list'),
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: materials.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 6),
+            itemBuilder: (context, index) {
+              final item = materials[index];
+              return _buildMaterialItemCard(
+                item: item,
+                index: index,
+                totalCount: materials.length,
+              );
+            },
+          ),
       ],
+    );
+  }
+
+  Widget _buildEmptyMaterialsView() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: Column(
+        children: const [
+          Icon(
+            Icons.dashboard_customize_outlined,
+            size: 28,
+            color: AppColors.textMuted,
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Nenhum widget nesta tela ainda',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Descreva sua ideia no Criador com IA acima para gerar e inserir widgets!',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.textMuted, fontSize: 10),
+          ),
+        ],
+      ),
     );
   }
 
@@ -780,7 +759,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
           ),
           const SizedBox(height: 12),
 
-          // Idea prompt input field
+          // Idea prompt input field with clear button
           TextField(
             key: const ValueKey('widget_creator_prompt_input'),
             controller: _widgetPromptController,
@@ -792,7 +771,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
             ),
             decoration: InputDecoration(
               hintText:
-                  'Descreva sua ideia de widget (ex: Caixinha com a foto de perfil do usuário logado e um bem-vindo)...',
+                  'Descreva sua ideia de widget (ex: Uma bola que fica pingando, Foto de perfil com moldura oval, Card de faturamento mensal e lucro)...',
               hintStyle: TextStyle(
                 color: AppColors.textMuted.withOpacity(0.65),
                 fontSize: 11.5,
@@ -800,6 +779,17 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
               filled: true,
               fillColor: AppColors.surface,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              suffixIcon: _widgetPromptController.text.isNotEmpty
+                  ? IconButton(
+                      key: const ValueKey('widget_creator_prompt_clear'),
+                      icon: const Icon(Icons.close_rounded, size: 16, color: AppColors.textMuted),
+                      onPressed: () {
+                        setState(() {
+                          _widgetPromptController.clear();
+                        });
+                      },
+                    )
+                  : null,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: const BorderSide(color: AppColors.borderSubtle),
@@ -821,29 +811,38 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
                 _buildInspirationChip(
                   label: '👤 Foto de Perfil & Boas-Vindas',
                   prompt:
-                      'Caixinha com a foto de perfil do usuário logado e um bem-vindo',
+                      'foto de perfil do usuário logado com moldura oval e boas-vindas',
                 ),
                 const SizedBox(width: 6),
                 _buildInspirationChip(
-                  label: '📊 Métricas & Lucro',
-                  prompt: 'Card de métricas com faturamento mensal e lucro',
+                  label: '📊 Faturamento & Lucro',
+                  prompt: 'Card de faturamento mensal e lucro',
                 ),
                 const SizedBox(width: 6),
                 _buildInspirationChip(
-                  label: '💳 Seletor de Pagamento Pix',
-                  prompt: 'Seletor de pagamento rápido com chave Pix e QR Code',
+                  label: '⚽ Bola Pingando (Física/Animação)',
+                  prompt: 'Uma bola que fica pingando com física e animação',
                 ),
                 const SizedBox(width: 6),
                 _buildInspirationChip(
-                  label: '🔍 Busca com Filtros',
-                  prompt: 'Barra de busca moderna com chips de filtros rápidos',
+                  label: '💳 Seletor Pix/Cartão',
+                  prompt: 'Seletor de pagamento rápido com chave Pix e cartão',
+                ),
+                const SizedBox(width: 6),
+                _buildInspirationChip(
+                  label: '🔍 Busca com Filtro',
+                  prompt: 'Barra de busca moderna com filtro e chips rápidos',
                 ),
               ],
             ),
           ),
           const SizedBox(height: 10),
 
-          // Button [✨ Gerar 3 Variações]
+          // AI Provider & Key control: Segmented switcher & status indicator
+          _buildAiProviderControl(),
+          const SizedBox(height: 10),
+
+          // Button [✨ Gerar 3 Variações de Widgets com IA]
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -877,13 +876,13 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
                       ],
                     )
                   : const Text(
-                      '✨ Gerar 3 Variações',
+                      '✨ Gerar 3 Variações de Widgets com IA',
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
             ),
           ),
 
-          // Variations Section
+          // Variations Gallery
           if (_variations.isNotEmpty) ...[
             const SizedBox(height: 14),
             Row(
@@ -916,6 +915,169 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
               },
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiProviderControl() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  key: const ValueKey('widget_creator_provider_cloud'),
+                  onTap: () => setState(() => _isByokSelected = false),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: !_isByokSelected
+                          ? AppColors.primary.withOpacity(0.2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: !_isByokSelected
+                            ? AppColors.primary
+                            : AppColors.borderSubtle,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '⚡ FLRD Pro Cloud',
+                        style: TextStyle(
+                          color: !_isByokSelected
+                              ? Colors.white
+                              : AppColors.textMuted,
+                          fontSize: 11,
+                          fontWeight: !_isByokSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: InkWell(
+                  key: const ValueKey('widget_creator_provider_byok'),
+                  onTap: () => setState(() => _isByokSelected = true),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: _isByokSelected
+                          ? AppColors.primary.withOpacity(0.2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _isByokSelected
+                            ? AppColors.primary
+                            : AppColors.borderSubtle,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '🔑 BYOK (Chave Gemini)',
+                        style: TextStyle(
+                          color: _isByokSelected
+                              ? Colors.white
+                              : AppColors.textMuted,
+                          fontSize: 11,
+                          fontWeight: _isByokSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_isByokSelected) ...[
+            const SizedBox(height: 8),
+            TextField(
+              key: const ValueKey('widget_creator_api_key_input'),
+              controller: _apiKeyController,
+              obscureText: _obscureApiKey,
+              onChanged: _onApiKeyChanged,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 11.5,
+                fontFamily: 'monospace',
+              ),
+              decoration: InputDecoration(
+                labelText: 'Chave Gemini API',
+                labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                hintText: 'AIzaSy...',
+                hintStyle: TextStyle(
+                  color: AppColors.textMuted.withOpacity(0.6),
+                  fontSize: 11,
+                ),
+                filled: true,
+                fillColor: AppColors.surfaceCard,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AppColors.borderSubtle),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AppColors.primary),
+                ),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscureApiKey ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                    size: 16,
+                    color: AppColors.textMuted,
+                  ),
+                  onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Container(
+                key: const ValueKey('widget_creator_status_indicator'),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: (_statusIndicatorText.contains('🟢'))
+                      ? const Color(0xFF10B981).withOpacity(0.12)
+                      : const Color(0xFFF59E0B).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: (_statusIndicatorText.contains('🟢'))
+                        ? const Color(0xFF10B981).withOpacity(0.3)
+                        : const Color(0xFFF59E0B).withOpacity(0.3),
+                  ),
+                ),
+                child: Text(
+                  _statusIndicatorText,
+                  style: TextStyle(
+                    color: (_statusIndicatorText.contains('🟢'))
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFFF59E0B),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -987,6 +1149,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
                 ),
               ),
               Container(
+                constraints: const BoxConstraints(maxWidth: 240),
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
                   color: AppColors.surfaceCard,
@@ -1002,12 +1165,16 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
                       color: AppColors.textMuted,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      variation.techApproach,
-                      style: const TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
+                    Flexible(
+                      child: Text(
+                        variation.techApproach,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],
@@ -1040,9 +1207,18 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
           const SizedBox(height: 8),
 
           // Code viewer toggle & Choose button
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 6,
             children: [
               TextButton(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
                 onPressed: () {
                   setState(() {
                     if (isCodeExpanded) {
@@ -1060,7 +1236,6 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
                   ),
                 ),
               ),
-              const Spacer(),
               ElevatedButton(
                 key: ValueKey('choose_variation_button_$index'),
                 style: ElevatedButton.styleFrom(
@@ -1110,162 +1285,6 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
     );
   }
 
-  Widget _buildPaletteScroll(List<ScreenMaterialItem> palette) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Row(
-        children: palette.map((prototype) {
-          final emoji = _getChipEmoji(prototype.type);
-          final label = '+ $emoji ${prototype.type.shortChipLabel}';
-
-          return Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: Draggable<ScreenMaterialItem>(
-              data: prototype,
-              feedback: Material(
-                color: Colors.transparent,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: prototype.type.accentColor,
-                    borderRadius: BorderRadius.circular(6),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.35),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        prototype.icon ?? prototype.type.defaultIcon,
-                        size: 13,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        prototype.type.shortChipLabel,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              childWhenDragging: Opacity(
-                opacity: 0.35,
-                child: _buildChipButton(
-                  prototype: prototype,
-                  label: label,
-                  onTap: () => _addMaterial(prototype),
-                ),
-              ),
-              child: _buildChipButton(
-                prototype: prototype,
-                label: label,
-                onTap: () => _addMaterial(prototype),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildChipButton({
-    required ScreenMaterialItem prototype,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      key: ValueKey('palette_chip_${prototype.type.name}'),
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: prototype.type.accentColor.withOpacity(0.3),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: prototype.type.accentColor,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyDropZone() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-      decoration: BoxDecoration(
-        color: _isDropAreaHovered
-            ? AppColors.primary.withOpacity(0.1)
-            : AppColors.surface.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _isDropAreaHovered
-              ? AppColors.primary
-              : AppColors.borderSubtle,
-          style: BorderStyle.solid,
-          width: 1.2,
-        ),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.dashboard_customize_outlined,
-            size: 28,
-            color: _isDropAreaHovered
-                ? AppColors.primary
-                : AppColors.textMuted,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Nenhum material adicionado ainda',
-            style: TextStyle(
-              color: _isDropAreaHovered
-                  ? AppColors.textPrimary
-                  : AppColors.textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Clique nos chips acima ou arraste componentes para montar a tela visualmente!',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildMaterialItemCard({
     required ScreenMaterialItem item,
     required int index,
@@ -1276,306 +1295,273 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
     final effectiveNote = _getEffectiveNote(item, index);
     final hasNote = effectiveNote != null && effectiveNote.trim().isNotEmpty;
 
-    return DragTarget<ScreenMaterialItem>(
-      key: ValueKey('material_drop_target_$index'),
-      onWillAcceptWithDetails: (details) => true,
-      onAcceptWithDetails: (details) {
-        setState(() => _hoveredDropIndex = null);
-        _addMaterial(details.data, index: index);
-      },
-      onMove: (details) {
-        if (_hoveredDropIndex != index) {
-          setState(() => _hoveredDropIndex = index);
-        }
-      },
-      onLeave: (details) {
-        if (_hoveredDropIndex == index) {
-          setState(() => _hoveredDropIndex = null);
-        }
-      },
-      builder: (context, candidateData, rejectedData) {
-        final isHovered = _hoveredDropIndex == index;
-
-        return Container(
-          key: ValueKey('material_item_$index'),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isHovered
-                  ? AppColors.primary
-                  : hasNote
-                      ? AppColors.primary.withOpacity(0.4)
-                      : AppColors.borderSubtle,
-              width: isHovered ? 1.5 : 1,
-            ),
-            boxShadow: isHovered
-                ? [
-                    BoxShadow(
-                      color: AppColors.primary.withOpacity(0.2),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+    return Container(
+      key: ValueKey('material_item_$index'),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: hasNote
+              ? AppColors.primary.withOpacity(0.4)
+              : AppColors.borderSubtle,
+          width: 1,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  // Color-coded icon pill
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: accentColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Icon(
-                      iconData,
-                      size: 15,
-                      color: accentColor,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
+              // Color-coded icon pill
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: accentColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(
+                  iconData,
+                  size: 15,
+                  color: accentColor,
+                ),
+              ),
+              const SizedBox(width: 10),
 
-                  // Title & Description
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              // Title & Description
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.hint ?? item.type.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 9.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+
+              // Note button [💬 Nota] (when note does NOT exist)
+              if (!hasNote) ...[
+                InkWell(
+                  key: ValueKey('material_note_button_$index'),
+                  onTap: () => _showEditNoteDialog(item, index),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: AppColors.primary.withOpacity(0.2),
+                      ),
+                    ),
+                    child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          item.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          size: 11,
+                          color: AppColors.primary,
                         ),
-                        const SizedBox(height: 2),
+                        SizedBox(width: 3),
                         Text(
-                          item.hint ?? item.type.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textMuted,
+                          '💬 Nota',
+                          style: TextStyle(
+                            color: AppColors.primary,
                             fontSize: 9.5,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 6),
+                ),
+                const SizedBox(width: 4),
+              ],
 
-                  // Note button [💬 Nota] (when note does NOT exist)
-                  if (!hasNote) ...[
-                    InkWell(
-                      key: ValueKey('material_note_button_$index'),
-                      onTap: () => _showEditNoteDialog(item, index),
-                      borderRadius: BorderRadius.circular(6),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: AppColors.primary.withOpacity(0.2),
+              // Up Arrow Button
+              IconButton(
+                key: ValueKey('material_up_$index'),
+                tooltip: 'Mover para cima',
+                icon: const Icon(Icons.arrow_upward_rounded, size: 14),
+                color: index > 0
+                    ? AppColors.textSecondary
+                    : AppColors.textMuted.withOpacity(0.3),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                onPressed: index > 0 ? () => _reorderMaterial(index, index - 1) : null,
+              ),
+
+              // Down Arrow Button
+              IconButton(
+                key: ValueKey('material_down_$index'),
+                tooltip: 'Mover para baixo',
+                icon: const Icon(Icons.arrow_downward_rounded, size: 14),
+                color: index < totalCount - 1
+                    ? AppColors.textSecondary
+                    : AppColors.textMuted.withOpacity(0.3),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                onPressed: index < totalCount - 1
+                    ? () => _reorderMaterial(index, index + 1)
+                    : null,
+              ),
+
+              const SizedBox(width: 4),
+
+              // Delete Button (Trash icon)
+              IconButton(
+                key: ValueKey('material_delete_$index'),
+                tooltip: 'Remover da tela',
+                icon: const Icon(Icons.delete_outline_rounded, size: 14),
+                color: AppColors.danger.withOpacity(0.85),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                onPressed: () => _removeMaterial(index),
+              ),
+            ],
+          ),
+
+          // Elegant Italic Card/Chip when note exists
+          if (hasNote) ...[
+            const SizedBox(height: 6),
+            Container(
+              key: ValueKey('material_note_card_$index'),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1B4B).withOpacity(0.4),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: const Color(0xFF6366F1).withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '💬 ',
+                        style: TextStyle(fontSize: 10),
+                      ),
+                      Expanded(
+                        child: Text(
+                          '"$effectiveNote"',
+                          style: const TextStyle(
+                            color: Color(0xFFE0E7FF),
+                            fontSize: 10,
+                            fontStyle: FontStyle.italic,
+                            height: 1.3,
                           ),
                         ),
+                      ),
+                      const SizedBox(width: 4),
+                      // Edit note button
+                      InkWell(
+                        key: ValueKey('material_note_edit_$index'),
+                        onTap: () => _showEditNoteDialog(item, index),
+                        borderRadius: BorderRadius.circular(4),
+                        child: Padding(
+                          padding: const EdgeInsets.all(2.0),
+                          child: Icon(
+                            Icons.edit_rounded,
+                            size: 13,
+                            color: AppColors.primary.withOpacity(0.9),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      // Clear note button
+                      InkWell(
+                        key: ValueKey('material_note_clear_$index'),
+                        onTap: () => _updateMaterialNote(item, index, null),
+                        borderRadius: BorderRadius.circular(4),
+                        child: Padding(
+                          padding: const EdgeInsets.all(2.0),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 13,
+                            color: AppColors.textMuted.withOpacity(0.8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  // [✨ Refinar este Widget com IA] Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: InkWell(
+                      key: ValueKey('material_ai_refine_$index'),
+                      onTap: () => _handleRefineWidgetWithAi(item, index),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                          ),
+                          borderRadius: BorderRadius.circular(6),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF6366F1).withOpacity(0.25),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
                         child: const Row(
-                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              Icons.chat_bubble_outline_rounded,
+                              Icons.auto_awesome_rounded,
                               size: 11,
-                              color: AppColors.primary,
+                              color: Colors.white,
                             ),
-                            SizedBox(width: 3),
+                            SizedBox(width: 4),
                             Text(
-                              '💬 Nota',
+                              '✨ Refinar este Widget com IA',
                               style: TextStyle(
-                                color: AppColors.primary,
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(width: 4),
-                  ],
-
-                  // Up Arrow Button
-                  IconButton(
-                    key: ValueKey('material_up_$index'),
-                    tooltip: 'Mover para cima',
-                    icon: const Icon(Icons.arrow_upward_rounded, size: 14),
-                    color: index > 0
-                        ? AppColors.textSecondary
-                        : AppColors.textMuted.withOpacity(0.3),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                    onPressed: index > 0 ? () => _reorderMaterial(index, index - 1) : null,
-                  ),
-
-                  // Down Arrow Button
-                  IconButton(
-                    key: ValueKey('material_down_$index'),
-                    tooltip: 'Mover para baixo',
-                    icon: const Icon(Icons.arrow_downward_rounded, size: 14),
-                    color: index < totalCount - 1
-                        ? AppColors.textSecondary
-                        : AppColors.textMuted.withOpacity(0.3),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                    onPressed: index < totalCount - 1
-                        ? () => _reorderMaterial(index, index + 1)
-                        : null,
-                  ),
-
-                  const SizedBox(width: 4),
-
-                  // Delete Button (Trash icon)
-                  IconButton(
-                    key: ValueKey('material_delete_$index'),
-                    tooltip: 'Remover da tela',
-                    icon: const Icon(Icons.delete_outline_rounded, size: 14),
-                    color: AppColors.danger.withOpacity(0.85),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                    onPressed: () => _removeMaterial(index),
                   ),
                 ],
               ),
-
-              // Elegant Italic Card/Chip when note exists
-              if (hasNote) ...[
-                const SizedBox(height: 6),
-                Container(
-                  key: ValueKey('material_note_card_$index'),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E1B4B).withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: const Color(0xFF6366F1).withOpacity(0.3),
-                      width: 1,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '💬 ',
-                            style: TextStyle(fontSize: 10),
-                          ),
-                          Expanded(
-                            child: Text(
-                              '"$effectiveNote"',
-                              style: const TextStyle(
-                                color: Color(0xFFE0E7FF),
-                                fontSize: 10,
-                                fontStyle: FontStyle.italic,
-                                height: 1.3,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          // Edit note button
-                          InkWell(
-                            key: ValueKey('material_note_edit_$index'),
-                            onTap: () => _showEditNoteDialog(item, index),
-                            borderRadius: BorderRadius.circular(4),
-                            child: Padding(
-                              padding: const EdgeInsets.all(2.0),
-                              child: Icon(
-                                Icons.edit_rounded,
-                                size: 13,
-                                color: AppColors.primary.withOpacity(0.9),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          // Clear note button
-                          InkWell(
-                            key: ValueKey('material_note_clear_$index'),
-                            onTap: () => _updateMaterialNote(item, index, null),
-                            borderRadius: BorderRadius.circular(4),
-                            child: Padding(
-                              padding: const EdgeInsets.all(2.0),
-                              child: Icon(
-                                Icons.close_rounded,
-                                size: 13,
-                                color: AppColors.textMuted.withOpacity(0.8),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      // [✨ Refinar este Widget com IA] Button
-                      SizedBox(
-                        width: double.infinity,
-                        child: InkWell(
-                          key: ValueKey('material_ai_refine_$index'),
-                          onTap: () => _handleRefineWidgetWithAi(item, index),
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                              ),
-                              borderRadius: BorderRadius.circular(6),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF6366F1).withOpacity(0.25),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 1),
-                                ),
-                              ],
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.auto_awesome_rounded,
-                                  size: 11,
-                                  color: Colors.white,
-                                ),
-                                SizedBox(width: 4),
-                                Text(
-                                  '✨ Refinar este Widget com IA',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
