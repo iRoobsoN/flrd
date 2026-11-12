@@ -6,6 +6,7 @@ import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/studio/models/connected_device.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
+import 'package:flrd/features/studio/presentation/widgets/android_debug_controls.dart';
 import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/embedded_code_viewer.dart';
 import 'package:flrd/features/studio/providers/android_debug_provider.dart';
@@ -730,6 +731,373 @@ Some Flutter CLI preamble log
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
+      },
+    );
+  });
+
+  group('Android Connection Diagnostics & Troubleshooter', () {
+    test('parseAdbDevicesOutput parses device, unauthorized, and offline lines', () {
+      const adbStdout = '''
+* daemon not running; starting now at tcp:5037
+* daemon started successfully
+List of devices attached
+RXGL20BSBJX            unauthorized usb:1-2 transport_id:1
+EMU5554                offline transport_id:2
+PIX8001                device product:shiba model:Pixel_8 device:shiba transport_id:3
+''';
+      final parsed = AndroidDeviceRunnerService.parseAdbDevicesOutput(adbStdout);
+      expect(parsed.length, 3);
+      expect(parsed[0].serial, 'RXGL20BSBJX');
+      expect(parsed[0].isUnauthorized, isTrue);
+      expect(parsed[1].serial, 'EMU5554');
+      expect(parsed[1].isOffline, isTrue);
+      expect(parsed[2].serial, 'PIX8001');
+      expect(parsed[2].isReady, isTrue);
+      expect(parsed[2].model, 'Pixel 8');
+    });
+
+    test('parseWindowsUsbDevicesJson handles PowerShell CompatibleID object and correlates MTP + ADB', () {
+      final rawJson = jsonEncode([
+        {
+          'Name': 'S25 Ultra de Robson',
+          'Status': 'OK',
+          'ConfigManagerErrorCode': 0,
+          'Service': 'WUDFWpdMtp',
+          'DeviceID': r'USB\VID_04E8&PID_6860&MI_00\7&33E2BE27&0&0000',
+          'CompatibleID': {
+            'value': [r'USB\MS_COMP_MTP'],
+            'Count': 1,
+          },
+        },
+        {
+          'Name': 'Camera DFU Device',
+          'Status': 'OK',
+          'ConfigManagerErrorCode': 0,
+          'Service': 'WINUSB',
+          'DeviceID': r'USB\VID_174F&PID_2459&MI_02\7&6C047C5&0&0002',
+          'CompatibleID': {
+            'value': [r'USB\MS_COMP_WINUSB', r'USB\Class_fe&SubClass_01&Prot_00'],
+            'Count': 2,
+          },
+        },
+        {
+          'Name': 'ADB Interface',
+          'Status': 'OK',
+          'ConfigManagerErrorCode': 0,
+          'Service': 'WINUSB',
+          'DeviceID': r'USB\VID_04E8&PID_6860&MI_03\7&33E2BE27&0&0003',
+          'CompatibleID': {
+            'value': [
+              r'USB\MS_COMP_WINUSB',
+              r'USB\COMPAT_VID_04e8&Class_ff&SubClass_42&Prot_01',
+            ],
+            'Count': 2,
+          },
+        },
+      ]);
+
+      final clixmlWrappedJson = '#< CLIXML\n$rawJson\n<Objs Version="1.1.0.1"></Objs>';
+      final usb = AndroidDeviceRunnerService.parseWindowsUsbDevicesJson(
+        clixmlWrappedJson,
+      );
+      expect(usb.length, 3);
+      expect(usb[0].isPhoneLike, isTrue);
+      expect(usb[0].isAdbInterface, isFalse);
+      expect(usb[1].isAdbInterface, isFalse);
+      expect(usb[2].isAdbInterface, isTrue);
+      expect(usb[2].vidPidKey, 'VID_04E8&PID_6860');
+    });
+
+    test('scanAndroidEnvironment diagnoses S25 Ultra USB ADB connected without Android SDK/ADB', () async {
+      final service = AndroidDeviceRunnerService(
+        isWindowsOverride: true,
+        environmentProvider: () => const {'LOCALAPPDATA': r'C:\FakeLocal'},
+        fileExists: (_) => false,
+        dirExists: (_) => false,
+        processRunner: (executable, arguments,
+            {workingDirectory, runInShell = true}) async {
+          if (executable == 'flutter' &&
+              arguments.isNotEmpty &&
+              arguments.first == 'devices') {
+            return ProcessResult(
+              1,
+              0,
+              jsonEncode([
+                {
+                  'name': 'Windows (desktop)',
+                  'id': 'windows',
+                  'isSupported': true,
+                  'targetPlatform': 'windows-x64',
+                  'emulator': false,
+                },
+              ]),
+              '',
+            );
+          }
+          if (executable == 'powershell') {
+            return ProcessResult(
+              2,
+              0,
+              jsonEncode([
+                {
+                  'Name': 'S25 Ultra de Robson',
+                  'Status': 'OK',
+                  'ConfigManagerErrorCode': 0,
+                  'Service': 'WUDFWpdMtp',
+                  'DeviceID': r'USB\VID_04E8&PID_6860&MI_00\1',
+                  'CompatibleID': [r'USB\MS_COMP_MTP'],
+                },
+                {
+                  'Name': 'ADB Interface',
+                  'Status': 'OK',
+                  'ConfigManagerErrorCode': 0,
+                  'Service': 'WINUSB',
+                  'DeviceID': r'USB\VID_04E8&PID_6860&MI_03\1',
+                  'CompatibleID': [
+                    r'USB\COMPAT_VID_04e8&Class_ff&SubClass_42&Prot_01',
+                  ],
+                },
+              ]),
+              '',
+            );
+          }
+          return ProcessResult(3, 1, '', 'not found');
+        },
+      );
+
+      final diag = await service.scanAndroidEnvironment();
+      expect(diag.devices, isEmpty);
+      expect(diag.issueType, AndroidConnectionIssueType.usbInterfaceWithoutSdk);
+      expect(diag.detectedUsbDeviceName, 'S25 Ultra de Robson (ADB Interface)');
+      expect(diag.hasJava, isFalse);
+      expect(diag.suggestedCommand, contains('Google.AndroidStudio'));
+      expect(diag.suggestedCommand, contains('EclipseAdoptium.Temurin.17.JDK'));
+      expect(diag.actionUrl, 'https://developer.android.com/studio');
+    });
+
+    test('scanAndroidEnvironment detects unauthorized phone and Samsung driver issues when ADB exists', () async {
+      const sdkPath = r'C:\FakeLocal\Android\Sdk';
+      const adbPath = r'C:\FakeLocal\Android\Sdk\platform-tools\adb.exe';
+
+      // Case A: unauthorized
+      final unauthService = AndroidDeviceRunnerService(
+        isWindowsOverride: true,
+        environmentProvider: () => const {'LOCALAPPDATA': r'C:\FakeLocal'},
+        dirExists: (path) => path == sdkPath,
+        fileExists: (path) => path == adbPath,
+        processRunner: (executable, arguments,
+            {workingDirectory, runInShell = true}) async {
+          if (executable == 'flutter') return ProcessResult(1, 0, '[]', '');
+          if (executable == 'java') return ProcessResult(2, 0, 'openjdk 17', '');
+          if (executable == adbPath) {
+            return ProcessResult(
+              3,
+              0,
+              'List of devices attached\nRXGL20BSBJX unauthorized usb:1-2\n',
+              '',
+            );
+          }
+          return ProcessResult(4, 0, '[]', '');
+        },
+      );
+
+      final unauthDiag = await unauthService.scanAndroidEnvironment();
+      expect(unauthDiag.issueType, AndroidConnectionIssueType.unauthorized);
+      expect(unauthDiag.hasJava, isTrue);
+
+      // Case B: ADB exists, Samsung USB ADB interface visible, yet adb returns 0 devices
+      final samsungDriverService = AndroidDeviceRunnerService(
+        isWindowsOverride: true,
+        environmentProvider: () => const {'LOCALAPPDATA': r'C:\FakeLocal'},
+        dirExists: (path) => path == sdkPath,
+        fileExists: (path) => path == adbPath,
+        processRunner: (executable, arguments,
+            {workingDirectory, runInShell = true}) async {
+          if (executable == 'flutter') return ProcessResult(1, 0, '[]', '');
+          if (executable == 'java') return ProcessResult(2, 0, 'openjdk 17', '');
+          if (executable == adbPath) {
+            return ProcessResult(3, 0, 'List of devices attached\n', '');
+          }
+          if (executable == 'powershell') {
+            return ProcessResult(
+              4,
+              0,
+              jsonEncode([
+                {
+                  'Name': 'S25 Ultra de Robson',
+                  'Status': 'OK',
+                  'ConfigManagerErrorCode': 0,
+                  'Service': 'WUDFWpdMtp',
+                  'DeviceID': r'USB\VID_04E8&PID_6860&MI_00\1',
+                  'CompatibleID': [r'USB\MS_COMP_MTP'],
+                },
+                {
+                  'Name': 'ADB Interface',
+                  'Status': 'OK',
+                  'ConfigManagerErrorCode': 0,
+                  'Service': 'WINUSB',
+                  'DeviceID': r'USB\VID_04E8&PID_6860&MI_03\1',
+                  'CompatibleID': [
+                    r'USB\COMPAT_VID_04e8&Class_ff&SubClass_42&Prot_01',
+                  ],
+                },
+              ]),
+              '',
+            );
+          }
+          return ProcessResult(5, 1, '', '');
+        },
+      );
+
+      final driverDiag = await samsungDriverService.scanAndroidEnvironment();
+      expect(
+        driverDiag.issueType,
+        AndroidConnectionIssueType.driverOrUsbModeSuspected,
+      );
+      expect(driverDiag.actionUrl, 'https://developer.samsung.com/android-usb-driver');
+    });
+
+    testWidgets(
+      'clicking Android USB opens troubleshooter on S25 Ultra SDK issue and recovers on re-test',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 800);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        var simulateFixed = false;
+        const fakeSdkPath = r'C:\FakeLocal\Android\Sdk';
+        final executedCommands = <String>[];
+
+        final service = AndroidDeviceRunnerService(
+          isWindowsOverride: true,
+          environmentProvider: () => const {'LOCALAPPDATA': r'C:\FakeLocal'},
+          dirExists: (path) => path == fakeSdkPath,
+          fileExists: (_) => false,
+          processRunner: (executable, arguments,
+              {workingDirectory, runInShell = true}) async {
+            executedCommands.add('$executable ${arguments.join(' ')}');
+            if (executable == 'flutter' &&
+                arguments.isNotEmpty &&
+                arguments.first == 'devices') {
+              if (!simulateFixed) {
+                return ProcessResult(1, 0, '[]', '');
+              }
+              return ProcessResult(
+                1,
+                0,
+                jsonEncode([
+                  {
+                    'name': 'SM S938B',
+                    'id': 'RXGL20BSBJX',
+                    'isSupported': true,
+                    'targetPlatform': 'android-arm64',
+                    'emulator': false,
+                    'sdk': 'Android 15',
+                  },
+                ]),
+                '',
+              );
+            }
+            if (executable == 'flutter' &&
+                arguments.length >= 3 &&
+                arguments[0] == 'config' &&
+                arguments[1] == '--android-sdk') {
+              return ProcessResult(2, 0, 'Setting "android-sdk" value to "$fakeSdkPath".', '');
+            }
+            if (executable == 'powershell') {
+              return ProcessResult(
+                3,
+                0,
+                jsonEncode([
+                  {
+                    'Name': 'S25 Ultra de Robson',
+                    'Status': 'OK',
+                    'ConfigManagerErrorCode': 0,
+                    'Service': 'WUDFWpdMtp',
+                    'DeviceID': r'USB\VID_04E8&PID_6860&MI_00\1',
+                    'CompatibleID': [r'USB\MS_COMP_MTP'],
+                  },
+                  {
+                    'Name': 'ADB Interface',
+                    'Status': 'OK',
+                    'ConfigManagerErrorCode': 0,
+                    'Service': 'WINUSB',
+                    'DeviceID': r'USB\VID_04E8&PID_6860&MI_03\1',
+                    'CompatibleID': [
+                      r'USB\COMPAT_VID_04e8&Class_ff&SubClass_42&Prot_01',
+                    ],
+                  },
+                ]),
+                '',
+              );
+            }
+            return ProcessResult(4, 1, '', '');
+          },
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              androidDeviceRunnerServiceProvider.overrideWithValue(service),
+            ],
+            child: const MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: AndroidDebugToolbarControls(
+                    projectPath: r'C:\FakeProject',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Click Android USB while SDK/adb.exe is missing -> opens Troubleshooter Dialog!
+        await tester.tap(find.byKey(const ValueKey('android_scan_devices_button')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('android_connection_troubleshooter_dialog')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('S25 Ultra de Robson'), findsWidgets);
+        expect(
+          find.byKey(const ValueKey('android_troubleshooter_configure_sdk_button')),
+          findsOneWidget,
+        );
+
+        // Clicking Configure SDK invokes `flutter config --android-sdk`
+        await tester.tap(
+          find.byKey(const ValueKey('android_troubleshooter_configure_sdk_button')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          executedCommands.any(
+            (c) => c.contains('flutter config --android-sdk $fakeSdkPath'),
+          ),
+          isTrue,
+        );
+
+        // Now simulate user finished setup & re-tests connection inside the dialog
+        simulateFixed = true;
+        await tester.tap(
+          find.byKey(const ValueKey('android_troubleshooter_rescan_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('SM S938B conectado e pronto!'), findsOneWidget);
+        await tester.tap(
+          find.byKey(const ValueKey('android_troubleshooter_done_button')),
+        );
+        await tester.pumpAndSettle();
+
+        // Toolbar switched to ready launch button for SM S938B!
+        expect(find.byKey(const ValueKey('android_launch_button')), findsOneWidget);
+        expect(find.textContaining('SM S938B'), findsWidgets);
       },
     );
   });

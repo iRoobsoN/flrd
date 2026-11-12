@@ -22,6 +22,7 @@ class AndroidDebugState {
   final String? devToolsUri;
   final String? progressMessage;
   final String? errorMessage;
+  final AndroidConnectionDiagnostic? lastDiagnostic;
   final List<DeviceLogEntry> logs;
 
   const AndroidDebugState({
@@ -34,6 +35,7 @@ class AndroidDebugState {
     this.devToolsUri,
     this.progressMessage,
     this.errorMessage,
+    this.lastDiagnostic,
     this.logs = const [],
   });
 
@@ -57,6 +59,7 @@ class AndroidDebugState {
     Object? devToolsUri = _unset,
     Object? progressMessage = _unset,
     Object? errorMessage = _unset,
+    Object? lastDiagnostic = _unset,
     List<DeviceLogEntry>? logs,
   }) {
     return AndroidDebugState(
@@ -83,6 +86,9 @@ class AndroidDebugState {
       errorMessage: identical(errorMessage, _unset)
           ? this.errorMessage
           : errorMessage as String?,
+      lastDiagnostic: identical(lastDiagnostic, _unset)
+          ? this.lastDiagnostic
+          : lastDiagnostic as AndroidConnectionDiagnostic?,
       logs: logs ?? this.logs,
     );
   }
@@ -128,7 +134,8 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     state = state.copyWith(logs: updated);
   }
 
-  /// Scans connected Android devices via `flutter devices --machine`.
+  /// Scans connected Android devices via `flutter devices --machine` and runs
+  /// USB/ADB/SDK environment diagnostics whenever no ready device is found.
   Future<void> scanDevices() async {
     if (kIsWeb || state.status == DeviceRunStatus.scanning) return;
 
@@ -141,22 +148,31 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     }
 
     try {
-      final devices = await _service.scanAndroidDevices();
+      final diagnostic = await _service.scanAndroidEnvironment();
       if (!mounted) return;
 
+      final devices = diagnostic.devices;
       ConnectedAndroidDevice? nextSelected = state.selectedDevice;
       if (nextSelected == null ||
           !devices.any((d) => d.id == nextSelected!.id)) {
         nextSelected = devices.isNotEmpty ? devices.first : null;
       }
 
+      final isScanError =
+          diagnostic.issueType == AndroidConnectionIssueType.scanError;
+      if (isScanError) {
+        _appendLog('Erro ao buscar aparelhos Android: ${diagnostic.summary}',
+            isError: true);
+      }
+
       state = state.copyWith(
         devices: devices,
         selectedDevice: nextSelected,
+        lastDiagnostic: diagnostic,
         status: state.isActiveSession
             ? previousStatus
             : DeviceRunStatus.idle,
-        errorMessage: null,
+        errorMessage: isScanError ? diagnostic.summary : null,
       );
     } catch (e) {
       if (!mounted) return;
@@ -166,6 +182,14 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         errorMessage: e.toString(),
       );
     }
+  }
+
+  /// Configures Flutter CLI `--android-sdk` and immediately re-scans connected devices.
+  Future<bool> configureAndroidSdk(String sdkPath) async {
+    final ok = await _service.configureFlutterAndroidSdk(sdkPath);
+    if (!mounted) return ok;
+    await scanDevices();
+    return ok;
   }
 
   void selectDevice(ConnectedAndroidDevice device) {

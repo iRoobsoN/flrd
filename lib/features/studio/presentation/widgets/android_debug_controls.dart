@@ -6,6 +6,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../models/connected_device.dart';
 import '../../providers/android_debug_provider.dart';
+import 'android_connection_troubleshooter_dialog.dart';
 
 /// Compact toolbar controls rendered inside [AppStudioScreen] to detect
 /// connected Android devices, launch real-time debug sessions, trigger
@@ -38,6 +39,11 @@ class AndroidDebugToolbarControls extends ConsumerWidget {
 
     if (state.devices.isEmpty) {
       final isScanning = state.status == DeviceRunStatus.scanning;
+      final diagnostic = state.lastDiagnostic;
+      final hasDetectedIssue = diagnostic != null &&
+          diagnostic.hasActionableIssue &&
+          diagnostic.issueType != AndroidConnectionIssueType.noDeviceConnected;
+
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -45,26 +51,64 @@ class AndroidDebugToolbarControls extends ConsumerWidget {
             key: const ValueKey('android_scan_devices_button'),
             icon: isScanning ? Icons.sync_rounded : Icons.usb_rounded,
             label: isScanning ? 'Buscando Android...' : 'Android USB',
-            tooltip: 'Detectar aparelhos Android conectados via USB/ADB',
-            accentColor:
-                isScanning ? AppColors.secondary : AppColors.textSecondary,
-            textColor:
-                isScanning ? AppColors.secondary : AppColors.textPrimary,
-            borderColor:
-                isScanning ? AppColors.secondary.withValues(alpha: 0.5) : null,
+            tooltip: hasDetectedIssue
+                ? '${diagnostic.title} (clique para diagnosticar e resolver)'
+                : 'Detectar aparelhos Android conectados via USB/ADB',
+            accentColor: isScanning
+                ? AppColors.secondary
+                : hasDetectedIssue
+                    ? AppColors.warning
+                    : AppColors.textSecondary,
+            textColor: isScanning
+                ? AppColors.secondary
+                : hasDetectedIssue
+                    ? AppColors.warning
+                    : AppColors.textPrimary,
+            backgroundColor: hasDetectedIssue && !isScanning
+                ? AppColors.warning.withValues(alpha: 0.12)
+                : null,
+            borderColor: isScanning
+                ? AppColors.secondary.withValues(alpha: 0.5)
+                : hasDetectedIssue
+                    ? AppColors.warning.withValues(alpha: 0.5)
+                    : null,
             onPressed: isScanning
                 ? null
                 : () async {
                     await notifier.scanDevices();
                     if (!context.mounted) return;
                     final updated = ref.read(androidDebugProvider);
-                    if (updated.devices.isEmpty) {
-                      final message = updated.errorMessage ??
-                          'Nenhum aparelho Android encontrado. Ative a Depuração USB ou conecte um emulador Android.';
-                      AppToast.warning(context, message);
+                    if (updated.devices.isNotEmpty) {
+                      AppToast.success(
+                        context,
+                        '${updated.devices.first.name} conectado e pronto!',
+                      );
+                    } else {
+                      await AndroidConnectionTroubleshooterDialog.show(context);
                     }
                   },
           ),
+          if (diagnostic != null && diagnostic.hasActionableIssue) ...[
+            const SizedBox(width: 4),
+            _ToolbarIconButton(
+              key: const ValueKey('android_troubleshoot_button'),
+              icon: hasDetectedIssue
+                  ? Icons.warning_amber_rounded
+                  : Icons.help_outline_rounded,
+              tooltip: 'Assistente de Conexão Android: ${diagnostic.title}',
+              color: hasDetectedIssue
+                  ? AppColors.warning
+                  : AppColors.textSecondary,
+              backgroundColor: hasDetectedIssue
+                  ? AppColors.warning.withValues(alpha: 0.12)
+                  : null,
+              borderColor: hasDetectedIssue
+                  ? AppColors.warning.withValues(alpha: 0.45)
+                  : null,
+              onPressed: () =>
+                  AndroidConnectionTroubleshooterDialog.show(context),
+            ),
+          ],
           if (state.status == DeviceRunStatus.error ||
               state.logs.isNotEmpty ||
               isConsoleOpen) ...[
