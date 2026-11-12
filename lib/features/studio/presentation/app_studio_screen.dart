@@ -14,6 +14,7 @@ import 'widgets/device_screen_emulator.dart';
 import 'widgets/embedded_code_viewer.dart';
 import 'widgets/route_connector_painter.dart';
 import 'widgets/route_node_card.dart';
+import 'widgets/screen_materials_builder.dart';
 
 class AppStudioScreen extends ConsumerStatefulWidget {
   final RegisteredProject project;
@@ -70,6 +71,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   bool _showLivePreview = true;
   bool _isDiagramCollapsed = false;
   String? _currentCode;
+  String? _lastSelectedNodeId;
 
   void _onCodeViewerChanged(String code) {
     if (_currentCode == code) return;
@@ -974,6 +976,10 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   }
 
   Widget _buildNodeInspector(RouteNode node, StudioNotifier notifier) {
+    if (_lastSelectedNodeId != node.id) {
+      _lastSelectedNodeId = node.id;
+      _currentCode = null;
+    }
     return RepaintBoundary(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1159,133 +1165,144 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   }
 
   Widget _buildRouteDetailsContent(RouteNode node, StudioNotifier notifier) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: IntrinsicHeight(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Route Path
-                  const Text(
-                    'GoRouter Route Path',
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: AppColors.borderSubtle),
-                    ),
-                    child: Text(
-                      node.path,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        color: AppColors.secondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
+    if (_lastSelectedNodeId != node.id) {
+      _lastSelectedNodeId = node.id;
+      _currentCode = null;
+    }
 
-                  // File Path
-                  const Text(
-                    'Source Code File',
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    node.filePath,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      color: AppColors.textSecondary,
-                      fontSize: 11,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Protection Badge
-                  Row(
-                    children: [
-                      Icon(
-                        node.isProtected ? Icons.lock_rounded : Icons.lock_open_rounded,
-                        size: 14,
-                        color: node.isProtected ? AppColors.primary : AppColors.textMuted,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        node.isProtected ? 'Protected by Auth Guard' : 'Public Route',
-                        style: TextStyle(
-                          color: node.isProtected
-                              ? AppColors.textPrimary
-                              : AppColors.textMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  const SizedBox(height: 16),
-
-                  // Node Actions
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.border),
-                        backgroundColor: AppColors.surface,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      onPressed: _openVsCode,
-                      icon: const Icon(Icons.code_rounded, size: 14),
-                      label: const Text(
-                        'Open File in VS Code',
-                        style: TextStyle(color: AppColors.textPrimary, fontSize: 11),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (node.id != 'root')
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton.icon(
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.danger,
-                        ),
-                        onPressed: () => notifier.removeNode(node.id),
-                        icon: const Icon(Icons.delete_outline_rounded, size: 14),
-                        label: const Text('Remove Route from Graph',
-                            style: TextStyle(fontSize: 11)),
-                      ),
-                    ),
-                ],
+    return SingleChildScrollView(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Route Path
+          const Text(
+            'GoRouter Route Path',
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Text(
+              node.path,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                color: AppColors.secondary,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
-        );
-      },
+          const SizedBox(height: 14),
+
+          // File Path
+          const Text(
+            'Source Code File',
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            node.filePath,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              color: AppColors.textSecondary,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Protection Badge
+          Row(
+            children: [
+              Icon(
+                node.isProtected ? Icons.lock_rounded : Icons.lock_open_rounded,
+                size: 14,
+                color: node.isProtected ? AppColors.primary : AppColors.textMuted,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                node.isProtected ? 'Protected by Auth Guard' : 'Public Route',
+                style: TextStyle(
+                  color: node.isProtected
+                      ? AppColors.textPrimary
+                      : AppColors.textMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(color: AppColors.borderSubtle, height: 1),
+          const SizedBox(height: 16),
+
+          // Interactive "Materiais & Componentes da Tela" Panel
+          ScreenMaterialsBuilder(
+            node: node,
+            project: widget.project,
+            currentCode: _currentCode ?? '',
+            onCodeChanged: _onCodeViewerChanged,
+          ),
+
+          const SizedBox(height: 20),
+          const Divider(color: AppColors.borderSubtle, height: 1),
+          const SizedBox(height: 16),
+
+          // Node Actions
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.border),
+                backgroundColor: AppColors.surface,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: _openVsCode,
+              icon: const Icon(Icons.code_rounded, size: 14),
+              label: const Text(
+                'Open File in VS Code',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 11),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (node.id != 'root')
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.danger,
+                ),
+                onPressed: () => notifier.removeNode(node.id),
+                icon: const Icon(Icons.delete_outline_rounded, size: 14),
+                label: const Text('Remove Route from Graph',
+                    style: TextStyle(fontSize: 11)),
+              ),
+            ),
+          const SizedBox(height: 16),
+        ],
+      ),
     );
   }
 

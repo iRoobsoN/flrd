@@ -9,13 +9,33 @@ import '../../providers/studio_provider.dart';
 
 class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
   final RegisteredProject project;
+  final String? initialPrompt;
+  final String? initialRoutePath;
+  final String? initialScreenTitle;
 
-  const AiScreenGeneratorDialog({super.key, required this.project});
+  const AiScreenGeneratorDialog({
+    super.key,
+    required this.project,
+    this.initialPrompt,
+    this.initialRoutePath,
+    this.initialScreenTitle,
+  });
 
-  static Future<void> show(BuildContext context, RegisteredProject project) {
+  static Future<void> show(
+    BuildContext context,
+    RegisteredProject project, {
+    String? initialPrompt,
+    String? initialRoutePath,
+    String? initialScreenTitle,
+  }) {
     return showDialog(
       context: context,
-      builder: (_) => AiScreenGeneratorDialog(project: project),
+      builder: (_) => AiScreenGeneratorDialog(
+        project: project,
+        initialPrompt: initialPrompt,
+        initialRoutePath: initialRoutePath,
+        initialScreenTitle: initialScreenTitle,
+      ),
     );
   }
 
@@ -26,12 +46,9 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
 
 class _AiScreenGeneratorDialogState
     extends ConsumerState<AiScreenGeneratorDialog> {
-  final _pathController = TextEditingController(text: '/checkout/payment');
-  final _titleController = TextEditingController(text: 'PaymentScreen');
-  final _promptController = TextEditingController(
-    text:
-        'Tela de checkout e pagamento com seleção de Pix, Cartão de Crédito e resumo de pedido com gradiente Obsidian.',
-  );
+  late final TextEditingController _pathController;
+  late final TextEditingController _titleController;
+  late final TextEditingController _promptController;
   late final TextEditingController _apiKeyController;
 
   String _parentRouteId = 'dashboard';
@@ -41,6 +58,16 @@ class _AiScreenGeneratorDialogState
   @override
   void initState() {
     super.initState();
+    _pathController = TextEditingController(
+      text: widget.initialRoutePath ?? '/checkout/payment',
+    );
+    _titleController = TextEditingController(
+      text: widget.initialScreenTitle ?? 'PaymentScreen',
+    );
+    _promptController = TextEditingController(
+      text: widget.initialPrompt ??
+          'Tela de checkout e pagamento com seleção de Pix, Cartão de Crédito e resumo de pedido com gradiente Obsidian.',
+    );
     final initialKey = ref.read(aiSettingsProvider).apiKey ?? '';
     _apiKeyController = TextEditingController(text: initialKey);
   }
