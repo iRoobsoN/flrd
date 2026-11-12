@@ -7,6 +7,7 @@ import '../../../projects/models/registered_project.dart';
 import '../../domain/screen_material.dart';
 import '../../domain/widget_variation.dart';
 import '../../models/route_node.dart';
+import '../../providers/android_debug_provider.dart';
 import '../../providers/studio_provider.dart';
 import '../../../ai/providers/ai_settings_provider.dart';
 import '../../../ai/services/gemini_ai_service.dart';
@@ -340,9 +341,25 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
         file.parent.createSync(recursive: true);
       }
       file.writeAsStringSync(newCode, flush: true);
+      _notifyAndroidHotReload();
     } catch (e) {
       debugPrint('ScreenMaterialsBuilder error saving to file: $e');
     }
+  }
+
+  void _notifyAndroidHotReload() {
+    if (widget.ref != null) {
+      try {
+        widget.ref!.read(androidDebugProvider.notifier).onCodeSaved(widget.project.path);
+        return;
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    try {
+      ProviderScope.containerOf(context, listen: false)
+          .read(androidDebugProvider.notifier)
+          .onCodeSaved(widget.project.path);
+    } catch (_) {}
   }
 
   void _handleAiEnhance(List<ScreenMaterialItem> materials) {

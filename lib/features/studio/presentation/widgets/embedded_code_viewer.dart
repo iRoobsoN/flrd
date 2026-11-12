@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../../core/theme/app_colors.dart';
 import '../../models/route_node.dart';
+import '../../providers/android_debug_provider.dart';
 
 /// Custom [TextEditingController] providing real-time Dart syntax highlighting
 /// with Obsidian Glass palette accents.
@@ -395,6 +396,7 @@ class _EmbeddedCodeViewerState extends ConsumerState<EmbeddedCodeViewer> {
       }
 
       if (mounted) {
+        ref.read(androidDebugProvider.notifier).onCodeSaved(widget.projectPath);
         setState(() {
           _isDirty = false;
           _isTemplate = false;

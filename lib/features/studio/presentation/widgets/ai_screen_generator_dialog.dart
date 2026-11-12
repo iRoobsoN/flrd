@@ -9,6 +9,7 @@ import '../../../projects/models/registered_project.dart';
 import '../../../settings/presentation/settings_and_billing_dialog.dart';
 import '../../domain/screen_material.dart';
 import '../../models/route_node.dart';
+import '../../providers/android_debug_provider.dart';
 import '../../providers/studio_provider.dart';
 
 class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
@@ -179,6 +180,8 @@ class _AiScreenGeneratorDialogState
       );
 
       if (!mounted) return;
+
+      ref.read(androidDebugProvider.notifier).onCodeSaved(widget.project.path);
 
       // 4. Inject RouteNode into Flowchart
       final studio = ref.read(studioProvider.notifier);

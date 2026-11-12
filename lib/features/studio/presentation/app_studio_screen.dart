@@ -7,9 +7,12 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/window/custom_titlebar.dart';
 import '../../marketplace/presentation/widgets/publish_template_dialog.dart';
 import '../../projects/models/registered_project.dart';
+import '../models/connected_device.dart';
 import '../models/route_node.dart';
+import '../providers/android_debug_provider.dart';
 import '../providers/studio_provider.dart';
 import 'widgets/ai_screen_generator_dialog.dart';
+import 'widgets/android_debug_controls.dart';
 import 'widgets/device_screen_emulator.dart';
 import 'widgets/embedded_code_viewer.dart';
 import 'widgets/route_connector_painter.dart';
@@ -70,6 +73,8 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   bool _isDraggingNode = false;
   bool _showLivePreview = true;
   bool _isDiagramCollapsed = false;
+  bool _showAndroidConsole = false;
+  bool _simulatorAutoHiddenByAndroid = false;
   String? _currentCode;
   String? _lastSelectedNodeId;
 
@@ -134,6 +139,15 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
             _inspectorTabIndex = 1;
           });
         }
+      }
+      if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
+        ref.read(androidDebugProvider.notifier).scanDevices();
+      }
+      if (ref.read(androidDebugProvider).isActiveSession && _showLivePreview) {
+        setState(() {
+          _showLivePreview = false;
+          _simulatorAutoHiddenByAndroid = true;
+        });
       }
     });
   }
@@ -244,6 +258,40 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     final studioNotifier = ref.read(studioProvider.notifier);
     final selectedNode = studio.selectedNode;
 
+    ref.listen<AndroidDebugState>(androidDebugProvider, (prev, next) {
+      if (!mounted) return;
+      final wasActive = prev?.isActiveSession ?? false;
+      final isNowActive = next.isActiveSession;
+
+      if (!wasActive && isNowActive) {
+        setState(() {
+          if (_showLivePreview) {
+            _showLivePreview = false;
+            _simulatorAutoHiddenByAndroid = true;
+          }
+          _showAndroidConsole = true;
+        });
+      } else if (wasActive && !isNowActive) {
+        if (next.status == DeviceRunStatus.error) {
+          setState(() {
+            _showAndroidConsole = true;
+          });
+        } else if (_simulatorAutoHiddenByAndroid) {
+          setState(() {
+            _showLivePreview = true;
+            _simulatorAutoHiddenByAndroid = false;
+            _showAndroidConsole = false;
+          });
+        }
+      } else if (!isNowActive &&
+          next.status == DeviceRunStatus.error &&
+          prev?.status != DeviceRunStatus.error) {
+        setState(() {
+          _showAndroidConsole = true;
+        });
+      }
+    });
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -275,6 +323,11 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                 ],
               ),
             ),
+
+            if (_showAndroidConsole)
+              AndroidDebugConsolePanel(
+                onClose: () => setState(() => _showAndroidConsole = false),
+              ),
           ],
         ),
       ),
@@ -354,6 +407,14 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    AndroidDebugToolbarControls(
+                      projectPath: widget.project.path,
+                      isConsoleOpen: _showAndroidConsole,
+                      onToggleConsole: () => setState(
+                        () => _showAndroidConsole = !_showAndroidConsole,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
                     OutlinedButton.icon(
                       key: const ValueKey('collapse_all_button'),
                       style: OutlinedButton.styleFrom(
@@ -501,6 +562,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       onPressed: () {
                         setState(() {
                           _showLivePreview = !_showLivePreview;
+                          _simulatorAutoHiddenByAndroid = false;
                         });
                       },
                       icon: Icon(
@@ -1022,7 +1084,10 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                         borderRadius: BorderRadius.circular(6),
                       ),
                     ),
-                    onPressed: () => setState(() => _showLivePreview = !_showLivePreview),
+                    onPressed: () => setState(() {
+                      _showLivePreview = !_showLivePreview;
+                      _simulatorAutoHiddenByAndroid = false;
+                    }),
                     icon: Icon(
                       _showLivePreview ? Icons.smartphone_rounded : Icons.smartphone_outlined,
                       size: 13,
@@ -1464,6 +1529,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                   onPressed: () {
                     setState(() {
                       _showLivePreview = false;
+                      _simulatorAutoHiddenByAndroid = false;
                     });
                   },
                 ),
