@@ -355,5 +355,185 @@ class TestLoginScreen extends StatelessWidget {
       expect(prompt, contains('Confirmar Pagamento'));
       expect(prompt, contains('Obsidian Glass'));
     });
+
+    test('ScreenMaterialItem note support, serialization, and equality', () {
+      const item = ScreenMaterialItem(
+        id: 'mat_btn_1',
+        type: ScreenMaterialType.primaryButton,
+        label: 'Finalizar Compra',
+        hint: 'Clique para pagar',
+        note: 'Botão pulsante com efeito de brilho e feedback sonoro',
+        iconName: 'smart_button_rounded',
+      );
+
+      expect(item.note, 'Botão pulsante com efeito de brilho e feedback sonoro');
+      expect(item.displayName, 'Finalizar Compra');
+
+      final copied = item.copyWith(note: 'Nova nota de comportamento');
+      expect(copied.note, 'Nova nota de comportamento');
+      expect(copied.label, 'Finalizar Compra');
+
+      // Clear note using copyWith
+      final cleared = item.copyWith(note: null);
+      expect(cleared.note, isNull);
+
+      final json = item.toJson();
+      expect(json['note'], 'Botão pulsante com efeito de brilho e feedback sonoro');
+      expect(json['type'], 'primaryButton');
+
+      final fromJson = ScreenMaterialItem.fromJson(json);
+      expect(fromJson, equals(item));
+      expect(fromJson.note, item.note);
+      expect(fromJson.hashCode, equals(item.hashCode));
+    });
+
+    test('availableMaterialPalette items have initial null note', () {
+      for (final p in availableMaterialPalette) {
+        expect(p.note, isNull);
+      }
+    });
+
+    test('extractMaterialsFromCode and buildDartCodeFromMaterials roundtrip with notes', () {
+      final materials = [
+        const ScreenMaterialItem(
+          id: 'appBar_0',
+          type: ScreenMaterialType.appBar,
+          label: 'Meu Carrinho',
+          note: 'Barra translúcida com contador de itens',
+        ),
+        const ScreenMaterialItem(
+          id: 'primaryBtn_1',
+          type: ScreenMaterialType.primaryButton,
+          label: 'Ir para Pagamento',
+          note: 'Botão que valida o carrinho antes de navegar',
+        ),
+      ];
+
+      final code = ScreenMaterialCodeUpdater.buildDartCodeFromMaterials(
+        screenClassName: 'CartScreen',
+        routePath: '/cart',
+        materials: materials,
+      );
+
+      expect(code, contains('/// Note: Barra translúcida com contador de itens'));
+      expect(code, contains('/// Note: Botão que valida o carrinho antes de navegar'));
+
+      final parsed = ScreenMaterialParser.extractMaterialsFromCode(code);
+      expect(parsed.length, 2);
+      expect(parsed[0].note, 'Barra translúcida com contador de itens');
+      expect(parsed[1].note, 'Botão que valida o carrinho antes de navegar');
+    });
+
+    test('updateMaterialNoteInCode updates material note and regenerates code', () {
+      final baseCode = ScreenMaterialCodeUpdater.buildDartCodeFromMaterials(
+        screenClassName: 'ProfileScreen',
+        routePath: '/profile',
+        materials: [
+          const ScreenMaterialItem(
+            id: 'btn_0',
+            type: ScreenMaterialType.primaryButton,
+            label: 'Salvar Dados',
+          ),
+        ],
+      );
+
+      final updatedCode = ScreenMaterialCodeUpdater.updateMaterialNoteInCode(
+        currentCode: baseCode,
+        materialId: 'primaryButton_0',
+        note: 'Exibir loader durante requisição HTTP',
+      );
+
+      final parsed = ScreenMaterialParser.extractMaterialsFromCode(updatedCode);
+      expect(parsed.first.note, 'Exibir loader durante requisição HTTP');
+    });
+
+    test('generateAiEnhancePrompt includes app navigation graph and per-component notes', () {
+      const node = RouteNode(
+        id: 'dashboard',
+        path: '/dashboard',
+        title: 'Painel Principal',
+        subtitle: 'Visão geral da conta',
+        icon: Icons.dashboard_rounded,
+        position: Offset.zero,
+        filePath: 'lib/screens/dashboard.dart',
+      );
+
+      final existingRoutes = [
+        const RouteNode(
+          id: 'settings',
+          path: '/settings',
+          title: 'Configurações',
+          subtitle: 'Ajustes do perfil',
+          icon: Icons.settings,
+          position: Offset.zero,
+          filePath: 'lib/screens/settings.dart',
+        ),
+        const RouteNode(
+          id: 'billing',
+          path: '/billing',
+          title: 'Faturamento',
+          subtitle: 'Planos e assinaturas',
+          icon: Icons.credit_card,
+          position: Offset.zero,
+          filePath: 'lib/screens/billing.dart',
+          isProtected: true,
+        ),
+      ];
+
+      final materials = [
+        const ScreenMaterialItem(
+          id: 'btn_nav',
+          type: ScreenMaterialType.primaryButton,
+          label: 'Gerenciar Assinatura',
+          note: 'Navegar para a tela de faturamento ao clicar',
+        ),
+      ];
+
+      final prompt = ScreenMaterialParser.generateAiEnhancePrompt(
+        node,
+        materials,
+        existingRoutes: existingRoutes,
+        preset: PresetType.saas,
+      );
+
+      expect(prompt, contains('App Navigation Graph & Available Routes:'));
+      expect(prompt, contains('Configurações ("/settings")'));
+      expect(prompt, contains('Faturamento ("/billing") [Protegida]'));
+      expect(prompt, contains('Preset de Arquitetura: SaaS / Indie Hacker'));
+      expect(prompt, contains('### User Component Notes & Behavioral Prompts:'));
+      expect(prompt, contains("Component: Gerenciar Assinatura -> User Note: 'Navegar para a tela de faturamento ao clicar'"));
+    });
+
+    test('generateWidgetSpecificPrompt produces focused prompt for single component', () {
+      const material = ScreenMaterialItem(
+        id: 'sw_1',
+        type: ScreenMaterialType.switchTile,
+        label: 'Notificações Push',
+        note: 'Solicitar permissão no sistema operacional quando ativado',
+      );
+
+      const node = RouteNode(
+        id: 'settings',
+        path: '/settings',
+        title: 'Configurações',
+        subtitle: 'Preferências do Usuário',
+        icon: Icons.settings,
+        position: Offset.zero,
+        filePath: 'lib/settings.dart',
+      );
+
+      final prompt = ScreenMaterialParser.generateWidgetSpecificPrompt(
+        material,
+        routeNode: node,
+        preset: PresetType.cleanLite,
+      );
+
+      expect(prompt, contains('Gere um widget Flutter completo, reativo e elegante para o componente "Notificações Push"'));
+      expect(prompt, contains('Contexto da Tela: Rota "/settings"'));
+      expect(prompt, contains('Clean-Lite Scalable'));
+      expect(prompt, contains('### Instrução Comportamental do Usuário (Nota Específica):'));
+      expect(prompt, contains('Solicitar permissão no sistema operacional quando ativado'));
+      expect(prompt, contains('Obsidian Glass Design System'));
+    });
   });
 }

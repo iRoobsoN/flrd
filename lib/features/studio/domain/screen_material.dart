@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/route_node.dart';
+import '../../wizard/models/project_config.dart';
 
 // =============================================================================
 // SCREEN MATERIAL TYPES & MODELS
@@ -138,12 +139,15 @@ enum ScreenMaterialType {
   }
 }
 
+const _materialSentinel = Object();
+
 /// A discrete component or visual material added to a screen.
 class ScreenMaterialItem {
   final String id;
   final ScreenMaterialType type;
   final String label;
   final String? hint;
+  final String? note;
   final IconData? icon;
   final String? iconName;
   final IconData? leadingIcon;
@@ -159,6 +163,7 @@ class ScreenMaterialItem {
     required this.type,
     required this.label,
     this.hint,
+    this.note,
     this.icon,
     this.iconName,
     this.leadingIcon,
@@ -170,11 +175,15 @@ class ScreenMaterialItem {
     this.properties = const {},
   });
 
+  /// Human-readable display name, preferring label if defined or fallback to type displayName.
+  String get displayName => label.isNotEmpty ? label : type.displayName;
+
   ScreenMaterialItem copyWith({
     String? id,
     ScreenMaterialType? type,
     String? label,
     String? hint,
+    Object? note = _materialSentinel,
     IconData? icon,
     String? iconName,
     IconData? leadingIcon,
@@ -190,6 +199,7 @@ class ScreenMaterialItem {
       type: type ?? this.type,
       label: label ?? this.label,
       hint: hint ?? this.hint,
+      note: identical(note, _materialSentinel) ? this.note : (note as String?),
       icon: icon ?? this.icon,
       iconName: iconName ?? this.iconName,
       leadingIcon: leadingIcon ?? this.leadingIcon,
@@ -199,6 +209,59 @@ class ScreenMaterialItem {
       isPassword: isPassword ?? this.isPassword,
       initialValue: initialValue ?? this.initialValue,
       properties: properties ?? this.properties,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'type': type.name,
+      'label': label,
+      'hint': hint,
+      'note': note,
+      'iconName': iconName,
+      'leadingIconName': leadingIconName,
+      'actionIconNames': actionIconNames,
+      'isPassword': isPassword,
+      'initialValue': initialValue,
+      'properties': properties,
+    };
+  }
+
+  factory ScreenMaterialItem.fromJson(Map<String, dynamic> json) {
+    final typeName = json['type'] as String? ?? 'containerCard';
+    final type = ScreenMaterialType.values.firstWhere(
+      (t) => t.name == typeName,
+      orElse: () => ScreenMaterialType.containerCard,
+    );
+    final iconName = json['iconName'] as String?;
+    final leadingIconName = json['leadingIconName'] as String?;
+    final actionIconNames = (json['actionIconNames'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const [];
+
+    return ScreenMaterialItem(
+      id: json['id'] as String? ?? '',
+      type: type,
+      label: json['label'] as String? ?? '',
+      hint: json['hint'] as String?,
+      note: json['note'] as String?,
+      icon: iconName != null ? ScreenMaterialCodeUpdater.resolveIcon(iconName) : null,
+      iconName: iconName,
+      leadingIcon: leadingIconName != null
+          ? ScreenMaterialCodeUpdater.resolveIcon(leadingIconName)
+          : null,
+      leadingIconName: leadingIconName,
+      actionIcons: actionIconNames
+          .map((name) => ScreenMaterialCodeUpdater.resolveIcon(name))
+          .toList(),
+      actionIconNames: actionIconNames,
+      isPassword: json['isPassword'] as bool? ?? false,
+      initialValue: json['initialValue'],
+      properties: json['properties'] != null
+          ? Map<String, dynamic>.from(json['properties'] as Map)
+          : const {},
     );
   }
 
@@ -217,14 +280,15 @@ class ScreenMaterialItem {
         other.type == type &&
         other.label == label &&
         other.hint == hint &&
+        other.note == note &&
         other.isPassword == isPassword;
   }
 
   @override
-  int get hashCode => Object.hash(id, type, label, hint, isPassword);
+  int get hashCode => Object.hash(id, type, label, hint, note, isPassword);
 
   @override
-  String toString() => 'ScreenMaterialItem($id, ${type.name}, "$label")';
+  String toString() => 'ScreenMaterialItem($id, ${type.name}, "$label", note: "$note")';
 }
 
 // =============================================================================
@@ -238,6 +302,7 @@ final List<ScreenMaterialItem> availableMaterialPalette = [
     type: ScreenMaterialType.appBar,
     label: 'Barra Superior',
     hint: 'AppBar com título e ações',
+    note: null,
     leadingIcon: Icons.arrow_back_rounded,
     leadingIconName: 'arrow_back_rounded',
     actionIcons: [Icons.notifications_outlined, Icons.more_vert_rounded],
@@ -248,18 +313,21 @@ final List<ScreenMaterialItem> availableMaterialPalette = [
     type: ScreenMaterialType.headerText,
     label: 'Título de Destaque',
     hint: 'Tipografia grande para o topo da tela',
+    note: null,
   ),
   const ScreenMaterialItem(
     id: 'palette_subtitle_text',
     type: ScreenMaterialType.subtitleText,
     label: 'Subtítulo explicativo',
     hint: 'Texto descritivo em tom atenuado',
+    note: null,
   ),
   const ScreenMaterialItem(
     id: 'palette_text_input',
     type: ScreenMaterialType.textInput,
     label: 'Campo de Texto',
     hint: 'Digite aqui...',
+    note: null,
     icon: Icons.edit_note_rounded,
     iconName: 'edit_note_rounded',
   ),
@@ -268,6 +336,7 @@ final List<ScreenMaterialItem> availableMaterialPalette = [
     type: ScreenMaterialType.passwordInput,
     label: 'Senha de Acesso',
     hint: '••••••••',
+    note: null,
     icon: Icons.lock_outline_rounded,
     iconName: 'lock_outline_rounded',
     isPassword: true,
@@ -277,6 +346,7 @@ final List<ScreenMaterialItem> availableMaterialPalette = [
     type: ScreenMaterialType.primaryButton,
     label: 'Ação Principal',
     hint: 'Botão elevado de destaque',
+    note: null,
     icon: Icons.arrow_forward_rounded,
     iconName: 'arrow_forward_rounded',
   ),
@@ -285,12 +355,14 @@ final List<ScreenMaterialItem> availableMaterialPalette = [
     type: ScreenMaterialType.secondaryButton,
     label: 'Ação Secundária',
     hint: 'Botão outlined com borda sutil',
+    note: null,
   ),
   const ScreenMaterialItem(
     id: 'palette_social_button',
     type: ScreenMaterialType.socialButton,
     label: 'Continuar com Google',
     hint: 'Autenticação rápida com provedor externo',
+    note: null,
     icon: Icons.g_mobiledata_rounded,
     iconName: 'g_mobiledata_rounded',
   ),
@@ -299,12 +371,14 @@ final List<ScreenMaterialItem> availableMaterialPalette = [
     type: ScreenMaterialType.containerCard,
     label: 'Container Obsidian Card',
     hint: 'Card com fundo de vidro translúcido',
+    note: null,
   ),
   const ScreenMaterialItem(
     id: 'palette_icon',
     type: ScreenMaterialType.icon,
     label: 'Ícone Ilustrativo',
     hint: 'Glifo vetorial para ilustração da tela',
+    note: null,
     icon: Icons.stars_rounded,
     iconName: 'stars_rounded',
   ),
@@ -313,6 +387,7 @@ final List<ScreenMaterialItem> availableMaterialPalette = [
     type: ScreenMaterialType.switchTile,
     label: 'Lembrar configurações',
     hint: 'Interruptor on/off booleano',
+    note: null,
     initialValue: true,
   ),
   const ScreenMaterialItem(
@@ -320,6 +395,7 @@ final List<ScreenMaterialItem> availableMaterialPalette = [
     type: ScreenMaterialType.checkboxTile,
     label: 'Aceito os Termos de Serviço',
     hint: 'Caixa de seleção de termos e políticas',
+    note: null,
     initialValue: true,
   ),
 ];
@@ -393,6 +469,9 @@ class ScreenMaterialCodeUpdater {
     'visibility_off': Icons.visibility_off,
   };
 
+  /// Public helper resolving material icon names to Material Icons.
+  static IconData resolveIcon(String name) => _resolveIcon(name);
+
   static IconData _resolveIcon(String name) {
     final clean = name.toLowerCase().trim();
     if (_namedIcons.containsKey(clean)) return _namedIcons[clean]!;
@@ -402,6 +481,15 @@ class ScreenMaterialCodeUpdater {
         .replaceAll('_sharp', '');
     if (_namedIcons.containsKey(stripped)) return _namedIcons[stripped]!;
     return Icons.star_rounded;
+  }
+
+  static String? _extractPrecedingNote(String code, int matchStart) {
+    final prefix = code.substring(max(0, matchStart - 250), matchStart);
+    final noteMatches = RegExp(r'///\s*Note:\s*([^\r\n]+)').allMatches(prefix);
+    if (noteMatches.isNotEmpty) {
+      return noteMatches.last.group(1)?.trim();
+    }
+    return null;
   }
 
   static String _iconName(IconData? icon, [String? fallback]) {
@@ -532,12 +620,14 @@ class ScreenMaterialCodeUpdater {
         closeParen != -1 ? closeParen + 1 : code.length,
       ]);
 
+      final note = _extractPrecedingNote(code, appBarMatch.start);
       matches.add(_ExtractedSnippet(
         start: appBarMatch.start,
         item: ScreenMaterialItem(
           id: 'appBar_0',
           type: ScreenMaterialType.appBar,
           label: title,
+          note: note,
           leadingIcon: leadingIcon ?? Icons.arrow_back_rounded,
           leadingIconName: leadingName ?? 'arrow_back_rounded',
           actionIcons: actionIcons,
@@ -589,6 +679,7 @@ class ScreenMaterialCodeUpdater {
           label.toLowerCase().contains('password') ||
           (prefixName != null && prefixName.contains('lock'));
 
+      final note = _extractPrecedingNote(code, m.start);
       matches.add(_ExtractedSnippet(
         start: m.start,
         item: ScreenMaterialItem(
@@ -598,6 +689,7 @@ class ScreenMaterialCodeUpdater {
               : ScreenMaterialType.textInput,
           label: label,
           hint: hint,
+          note: note,
           icon: prefixIcon ??
               (isPassword
                   ? Icons.lock_outline_rounded
@@ -657,12 +749,14 @@ class ScreenMaterialCodeUpdater {
         matType = ScreenMaterialType.secondaryButton;
       }
 
+      final note = _extractPrecedingNote(code, m.start);
       matches.add(_ExtractedSnippet(
         start: m.start,
         item: ScreenMaterialItem(
           id: '${matType.name}_${matches.length}',
           type: matType,
           label: label,
+          note: note,
           icon: icon,
           iconName: iconName,
         ),
@@ -689,12 +783,14 @@ class ScreenMaterialCodeUpdater {
         label = labelMatch.group(1) ?? labelMatch.group(2) ?? label;
       }
 
+      final note = _extractPrecedingNote(code, m.start);
       matches.add(_ExtractedSnippet(
         start: m.start,
         item: ScreenMaterialItem(
           id: 'switchTile_${matches.length}',
           type: ScreenMaterialType.switchTile,
           label: label,
+          note: note,
           initialValue: true,
         ),
       ));
@@ -720,12 +816,14 @@ class ScreenMaterialCodeUpdater {
         label = labelMatch.group(1) ?? labelMatch.group(2) ?? label;
       }
 
+      final note = _extractPrecedingNote(code, m.start);
       matches.add(_ExtractedSnippet(
         start: m.start,
         item: ScreenMaterialItem(
           id: 'checkboxTile_${matches.length}',
           type: ScreenMaterialType.checkboxTile,
           label: label,
+          note: note,
           initialValue: true,
         ),
       ));
@@ -756,12 +854,14 @@ class ScreenMaterialCodeUpdater {
         label = textMatch.group(1) ?? textMatch.group(2) ?? label;
       }
 
+      final note = _extractPrecedingNote(code, m.start);
       matches.add(_ExtractedSnippet(
         start: m.start,
         item: ScreenMaterialItem(
           id: 'containerCard_${matches.length}',
           type: ScreenMaterialType.containerCard,
           label: label,
+          note: note,
         ),
       ));
     }
@@ -772,12 +872,14 @@ class ScreenMaterialCodeUpdater {
     for (final m in iconMatches) {
       if (_isRangeConsumed(m.start, consumedRanges)) continue;
       final iconName = m.group(1)!;
+      final note = _extractPrecedingNote(code, m.start);
       matches.add(_ExtractedSnippet(
         start: m.start,
         item: ScreenMaterialItem(
           id: 'icon_${matches.length}',
           type: ScreenMaterialType.icon,
           label: 'Ícone ${iconName.replaceAll('_', ' ')}',
+          note: note,
           icon: _resolveIcon(iconName),
           iconName: iconName,
         ),
@@ -805,6 +907,7 @@ class ScreenMaterialCodeUpdater {
 
       final isHeader = isLarge || isBold;
 
+      final note = _extractPrecedingNote(code, m.start);
       matches.add(_ExtractedSnippet(
         start: m.start,
         item: ScreenMaterialItem(
@@ -813,6 +916,7 @@ class ScreenMaterialCodeUpdater {
               ? ScreenMaterialType.headerText
               : ScreenMaterialType.subtitleText,
           label: text,
+          note: note,
         ),
       ));
     }
@@ -856,8 +960,11 @@ class ScreenMaterialCodeUpdater {
       bodyWidgetsCode.add(_generateMaterialWidgetCode(item));
     }
 
+    final appBarNote = (appBarItem?.note != null && appBarItem!.note!.trim().isNotEmpty)
+        ? '/// Note: ${appBarItem.note!.trim().replaceAll(RegExp(r'[\r\n]+'), ' ')}\n      '
+        : '';
     final appBarSection = appBarItem != null
-        ? '''appBar: AppBar(
+        ? '''${appBarNote}appBar: AppBar(
         title: const Text(
           '${_escape(appBarItem.label)}',
           style: TextStyle(
@@ -938,11 +1045,14 @@ class _${screenClassName}State extends State<$screenClassName> {
   }
 
   static String _generateMaterialWidgetCode(ScreenMaterialItem item) {
+    final noteComment = (item.note != null && item.note!.trim().isNotEmpty)
+        ? '/// Note: ${item.note!.trim().replaceAll(RegExp(r'[\r\n]+'), ' ')}\n              '
+        : '';
     switch (item.type) {
       case ScreenMaterialType.appBar:
         return '';
       case ScreenMaterialType.headerText:
-        return '''Text(
+        return '''${noteComment}Text(
                 '${_escape(item.label)}',
                 style: const TextStyle(
                   color: AppColors.textPrimary,
@@ -952,7 +1062,7 @@ class _${screenClassName}State extends State<$screenClassName> {
               ),
               const SizedBox(height: 12),''';
       case ScreenMaterialType.subtitleText:
-        return '''Text(
+        return '''${noteComment}Text(
                 '${_escape(item.label)}',
                 style: const TextStyle(
                   color: AppColors.textSecondary,
@@ -964,7 +1074,7 @@ class _${screenClassName}State extends State<$screenClassName> {
         final iconSnippet = item.icon != null
             ? "prefixIcon: const Icon(Icons.${_iconName(item.icon, item.iconName)}),"
             : "";
-        return '''TextField(
+        return '''${noteComment}TextField(
                 controller: _textController,
                 decoration: InputDecoration(
                   labelText: '${_escape(item.label)}',
@@ -980,7 +1090,7 @@ class _${screenClassName}State extends State<$screenClassName> {
               ),
               const SizedBox(height: 16),''';
       case ScreenMaterialType.passwordInput:
-        return '''TextField(
+        return '''${noteComment}TextField(
                 obscureText: _obscurePassword,
                 decoration: InputDecoration(
                   labelText: '${_escape(item.label)}',
@@ -1004,7 +1114,7 @@ class _${screenClassName}State extends State<$screenClassName> {
         final childSnippet = item.icon != null
             ? "Row(mainAxisAlignment: MainAxisAlignment.center, children: const [Icon(Icons.$iconName), SizedBox(width: 8), Text('${_escape(item.label)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))])"
             : "const Text('${_escape(item.label)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))";
-        return '''ElevatedButton(
+        return '''${noteComment}ElevatedButton(
                 onPressed: () {},
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
@@ -1016,7 +1126,7 @@ class _${screenClassName}State extends State<$screenClassName> {
               ),
               const SizedBox(height: 16),''';
       case ScreenMaterialType.secondaryButton:
-        return '''OutlinedButton(
+        return '''${noteComment}OutlinedButton(
                 onPressed: () {},
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.textPrimary,
@@ -1030,7 +1140,7 @@ class _${screenClassName}State extends State<$screenClassName> {
       case ScreenMaterialType.socialButton:
         final iconName =
             _iconName(item.icon, item.iconName ?? 'g_mobiledata_rounded');
-        return '''OutlinedButton.icon(
+        return '''${noteComment}OutlinedButton.icon(
                 onPressed: () {},
                 icon: const Icon(Icons.$iconName, size: 24, color: AppColors.textPrimary),
                 label: const Text('${_escape(item.label)}', style: TextStyle(color: AppColors.textPrimary, fontSize: 15)),
@@ -1043,7 +1153,7 @@ class _${screenClassName}State extends State<$screenClassName> {
               ),
               const SizedBox(height: 16),''';
       case ScreenMaterialType.containerCard:
-        return '''Container(
+        return '''${noteComment}Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: AppColors.surfaceCard,
@@ -1072,7 +1182,7 @@ class _${screenClassName}State extends State<$screenClassName> {
               const SizedBox(height: 16),''';
       case ScreenMaterialType.icon:
         final iconName = _iconName(item.icon, item.iconName ?? 'stars_rounded');
-        return '''Center(
+        return '''${noteComment}Center(
                 child: Icon(
                   Icons.$iconName,
                   size: 48,
@@ -1081,7 +1191,7 @@ class _${screenClassName}State extends State<$screenClassName> {
               ),
               const SizedBox(height: 16),''';
       case ScreenMaterialType.switchTile:
-        return '''SwitchListTile(
+        return '''${noteComment}SwitchListTile(
                 title: const Text(
                   '${_escape(item.label)}',
                   style: TextStyle(color: AppColors.textPrimary, fontSize: 15),
@@ -1093,7 +1203,7 @@ class _${screenClassName}State extends State<$screenClassName> {
               ),
               const SizedBox(height: 12),''';
       case ScreenMaterialType.checkboxTile:
-        return '''CheckboxListTile(
+        return '''${noteComment}CheckboxListTile(
                 title: const Text(
                   '${_escape(item.label)}',
                   style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
@@ -1236,6 +1346,38 @@ class _${screenClassName}State extends State<$screenClassName> {
     );
   }
 
+  /// Updates or clears the behavioral note for a material item in the screen code.
+  static String updateMaterialNoteInCode({
+    required String currentCode,
+    required String materialId,
+    required String? note,
+    String? screenClassName,
+    String? routePath,
+    String? routeTitle,
+    bool isProtected = false,
+  }) {
+    final materials = List<ScreenMaterialItem>.from(
+      extractMaterialsFromCode(currentCode, routeTitle),
+    );
+
+    final idx = materials.indexWhere((m) => m.id == materialId);
+    if (idx != -1) {
+      materials[idx] = materials[idx].copyWith(note: note);
+    } else {
+      final intIndex = int.tryParse(materialId);
+      if (intIndex != null && intIndex >= 0 && intIndex < materials.length) {
+        materials[intIndex] = materials[intIndex].copyWith(note: note);
+      }
+    }
+
+    return buildDartCodeFromMaterials(
+      screenClassName: screenClassName ?? _detectClassName(currentCode),
+      routePath: routePath ?? _detectRoutePath(currentCode),
+      materials: materials,
+      isProtected: isProtected || _detectProtected(currentCode),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // 4. AI PROMPT GENERATOR
   // ---------------------------------------------------------------------------
@@ -1244,8 +1386,10 @@ class _${screenClassName}State extends State<$screenClassName> {
   /// to organize and elevate the user-assembled visual materials into production code.
   static String generateAiEnhancePrompt(
     RouteNode node,
-    List<ScreenMaterialItem> materials,
-  ) {
+    List<ScreenMaterialItem> materials, {
+    List<RouteNode>? existingRoutes,
+    PresetType? preset,
+  }) {
     final buffer = StringBuffer();
     buffer.writeln(
       'Crie uma tela Flutter profissional e completa para a rota "${node.path}" (${node.title}).',
@@ -1253,6 +1397,9 @@ class _${screenClassName}State extends State<$screenClassName> {
     buffer.writeln(
       'Descrição do fluxo: ${node.subtitle.isNotEmpty ? node.subtitle : "Fluxo principal da aplicação"}.',
     );
+    if (preset != null) {
+      buffer.writeln('Preset de Arquitetura: ${preset.name} (${preset.tagline}).');
+    }
     if (node.isProtected) {
       buffer.writeln('Esta rota é protegida por autenticação (AuthGuard ativado).');
     }
@@ -1260,6 +1407,18 @@ class _${screenClassName}State extends State<$screenClassName> {
       final perms = node.requiredPermissions.map((p) => p.name).join(', ');
       buffer.writeln('Permissões de hardware necessárias: $perms.');
     }
+
+    if (existingRoutes != null && existingRoutes.isNotEmpty) {
+      buffer.writeln('\n### App Navigation Graph & Available Routes:');
+      buffer.writeln(
+        'A aplicação possui as seguintes rotas cadastradas. Use context.go() ou context.push() para navegar entre elas quando apropriado:',
+      );
+      for (final r in existingRoutes) {
+        final protectedFlag = r.isProtected ? ' [Protegida]' : '';
+        buffer.writeln('- ${r.title} ("${r.path}")$protectedFlag: ${r.subtitle.isNotEmpty ? r.subtitle : "Tela do app"}');
+      }
+    }
+
     buffer.writeln(
       '\nA tela deve conter e organizar harmonicamente os seguintes materiais e componentes definidos pelo usuário:',
     );
@@ -1272,67 +1431,82 @@ class _${screenClassName}State extends State<$screenClassName> {
       for (int i = 0; i < materials.length; i++) {
         final item = materials[i];
         final num = i + 1;
+        final noteSuffix = (item.note != null && item.note!.trim().isNotEmpty)
+            ? ' (Nota do Usuário: "${item.note!.trim()}")'
+            : '';
         switch (item.type) {
           case ScreenMaterialType.appBar:
             buffer.writeln(
-              '$num. Barra Superior (AppBar): Título "${item.label}" com botão de retorno e ações.',
+              '$num. Barra Superior (AppBar): Título "${item.label}" com botão de retorno e ações.$noteSuffix',
             );
             break;
           case ScreenMaterialType.headerText:
             buffer.writeln(
-              '$num. Título de Destaque (Header): "${item.label}" com tipografia proeminente.',
+              '$num. Título de Destaque (Header): "${item.label}" com tipografia proeminente.$noteSuffix',
             );
             break;
           case ScreenMaterialType.subtitleText:
             buffer.writeln(
-              '$num. Subtítulo: "${item.label}" com estilo atenuado.',
+              '$num. Subtítulo: "${item.label}" com estilo atenuado.$noteSuffix',
             );
             break;
           case ScreenMaterialType.textInput:
             buffer.writeln(
-              '$num. Campo de Texto: Label "${item.label}"${item.hint != null ? ', placeholder "${item.hint}"' : ''}.',
+              '$num. Campo de Texto: Label "${item.label}"${item.hint != null ? ', placeholder "${item.hint}"' : ''}.$noteSuffix',
             );
             break;
           case ScreenMaterialType.passwordInput:
             buffer.writeln(
-              '$num. Campo de Senha: Label "${item.label}" com ocultação de caracteres e botão de alternar visibilidade.',
+              '$num. Campo de Senha: Label "${item.label}" com ocultação de caracteres e botão de alternar visibilidade.$noteSuffix',
             );
             break;
           case ScreenMaterialType.primaryButton:
             buffer.writeln(
-              '$num. Botão Primário: "${item.label}" como chamada principal para ação.',
+              '$num. Botão Primário: "${item.label}" como chamada principal para ação.$noteSuffix',
             );
             break;
           case ScreenMaterialType.secondaryButton:
             buffer.writeln(
-              '$num. Botão Secundário: "${item.label}" em estilo outlined/texto.',
+              '$num. Botão Secundário: "${item.label}" em estilo outlined/texto.$noteSuffix',
             );
             break;
           case ScreenMaterialType.socialButton:
             buffer.writeln(
-              '$num. Botão Social: "${item.label}" para login rápido.',
+              '$num. Botão Social: "${item.label}" para login rápido.$noteSuffix',
             );
             break;
           case ScreenMaterialType.containerCard:
             buffer.writeln(
-              '$num. Glass Container Card: Card "${item.label}" com bordas arredondadas e efeito translúcido.',
+              '$num. Glass Container Card: Card "${item.label}" com bordas arredondadas e efeito translúcido.$noteSuffix',
             );
             break;
           case ScreenMaterialType.icon:
             buffer.writeln(
-              '$num. Ícone Ilustrativo: Ícone de destaque.',
+              '$num. Ícone Ilustrativo: Ícone de destaque.$noteSuffix',
             );
             break;
           case ScreenMaterialType.switchTile:
             buffer.writeln(
-              '$num. Interruptor (Switch): Toggle para "${item.label}".',
+              '$num. Interruptor (Switch): Toggle para "${item.label}".$noteSuffix',
             );
             break;
           case ScreenMaterialType.checkboxTile:
             buffer.writeln(
-              '$num. Termos/Confirmação (Checkbox): Checkbox para "${item.label}".',
+              '$num. Termos/Confirmação (Checkbox): Checkbox para "${item.label}".$noteSuffix',
             );
             break;
+        }
+      }
+
+      final notedItems = materials
+          .where((m) => m.note != null && m.note!.trim().isNotEmpty)
+          .toList();
+      if (notedItems.isNotEmpty) {
+        buffer.writeln('\n### User Component Notes & Behavioral Prompts:');
+        for (final item in notedItems) {
+          buffer.writeln(
+            "- Component: ${item.displayName} -> User Note: '${item.note!.trim()}'",
+          );
         }
       }
     }
@@ -1347,6 +1521,61 @@ class _${screenClassName}State extends State<$screenClassName> {
     buffer.writeln(
       '- Garanta responsividade e suporte a rolagem (SingleChildScrollView) para evitar RenderFlex overflow.',
     );
+    if (existingRoutes != null && existingRoutes.isNotEmpty) {
+      buffer.writeln(
+        '- Conecte botões e ações de navegação às rotas reais do projeto usando GoRouter (ex: context.go(\'...\') ou context.push(\'...\')).',
+      );
+    }
+
+    return buffer.toString();
+  }
+
+  /// Generates a focused prompt to generate or refine ONLY a specific widget
+  /// with reactive state, clean styling, and user behavioral instructions.
+  static String generateWidgetSpecificPrompt(
+    ScreenMaterialItem material, {
+    RouteNode? routeNode,
+    List<RouteNode>? existingRoutes,
+    PresetType? preset,
+  }) {
+    final buffer = StringBuffer();
+    buffer.writeln(
+      'Gere um widget Flutter completo, reativo e elegante para o componente "${material.label}" (${material.type.displayName}).',
+    );
+    if (routeNode != null) {
+      buffer.writeln(
+        'Contexto da Tela: Rota "${routeNode.path}" (${routeNode.title}) - ${routeNode.subtitle}.',
+      );
+    }
+    if (preset != null) {
+      buffer.writeln('Arquitetura do Projeto: ${preset.name} (${preset.tagline}).');
+    }
+
+    if (material.note != null && material.note!.trim().isNotEmpty) {
+      buffer.writeln('\n### Instrução Comportamental do Usuário (Nota Específica):');
+      buffer.writeln('"${material.note!.trim()}"');
+      buffer.writeln(
+        'Implemente rigorosamente o comportamento, interatividade e animações descritos nesta instrução.',
+      );
+    }
+
+    if (existingRoutes != null && existingRoutes.isNotEmpty) {
+      buffer.writeln('\n### Rotas do App Disponíveis para Ações de Navegação:');
+      for (final r in existingRoutes) {
+        buffer.writeln('- ${r.title}: "${r.path}"');
+      }
+    }
+
+    buffer.writeln('\nRequisitos do Widget:');
+    buffer.writeln(
+      '- Estilo visual: Obsidian Glass Design System (fundo escuro, bordas translúcidas, cores AppColors).',
+    );
+    buffer.writeln(
+      '- Reatividade: Gerencie estado interno (StatefulWidget) se houver interatividade (hover, toggle, validação, loading).',
+    );
+    buffer.writeln(
+      '- Auto-contido: Deve ser um widget pronto para ser embutido ou utilizado como componente reutilizável.',
+    );
 
     return buffer.toString();
   }
@@ -1354,6 +1583,9 @@ class _${screenClassName}State extends State<$screenClassName> {
 
 /// Compatibility alias allowing consumers and tests to import `ScreenMaterialParser`.
 class ScreenMaterialParser {
+  static IconData resolveIcon(String name) =>
+      ScreenMaterialCodeUpdater.resolveIcon(name);
+
   static List<ScreenMaterialItem> extractMaterialsFromCode(
     String code, [
     String? routeTitle,
@@ -1386,6 +1618,25 @@ class ScreenMaterialParser {
         currentCode: currentCode,
         newMaterial: newMaterial,
         index: index,
+        screenClassName: screenClassName,
+        routePath: routePath,
+        routeTitle: routeTitle,
+        isProtected: isProtected,
+      );
+
+  static String updateMaterialNoteInCode({
+    required String currentCode,
+    required String materialId,
+    required String? note,
+    String? screenClassName,
+    String? routePath,
+    String? routeTitle,
+    bool isProtected = false,
+  }) =>
+      ScreenMaterialCodeUpdater.updateMaterialNoteInCode(
+        currentCode: currentCode,
+        materialId: materialId,
+        note: note,
         screenClassName: screenClassName,
         routePath: routePath,
         routeTitle: routeTitle,
@@ -1447,9 +1698,29 @@ class ScreenMaterialParser {
 
   static String generateAiEnhancePrompt(
     RouteNode node,
-    List<ScreenMaterialItem> materials,
-  ) =>
-      ScreenMaterialCodeUpdater.generateAiEnhancePrompt(node, materials);
+    List<ScreenMaterialItem> materials, {
+    List<RouteNode>? existingRoutes,
+    PresetType? preset,
+  }) =>
+      ScreenMaterialCodeUpdater.generateAiEnhancePrompt(
+        node,
+        materials,
+        existingRoutes: existingRoutes,
+        preset: preset,
+      );
+
+  static String generateWidgetSpecificPrompt(
+    ScreenMaterialItem material, {
+    RouteNode? routeNode,
+    List<RouteNode>? existingRoutes,
+    PresetType? preset,
+  }) =>
+      ScreenMaterialCodeUpdater.generateWidgetSpecificPrompt(
+        material,
+        routeNode: routeNode,
+        existingRoutes: existingRoutes,
+        preset: preset,
+      );
 }
 
 class _ExtractedSnippet {

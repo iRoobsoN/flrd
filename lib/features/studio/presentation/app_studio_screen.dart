@@ -1260,6 +1260,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
             project: widget.project,
             currentCode: _currentCode ?? '',
             onCodeChanged: _onCodeViewerChanged,
+            existingRoutes: ref.read(studioProvider).nodes,
           ),
 
           const SizedBox(height: 20),

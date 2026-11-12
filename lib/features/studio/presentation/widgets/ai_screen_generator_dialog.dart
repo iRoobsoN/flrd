@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../ai/providers/ai_settings_provider.dart';
 import '../../../ai/services/gemini_ai_service.dart';
+import '../../../auth/providers/auth_provider.dart';
 import '../../../projects/models/registered_project.dart';
+import '../../../settings/presentation/settings_and_billing_dialog.dart';
+import '../../domain/screen_material.dart';
 import '../../models/route_node.dart';
 import '../../providers/studio_provider.dart';
 
@@ -12,6 +15,7 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
   final String? initialPrompt;
   final String? initialRoutePath;
   final String? initialScreenTitle;
+  final ScreenMaterialItem? targetMaterial;
 
   const AiScreenGeneratorDialog({
     super.key,
@@ -19,6 +23,7 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
     this.initialPrompt,
     this.initialRoutePath,
     this.initialScreenTitle,
+    this.targetMaterial,
   });
 
   static Future<void> show(
@@ -27,6 +32,7 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
     String? initialPrompt,
     String? initialRoutePath,
     String? initialScreenTitle,
+    ScreenMaterialItem? targetMaterial,
   }) {
     return showDialog(
       context: context,
@@ -35,6 +41,7 @@ class AiScreenGeneratorDialog extends ConsumerStatefulWidget {
         initialPrompt: initialPrompt,
         initialRoutePath: initialRoutePath,
         initialScreenTitle: initialScreenTitle,
+        targetMaterial: targetMaterial,
       ),
     );
   }
@@ -58,16 +65,36 @@ class _AiScreenGeneratorDialogState
   @override
   void initState() {
     super.initState();
+    final defaultPath = widget.targetMaterial != null
+        ? '/components/${widget.targetMaterial!.type.name}'
+        : '/checkout/payment';
+    final defaultTitle = widget.targetMaterial != null
+        ? '${widget.targetMaterial!.displayName.replaceAll(RegExp(r'\s+'), '')}Widget'
+        : 'PaymentScreen';
+
     _pathController = TextEditingController(
-      text: widget.initialRoutePath ?? '/checkout/payment',
+      text: widget.initialRoutePath ?? defaultPath,
     );
     _titleController = TextEditingController(
-      text: widget.initialScreenTitle ?? 'PaymentScreen',
+      text: widget.initialScreenTitle ?? defaultTitle,
     );
-    _promptController = TextEditingController(
-      text: widget.initialPrompt ??
-          'Tela de checkout e pagamento com seleção de Pix, Cartão de Crédito e resumo de pedido com gradiente Obsidian.',
-    );
+
+    final existingNodes = ref.read(studioProvider).nodes;
+    String promptText = widget.initialPrompt ?? '';
+    if (promptText.isEmpty) {
+      if (widget.targetMaterial != null) {
+        promptText = ScreenMaterialCodeUpdater.generateWidgetSpecificPrompt(
+          widget.targetMaterial!,
+          existingRoutes: existingNodes,
+          preset: widget.project.preset,
+        );
+      } else {
+        promptText =
+            'Tela de checkout e pagamento com seleção de Pix, Cartão de Crédito e resumo de pedido com gradiente Obsidian.';
+      }
+    }
+
+    _promptController = TextEditingController(text: promptText);
     final initialKey = ref.read(aiSettingsProvider).apiKey ?? '';
     _apiKeyController = TextEditingController(text: initialKey);
   }
@@ -85,8 +112,15 @@ class _AiScreenGeneratorDialogState
     setState(() => _isGenerating = true);
 
     try {
+      // 1. Credit Deduction when generating with FLRD Pro Cloud (_selectedMode == 0)
+      if (_selectedMode == 0) {
+        await ref.read(authProvider.notifier).consumeAiCredit();
+      }
+
       final cleanTitle = _titleController.text.trim().isEmpty
-          ? 'GeneratedScreen'
+          ? (widget.targetMaterial != null
+              ? '${widget.targetMaterial!.displayName.replaceAll(RegExp(r'\s+'), '')}Widget'
+              : 'GeneratedScreen')
           : _titleController.text.trim();
 
       final aiSettings = ref.read(aiSettingsProvider);
@@ -101,19 +135,23 @@ class _AiScreenGeneratorDialogState
         ref.read(aiSettingsProvider.notifier).setApiKey(_apiKeyController.text.trim());
       }
 
-      // 1. Generate code and write physical file via GeminiAiService
+      // 2. Read existing project routes for app navigation context
+      final existingNodes = ref.read(studioProvider).nodes;
+
+      // 3. Generate code and write physical file via GeminiAiService
       final result = await GeminiAiService.generateScreen(
         projectPath: widget.project.path,
         screenClassName: cleanTitle,
         routePath: _pathController.text.trim(),
         prompt: _promptController.text.trim(),
         preset: widget.project.preset,
+        existingRoutes: existingNodes,
         apiKey: activeApiKey,
       );
 
       if (!mounted) return;
 
-      // 2. Inject RouteNode into Flowchart
+      // 4. Inject RouteNode into Flowchart
       final studio = ref.read(studioProvider.notifier);
       final currentNodes = ref.read(studioProvider).nodes;
 
@@ -135,8 +173,12 @@ class _AiScreenGeneratorDialogState
       studio.addRouteNode(
         path: _pathController.text.trim(),
         title: cleanTitle,
-        subtitle: _promptController.text.trim(),
-        icon: Icons.auto_awesome_rounded,
+        subtitle: widget.targetMaterial != null
+            ? 'Widget Refinado: ${widget.targetMaterial!.displayName}'
+            : _promptController.text.trim(),
+        icon: widget.targetMaterial != null
+            ? (widget.targetMaterial!.icon ?? Icons.widgets_rounded)
+            : Icons.auto_awesome_rounded,
         isProtected: true,
         isAIGenerated: true,
         position: newPos,
@@ -153,7 +195,11 @@ class _AiScreenGeneratorDialogState
               const Icon(Icons.check_circle_rounded, color: AppColors.success),
               const SizedBox(width: 10),
               Expanded(
-                child: Text('Tela "$cleanTitle" gerada via IA e injetada no Fluxograma! (${result.filePath})'),
+                child: Text(
+                  widget.targetMaterial != null
+                      ? 'Widget "${widget.targetMaterial!.displayName}" refinado com IA e injetado com sucesso! (${result.filePath})'
+                      : 'Tela "$cleanTitle" gerada via IA e injetada no Fluxograma! (${result.filePath})',
+                ),
               ),
             ],
           ),
@@ -184,6 +230,43 @@ class _AiScreenGeneratorDialogState
   @override
   Widget build(BuildContext context) {
     final nodes = ref.watch(studioProvider).nodes;
+    final auth = ref.watch(authProvider);
+    final aiSettings = ref.watch(aiSettingsProvider);
+
+    // Current Plan badge
+    final String planBadge;
+    final Color planColor;
+    if (auth.isAuthenticated && auth.user != null) {
+      planBadge = auth.user!.subscriptionTier.badgeLabel;
+      planColor = auth.user!.isPro ? AppColors.secondary : AppColors.primary;
+    } else if (aiSettings.isProActive) {
+      planBadge = aiSettings.selectedPlan == 'starter'
+          ? '⚡ FLRD Starter'
+          : '⭐ FLRD Studio Pro';
+      planColor = AppColors.secondary;
+    } else {
+      planBadge = '🌱 Community Free';
+      planColor = AppColors.textMuted;
+    }
+
+    // Credits counter
+    final String creditsText;
+    if (_selectedMode == 1) {
+      creditsText = 'Cota Ilimitada / BYOK Livre';
+    } else {
+      if (auth.user != null) {
+        creditsText =
+            '⚡ ${auth.creditsRemaining} / ${auth.creditsTotal} Créditos Disponíveis';
+      } else if (aiSettings.isProActive) {
+        creditsText = '⚡ 185 / 200 Créditos Disponíveis';
+      } else {
+        creditsText = '⚡ ${auth.creditsRemaining} / 10 Créditos Disponíveis';
+      }
+    }
+
+    final effectiveParentId = nodes.any((n) => n.id == _parentRouteId)
+        ? _parentRouteId
+        : (nodes.isNotEmpty ? nodes.first.id : null);
 
     return AlertDialog(
       backgroundColor: AppColors.backgroundSecondary,
@@ -199,32 +282,40 @@ class _AiScreenGeneratorDialogState
               color: AppColors.secondary.withOpacity(0.15),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
-              Icons.auto_awesome_rounded,
+            child: Icon(
+              widget.targetMaterial != null
+                  ? (widget.targetMaterial!.icon ?? Icons.widgets_rounded)
+                  : Icons.auto_awesome_rounded,
               color: AppColors.secondary,
               size: 20,
             ),
           ),
           const SizedBox(width: 12),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Gerador de Telas com IA',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.targetMaterial != null
+                      ? 'Refinar Widget com IA: ${widget.targetMaterial!.displayName}'
+                      : 'Gerador de Telas com IA',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              Text(
-                'FLRD AI Screen Studio • Clean Architecture Output',
-                style: TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 11,
+                Text(
+                  widget.targetMaterial != null
+                      ? 'FLRD Widget Studio • Refinamento Focado de Componente'
+                      : 'FLRD AI Screen Studio • Clean Architecture Output',
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 11,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -234,6 +325,84 @@ class _AiScreenGeneratorDialogState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 1. Subscription Plan & AI Credits Header Bar
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceCard,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Plan Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: planColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: planColor.withOpacity(0.35)),
+                          ),
+                          child: Text(
+                            planBadge,
+                            style: TextStyle(
+                              color: planColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        // Manage Plan Link
+                        InkWell(
+                          key: const Key('manage_plan_button'),
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: () {
+                            SettingsAndBillingDialog.show(context, initialTabIndex: 1);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.secondary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: AppColors.secondary.withOpacity(0.3)),
+                            ),
+                            child: const Text(
+                              '⚡ Gerenciar Plano / Inscrição',
+                              style: TextStyle(
+                                color: AppColors.secondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Credits Counter
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            creditsText,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
               // Architecture Context Pill
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -255,7 +424,9 @@ class _AiScreenGeneratorDialogState
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Project Context: ${widget.project.preset.name.toUpperCase()} • Riverpod & Tokens',
+                        widget.targetMaterial != null
+                            ? 'Widget Focus: ${widget.targetMaterial!.displayName} (${widget.targetMaterial!.type.shortChipLabel}) • Riverpod & Tokens'
+                            : 'Project Context: ${widget.project.preset.name.toUpperCase()} • Riverpod & Tokens',
                         style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 11,
@@ -317,9 +488,11 @@ class _AiScreenGeneratorDialogState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Nome da Classe Widget',
-                          style: TextStyle(
+                        Text(
+                          widget.targetMaterial != null
+                              ? 'Nome da Classe do Widget'
+                              : 'Nome da Classe Widget',
+                          style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -333,7 +506,9 @@ class _AiScreenGeneratorDialogState
                             color: AppColors.textPrimary,
                           ),
                           decoration: InputDecoration(
-                            hintText: 'PaymentScreen',
+                            hintText: widget.targetMaterial != null
+                                ? 'MyCustomWidget'
+                                : 'PaymentScreen',
                             hintStyle:
                                 const TextStyle(color: AppColors.textMuted),
                             filled: true,
@@ -375,19 +550,26 @@ class _AiScreenGeneratorDialogState
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _parentRouteId,
+                    value: effectiveParentId,
                     dropdownColor: AppColors.surface,
                     isExpanded: true,
                     style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 12,
                     ),
-                    items: nodes.map((node) {
-                      return DropdownMenuItem<String>(
-                        value: node.id,
-                        child: Text('${node.title} (${node.path})'),
-                      );
-                    }).toList(),
+                    items: nodes.isEmpty
+                        ? [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text('Nenhuma rota existente'),
+                            )
+                          ]
+                        : nodes.map((node) {
+                            return DropdownMenuItem<String>(
+                              value: node.id,
+                              child: Text('${node.title} (${node.path})'),
+                            );
+                          }).toList(),
                     onChanged: (val) {
                       if (val != null) setState(() => _parentRouteId = val);
                     },
@@ -397,9 +579,11 @@ class _AiScreenGeneratorDialogState
               const SizedBox(height: 14),
 
               // AI Prompt
-              const Text(
-                'Prompt da Tela (Descreva o que a IA deve gerar)',
-                style: TextStyle(
+              Text(
+                widget.targetMaterial != null
+                    ? 'Prompt do Widget (Instruções detalhadas para a IA)'
+                    : 'Prompt da Tela (Descreva o que a IA deve gerar)',
+                style: const TextStyle(
                   color: AppColors.textPrimary,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -408,13 +592,15 @@ class _AiScreenGeneratorDialogState
               const SizedBox(height: 6),
               TextField(
                 controller: _promptController,
-                maxLines: 3,
+                maxLines: 4,
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppColors.textPrimary,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'Ex: Tela de perfil com avatar, bio e estatísticas',
+                  hintText: widget.targetMaterial != null
+                      ? 'Ex: Botão com estado reativo, borda arredondada e microinterações Obsidian'
+                      : 'Ex: Tela de perfil com avatar, bio e estatísticas',
                   hintStyle: const TextStyle(color: AppColors.textMuted),
                   filled: true,
                   fillColor: AppColors.surfaceCard,
@@ -517,6 +703,7 @@ class _AiScreenGeneratorDialogState
           ),
         ),
         ElevatedButton.icon(
+          key: const Key('generate_screen_button'),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.secondary,
             foregroundColor: AppColors.background,
@@ -537,7 +724,13 @@ class _AiScreenGeneratorDialogState
                 )
               : const Icon(Icons.auto_awesome_rounded, size: 16),
           label: Text(
-            _isGenerating ? 'Gerando com IA...' : 'Gerar e Injetar Tela',
+            _isGenerating
+                ? (widget.targetMaterial != null
+                    ? 'Refinando Widget...'
+                    : 'Gerando com IA...')
+                : (widget.targetMaterial != null
+                    ? '✨ Refinar e Injetar Widget'
+                    : 'Gerar e Injetar Tela'),
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
         ),

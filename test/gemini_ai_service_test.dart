@@ -11,6 +11,8 @@ import 'package:flrd/features/ai/services/gemini_ai_service.dart';
 import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/studio/presentation/widgets/ai_screen_generator_dialog.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
+import 'package:flrd/features/studio/domain/screen_material.dart';
+import 'package:flrd/features/studio/models/route_node.dart';
 
 /// Lightweight custom MockHttpClient that extends [http.BaseClient]
 class MockHttpClient extends http.BaseClient {
@@ -304,6 +306,101 @@ class OrderScreen extends StatelessWidget {
         httpClient: throwingClient,
       );
       expect(networkFailResult.code, contains('class SearchScreen extends StatefulWidget'));
+    });
+
+    test('generateScreen includes existingRoutes in system prompt and fallback comments', () async {
+      final existingRoutes = [
+        const RouteNode(
+          id: 'home',
+          path: '/home',
+          title: 'Início',
+          subtitle: 'Feed inicial',
+          icon: Icons.home,
+          position: Offset.zero,
+          filePath: 'lib/screens/home.dart',
+        ),
+        const RouteNode(
+          id: 'cart',
+          path: '/cart',
+          title: 'Carrinho',
+          subtitle: 'Itens adicionados',
+          icon: Icons.shopping_cart,
+          position: Offset.zero,
+          filePath: 'lib/screens/cart.dart',
+        ),
+      ];
+
+      final result = await GeminiAiService.generateScreen(
+        projectPath: tempDir.path,
+        screenClassName: 'ProductListScreen',
+        routePath: '/products',
+        prompt: 'Lista de produtos com filtros.',
+        preset: PresetType.saas,
+        existingRoutes: existingRoutes,
+      );
+
+      expect(result.code, contains('App Navigation Routes: Início (/home), Carrinho (/cart)'));
+    });
+
+    test('generateWidgetSnippet generates standalone focused widget with fallback and API mock', () async {
+      const material = ScreenMaterialItem(
+        id: 'mat_counter_1',
+        type: ScreenMaterialType.primaryButton,
+        label: 'Contador Animado',
+        note: 'Botão que incrementa contador com efeito haptics',
+      );
+
+      // 1. Offline fallback synthesis
+      final fallbackSnippet = await GeminiAiService.generateWidgetSnippet(
+        material: material,
+        preset: PresetType.saas,
+      );
+
+      expect(fallbackSnippet, contains('class ContadorAnimadoWidget extends StatefulWidget'));
+      expect(fallbackSnippet, contains('User Note: Botão que incrementa contador com efeito haptics'));
+      expect(fallbackSnippet, contains('Obsidian Glass Focused Component'));
+
+      // 2. Gemini API Mock
+      const mockWidgetCode = '''
+import 'package:flutter/material.dart';
+
+class ContadorAnimadoWidget extends StatelessWidget {
+  const ContadorAnimadoWidget({super.key});
+  @override
+  Widget build(BuildContext context) => const ElevatedButton(onPressed: null, child: Text('Mocked Widget'));
+}
+''';
+
+      final mockClient = MockHttpClient((request) async {
+        expect(request.url.toString(), contains('generativelanguage.googleapis.com'));
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(payload['contents'], isNotEmpty);
+
+        return http.Response(
+          jsonEncode({
+            'candidates': [
+              {
+                'content': {
+                  'parts': [
+                    {'text': '```dart\n$mockWidgetCode\n```'}
+                  ]
+                }
+              }
+            ]
+          }),
+          200,
+        );
+      });
+
+      final apiSnippet = await GeminiAiService.generateWidgetSnippet(
+        material: material,
+        preset: PresetType.saas,
+        apiKey: 'test-api-key',
+        httpClient: mockClient,
+      );
+
+      expect(apiSnippet, contains('class ContadorAnimadoWidget extends StatelessWidget'));
+      expect(apiSnippet, contains('Mocked Widget'));
     });
   });
 

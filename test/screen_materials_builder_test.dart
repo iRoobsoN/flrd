@@ -544,6 +544,147 @@ class DashboardScreen extends StatelessWidget {
 
       expect(added, isTrue);
     });
+
+    testWidgets('Adding, editing, and clearing a component note updates UI and code',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      String currentCode = sampleDartCode;
+
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return MaterialApp(
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  child: ScreenMaterialsBuilder(
+                    node: testNode,
+                    project: dummyProject,
+                    currentCode: currentCode,
+                    onCodeChanged: (newCode) => setState(() => currentCode = newCode),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify initial note button exists
+      final noteButton = find.byKey(const ValueKey('material_note_button_0'));
+      expect(noteButton, findsOneWidget);
+
+      // Open note dialog
+      await tester.tap(noteButton);
+      await tester.pumpAndSettle();
+
+      // Verify dialog is shown
+      expect(find.text('Anotação / Prompt do Widget'), findsOneWidget);
+      expect(find.byKey(const ValueKey('material_note_text_field')), findsOneWidget);
+
+      // Enter behavioral prompt
+      await tester.enterText(
+        find.byKey(const ValueKey('material_note_text_field')),
+        'Botão azul com feedback tátil e validação assíncrona',
+      );
+      await tester.pumpAndSettle();
+
+      // Save note
+      await tester.tap(find.byKey(const ValueKey('material_note_dialog_save')));
+      await tester.pumpAndSettle();
+
+      // Note card should now be visible with italic quote
+      expect(find.byKey(const ValueKey('material_note_card_0')), findsOneWidget);
+      expect(
+        find.text('"Botão azul com feedback tátil e validação assíncrona"'),
+        findsOneWidget,
+      );
+
+      // Single-widget AI Refine button should also be visible on annotated card
+      expect(find.byKey(const ValueKey('material_ai_refine_0')), findsOneWidget);
+      expect(find.text('✨ Refinar este Widget com IA'), findsOneWidget);
+
+      // Code should now contain the note comment
+      expect(currentCode, contains('Botão azul com feedback tátil'));
+
+      // Edit the note
+      await tester.tap(find.byKey(const ValueKey('material_note_edit_0')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Anotação / Prompt do Widget'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('material_note_text_field')),
+        'Nota atualizada com animação suave',
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('material_note_dialog_save')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('"Nota atualizada com animação suave"'), findsOneWidget);
+
+      // Clear the note
+      await tester.tap(find.byKey(const ValueKey('material_note_clear_0')));
+      await tester.pumpAndSettle();
+
+      // Note card should be gone, note button should be back
+      expect(find.byKey(const ValueKey('material_note_card_0')), findsNothing);
+      expect(find.byKey(const ValueKey('material_note_button_0')), findsOneWidget);
+    });
+
+    testWidgets('Clicking [✨ Refinar este Widget com IA] triggers focused AiScreenGeneratorDialog',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      String currentCode = sampleDartCode;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ScreenMaterialsBuilder(
+                  node: testNode,
+                  project: dummyProject,
+                  currentCode: currentCode,
+                  onCodeChanged: (newCode) => currentCode = newCode,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Add a note first so the card becomes annotated
+      await tester.tap(find.byKey(const ValueKey('material_note_button_0')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('material_note_text_field')),
+        'Barra de topo transparente com blur glassmorphism',
+      );
+      await tester.tap(find.byKey(const ValueKey('material_note_dialog_save')));
+      await tester.pumpAndSettle();
+
+      // Now tap the [✨ Refinar este Widget com IA] button
+      final refineButton = find.byKey(const ValueKey('material_ai_refine_0'));
+      expect(refineButton, findsOneWidget);
+      await tester.tap(refineButton);
+      await tester.pumpAndSettle();
+
+      // AiScreenGeneratorDialog should open in widget-focused mode
+      expect(find.byType(AiScreenGeneratorDialog), findsOneWidget);
+      expect(find.textContaining('Refinar Widget com IA:'), findsOneWidget);
+      expect(find.text('✨ Refinar e Injetar Widget'), findsOneWidget);
+    });
   });
 
   group('AppStudioScreen Route Details Materials Integration', () {
