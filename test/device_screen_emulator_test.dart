@@ -205,12 +205,13 @@ void main() {
       expect(resetBtn, findsOneWidget);
       await tester.tap(resetBtn);
       await tester.pumpAndSettle();
-      expect(find.text('Welcome back, Alex 👋'), findsOneWidget);
+      expect(find.text('DashboardScreen'), findsWidgets);
+      expect(find.text('LIVE READY'), findsOneWidget);
     });
   });
 
-  group('DeviceScreenEmulator - RouteNode Archetypes', () {
-    testWidgets('ProfileScreen simulation: renders avatar, pro badge, and interactive toggles',
+  group('DeviceScreenEmulator - Pure Live Code Rendering', () {
+    testWidgets('ProfileScreen pure live rendering: parses AppBar, avatar container, and profile labels',
         (tester) async {
       const node = RouteNode(
         id: 'profile',
@@ -222,39 +223,55 @@ void main() {
         filePath: 'lib/profile.dart',
       );
 
-      await tester.pumpWidget(buildTestableWidget(tester, const DeviceScreenEmulator(node: node)));
+      const profileCode = '''
+import 'package:flutter/material.dart';
+
+class ProfileScreen extends StatelessWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Color(0xFF0F172A),
+      appBar: AppBar(
+        title: const Text('My Profile'),
+        backgroundColor: Color(0xFF1E293B),
+      ),
+      body: Center(
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: const [
+              Icon(Icons.account_circle_rounded, size: 48),
+              Text('Alex Morgan'),
+              Text('FLRD PRO TIER'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+''';
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          tester,
+          const DeviceScreenEmulator(node: node, sourceCode: profileCode),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      // Elements of ProfileScreen
+      // Elements parsed from live code
       expect(find.text('My Profile'), findsOneWidget);
       expect(find.text('Alex Morgan'), findsOneWidget);
       expect(find.text('FLRD PRO TIER'), findsOneWidget);
-      expect(find.text('Biometric Authentication'), findsOneWidget);
-      expect(find.text('Push Notifications'), findsOneWidget);
-      expect(find.text('Developer Sandbox Mode'), findsOneWidget);
-      expect(find.text('Auto Cloud Sync'), findsOneWidget);
-      expect(find.text('Clear Cache'), findsOneWidget);
-
-      // Toggle switches
-      final switches = find.byType(Switch);
-      expect(switches, findsNWidgets(4));
-
-      // Tap first switch (Biometrics)
-      await tester.tap(switches.first);
-      await tester.pumpAndSettle();
-
-      // Tap Clear Cache
-      await tester.tap(find.text('Clear Cache'));
-      await tester.pumpAndSettle();
-      expect(find.text('Local Cache: 0 MB'), findsOneWidget);
-
-      // Tap edit profile button
-      await tester.tap(find.byIcon(Icons.edit_note_rounded));
-      await tester.pumpAndSettle();
-      expect(find.text('Alexandra M. Dev'), findsOneWidget);
+      expect(find.byIcon(Icons.account_circle_rounded), findsWidgets);
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
+      expect(find.text('📸 Screenshot'), findsOneWidget);
     });
 
-    testWidgets('AuthScreen simulation: renders Sign In / Register, inputs and submit CTA',
+    testWidgets('AuthScreen pure live rendering: parses inputs and submit CTA',
         (tester) async {
       const node = RouteNode(
         id: 'login',
@@ -266,43 +283,54 @@ void main() {
         filePath: 'lib/login.dart',
       );
 
-      await tester.pumpWidget(buildTestableWidget(tester, const DeviceScreenEmulator(node: node)));
+      const authCode = '''
+import 'package:flutter/material.dart';
+
+class LoginScreen extends StatelessWidget {
+  const LoginScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Color(0xFF0F172A),
+      appBar: AppBar(
+        title: const Text('Welcome Back'),
+        backgroundColor: Color(0xFF1E293B),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const TextField(decoration: InputDecoration(labelText: 'Email Address')),
+            const TextField(decoration: InputDecoration(labelText: 'Password')),
+            ElevatedButton(
+              onPressed: () {},
+              child: const Text('Sign In to Workspace'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+''';
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          tester,
+          const DeviceScreenEmulator(node: node, sourceCode: authCode),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Welcome Back'), findsOneWidget);
-      expect(find.text('Sign In'), findsOneWidget);
-      expect(find.text('Register'), findsOneWidget);
       expect(find.text('Email Address'), findsOneWidget);
       expect(find.text('Password'), findsOneWidget);
-
-      // Password visibility toggle
-      final eyeIcon = find.byIcon(Icons.visibility_rounded);
-      expect(eyeIcon, findsOneWidget);
-      await tester.tap(eyeIcon);
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.visibility_off_rounded), findsOneWidget);
-
-      // Checkbox toggle
-      final checkbox = find.byType(Checkbox);
-      expect(checkbox, findsOneWidget);
-      await tester.tap(checkbox);
-      await tester.pumpAndSettle();
-
-      // Submit sign in
-      await tester.tap(find.text('Sign In to Workspace'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 700));
-
-      expect(find.textContaining('Authenticated as'), findsOneWidget);
-
-      // Switch to Register Tab
-      await tester.tap(find.text('Register'));
-      await tester.pumpAndSettle();
-      expect(find.text('Create Free Account'), findsWidgets);
-      expect(find.text('Full Name'), findsOneWidget);
+      expect(find.text('Sign In to Workspace'), findsOneWidget);
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
     });
 
-    testWidgets('DashboardScreen simulation: renders KPI metrics, filters, and bottom nav',
+    testWidgets('DashboardScreen pure live rendering: parses KPI metrics and actions',
         (tester) async {
       const node = RouteNode(
         id: 'dashboard',
@@ -314,39 +342,53 @@ void main() {
         filePath: 'lib/dashboard.dart',
       );
 
-      await tester.pumpWidget(buildTestableWidget(tester, const DeviceScreenEmulator(node: node)));
+      const dashboardCode = '''
+import 'package:flutter/material.dart';
+
+class DashboardScreen extends StatelessWidget {
+  const DashboardScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Color(0xFF0F172A),
+      appBar: AppBar(
+        title: const Text('Dashboard Analytics'),
+        backgroundColor: Color(0xFF1E293B),
+      ),
+      body: Center(
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: const [
+              Text('Total Revenue'),
+              Text('\$24,850'),
+              Text('Active Users'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+''';
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          tester,
+          const DeviceScreenEmulator(node: node, sourceCode: dashboardCode),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.text('Welcome back, Alex 👋'), findsOneWidget);
+      expect(find.text('Dashboard Analytics'), findsOneWidget);
       expect(find.text('Total Revenue'), findsOneWidget);
       expect(find.text('\$24,850'), findsOneWidget);
       expect(find.text('Active Users'), findsOneWidget);
-      expect(find.text('API Latency'), findsOneWidget);
-      expect(find.text('Error Rate'), findsOneWidget);
-
-      // Filter chips
-      expect(find.text('Today'), findsOneWidget);
-      expect(find.text('7D'), findsOneWidget);
-      expect(find.text('30D'), findsOneWidget);
-      expect(find.text('1Y'), findsOneWidget);
-      await tester.tap(find.text('7D'));
-      await tester.pumpAndSettle();
-
-      // Quick action button
-      await tester.tap(find.text('Deploy Screen'));
-      await tester.pumpAndSettle();
-
-      // Bottom nav bar items
-      expect(find.text('Home'), findsOneWidget);
-      expect(find.text('Explore'), findsOneWidget);
-      expect(find.text('Metrics'), findsOneWidget);
-      expect(find.text('Profile'), findsOneWidget);
-
-      await tester.tap(find.text('Explore'));
-      await tester.pumpAndSettle();
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
     });
 
-    testWidgets('ExploreScreen simulation: search bar, filter chips, and feed cards',
+    testWidgets('ExploreScreen pure live rendering: parses catalog items and cards',
         (tester) async {
       const node = RouteNode(
         id: 'explore',
@@ -358,33 +400,50 @@ void main() {
         filePath: 'lib/explore.dart',
       );
 
-      await tester.pumpWidget(buildTestableWidget(tester, const DeviceScreenEmulator(node: node)));
+      const exploreCode = '''
+import 'package:flutter/material.dart';
+
+class ExploreScreen extends StatelessWidget {
+  const ExploreScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Color(0xFF0F172A),
+      appBar: AppBar(
+        title: const Text('Community Explore'),
+        backgroundColor: Color(0xFF1E293B),
+      ),
+      body: Center(
+        child: Column(
+          children: const [
+            Text('SaaS Dashboard Pro'),
+            Text('Supabase Clean Auth'),
+            Text('Gemini 1.5 Code Copilot'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+''';
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          tester,
+          const DeviceScreenEmulator(node: node, sourceCode: exploreCode),
+        ),
+      );
       await tester.pumpAndSettle();
 
+      expect(find.text('Community Explore'), findsOneWidget);
       expect(find.text('SaaS Dashboard Pro'), findsOneWidget);
       expect(find.text('Supabase Clean Auth'), findsOneWidget);
       expect(find.text('Gemini 1.5 Code Copilot'), findsOneWidget);
-
-      // Search bar interaction
-      await tester.enterText(find.byType(TextField).first, 'Gemini');
-      await tester.pumpAndSettle();
-
-      expect(find.text('Gemini 1.5 Code Copilot'), findsOneWidget);
-      expect(find.text('SaaS Dashboard Pro'), findsNothing);
-
-      // Clear search
-      await tester.tap(find.byIcon(Icons.clear_rounded));
-      await tester.pumpAndSettle();
-      expect(find.text('SaaS Dashboard Pro'), findsOneWidget);
-
-      // Install button toggle
-      final installButton = find.text('Install').first;
-      await tester.tap(installButton);
-      await tester.pumpAndSettle();
-      expect(find.text('Installed'), findsWidgets);
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
     });
 
-    testWidgets('SplashScreen simulation: pulsing logo and AuthGuard pipeline',
+    testWidgets('SplashScreen pure live rendering: parses splash pipeline and logo',
         (tester) async {
       const node = RouteNode(
         id: 'root',
@@ -396,19 +455,48 @@ void main() {
         filePath: 'lib/router.dart',
       );
 
-      await tester.pumpWidget(buildTestableWidget(tester, const DeviceScreenEmulator(node: node)));
-      await tester.pump(const Duration(milliseconds: 200));
+      const splashCode = '''
+import 'package:flutter/material.dart';
+
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Color(0xFF0F172A),
+      appBar: AppBar(
+        title: const Text('FLRD Studio'),
+        backgroundColor: Color(0xFF1E293B),
+      ),
+      body: Center(
+        child: Column(
+          children: const [
+            Text('GoRouter AuthGuard Pipeline'),
+            Text('Simulate Launch Transition'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+''';
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          tester,
+          const DeviceScreenEmulator(node: node, sourceCode: splashCode),
+        ),
+      );
+      await tester.pumpAndSettle();
 
       expect(find.text('FLRD Studio'), findsOneWidget);
       expect(find.text('GoRouter AuthGuard Pipeline'), findsOneWidget);
       expect(find.text('Simulate Launch Transition'), findsOneWidget);
-
-      await tester.tap(find.text('Simulate Launch Transition'));
-      await tester.pumpAndSettle();
-      expect(find.text('Route Guard Approved'), findsOneWidget);
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
     });
 
-    testWidgets('Custom / AI Screen simulation: permissions switches and action dispatcher',
+    testWidgets('Custom / AI Screen pure live rendering: parses hardware permissions and action dispatcher',
         (tester) async {
       const node = RouteNode(
         id: 'custom_camera_screen',
@@ -422,18 +510,50 @@ void main() {
         filePath: 'lib/camera.dart',
       );
 
-      await tester.pumpWidget(buildTestableWidget(tester, const DeviceScreenEmulator(node: node)));
+      const customCode = '''
+import 'package:flutter/material.dart';
+
+class CameraScanScreen extends StatelessWidget {
+  const CameraScanScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Color(0xFF0F172A),
+      appBar: AppBar(
+        title: const Text('CameraScanScreen'),
+        backgroundColor: Color(0xFF1E293B),
+      ),
+      body: Center(
+        child: Column(
+          children: [
+            const Text('AI Screen'),
+            const Text('Camera Live Feed'),
+            ElevatedButton(
+              onPressed: () {},
+              child: const Text('Dispatch Screen Action'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+''';
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          tester,
+          const DeviceScreenEmulator(node: node, sourceCode: customCode),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('CameraScanScreen'), findsOneWidget);
       expect(find.text('AI Screen'), findsOneWidget);
-      expect(find.text('Camera'), findsOneWidget);
+      expect(find.text('Camera Live Feed'), findsOneWidget);
       expect(find.text('Dispatch Screen Action'), findsOneWidget);
-
-      // Dispatch action
-      await tester.tap(find.text('Dispatch Screen Action'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('State updated successfully'), findsOneWidget);
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
     });
 
     testWidgets('DeviceScreenEmulator.showModal opens dialog and dismisses',
@@ -472,9 +592,10 @@ void main() {
 
       expect(find.byType(Dialog), findsOneWidget);
       expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+      expect(find.byKey(const Key('modal_screenshot_button')), findsOneWidget);
 
-      // Close via fullscreen exit icon
-      await tester.tap(find.byIcon(Icons.fullscreen_exit_rounded));
+      // Close via close modal button
+      await tester.tap(find.byTooltip('Close Modal'));
       await tester.pumpAndSettle();
 
       expect(find.byType(Dialog), findsNothing);
@@ -540,12 +661,13 @@ void main() {
         findsOneWidget,
       );
 
-      // In Code Live Sync mode, renders from code; toggle to Archetype Mock renders mock
-      await tester.tap(find.text('🎨 Archetype Mock'));
-      await tester.pumpAndSettle();
+      // Pure Reality: Archetype mock toggle is removed, Screenshot button is present
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
+      expect(find.text('📸 Screenshot'), findsOneWidget);
 
-      // Dashboard archetype inside emulator
-      expect(find.text('Welcome back, Alex 👋'), findsOneWidget);
+      // Selected node is dashboard: renders real route fallback with LIVE READY badge
+      expect(find.text('DashboardScreen'), findsWidgets);
+      expect(find.text('LIVE READY'), findsOneWidget);
 
       // 4. Switch to Tab 1: Code
       await tester.tap(find.text('💻 Code'));
@@ -628,8 +750,9 @@ void main() {
 
       // Live preview pane is anchored on the right showing Profile screen content
       expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
-      expect(find.text('My Profile'), findsOneWidget);
-      expect(find.text('FLRD PRO TIER'), findsOneWidget);
+      expect(find.text('ProfileScreen'), findsWidgets);
+      expect(find.text('/profile'), findsWidgets);
+      expect(find.text('LIVE READY'), findsOneWidget);
 
       // Now select login node
       studioNotifier.selectNode('login');
@@ -637,8 +760,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // Login screen content is now shown
-      expect(find.text('Welcome Back'), findsOneWidget);
-      expect(find.text('Sign In'), findsOneWidget);
+      expect(find.text('LoginScreen'), findsWidgets);
+      expect(find.text('/auth/login'), findsWidgets);
 
       // Now select explore node
       studioNotifier.selectNode('explore');
@@ -646,7 +769,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // Explore screen content is now shown
-      expect(find.text('SaaS Dashboard Pro'), findsOneWidget);
+      expect(find.text('ExploreScreen'), findsWidgets);
+      expect(find.text('/explore'), findsWidgets);
 
       expect(tester.takeException(), isNull);
     });

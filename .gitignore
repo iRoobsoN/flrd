@@ -48,6 +48,7 @@ macos/Flutter/ephemeral/
 linux/flutter/ephemeral/
 
 # Secrets
+screenshots/
 .env
 .env.*
 !.env.example

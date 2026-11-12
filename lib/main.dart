@@ -16,6 +16,10 @@ import 'features/wizard/presentation/wizard_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Performance & Memory Cache Limits (40MB / 80 items max)
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 40 * 1024 * 1024;
+  PaintingBinding.instance.imageCache.maximumSize = 80;
+
   // Desktop Window Setup (Windows, macOS, Linux)
   if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     await windowManager.ensureInitialized();
@@ -34,13 +38,34 @@ void main() async {
       await windowManager.show();
       await windowManager.focus();
     });
+
+    // Global memory cleanup listener on desktop window minimize
+    windowManager.addListener(const WindowMemoryOptimizationListener());
   }
+
+  // Global memory cleanup callback on background / hidden lifecycle
+  AppLifecycleListener(
+    onHide: () {
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    },
+  );
 
   runApp(
     const ProviderScope(
       child: FLRDApp(),
     ),
   );
+}
+
+class WindowMemoryOptimizationListener with WindowListener {
+  const WindowMemoryOptimizationListener();
+
+  @override
+  void onWindowMinimize() {
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+  }
 }
 
 class FLRDApp extends ConsumerWidget {

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -159,9 +160,10 @@ class CheckoutScreen extends StatelessWidget {
       // 3. Matches icon parsed from code
       expect(find.byIcon(Icons.shopping_bag_rounded), findsWidgets);
 
-      // 4. Default toolbar shows [⚡ Code Live Sync] pill active
-      expect(find.text('⚡ Code Live Sync'), findsOneWidget);
-      expect(find.text('🎨 Archetype Mock'), findsOneWidget);
+      // 4. Pure Reality: Archetype mock toggle pill is removed and Screenshot button is present
+      expect(find.text('⚡ Code Live Sync'), findsNothing);
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
+      expect(find.text('📸 Screenshot'), findsOneWidget);
 
       // 5. Does NOT show archetype fallback mock text
       expect(find.text('FLRD Studio'), findsNothing);
@@ -169,7 +171,7 @@ class CheckoutScreen extends StatelessWidget {
     });
 
     testWidgets(
-        'Toggling to [🎨 Archetype Mock] displays archetype mock and toggling back restores live code preview',
+        'Asserts pure Code Live Sync reality and the new [📸 Screenshot] capture button',
         (tester) async {
       await tester.pumpWidget(
         buildTestableWidget(
@@ -182,27 +184,42 @@ class CheckoutScreen extends StatelessWidget {
       );
       await tester.pumpAndSettle();
 
-      // Starts in Code Live Sync
+      // 1. Pure Code Live Sync reality: renders code directly without mock toggle
       expect(find.text('Order Checkout V1'), findsOneWidget);
       expect(find.text('Review your items before paying.'), findsOneWidget);
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
+      expect(find.text('⚡ Code Live Sync'), findsNothing);
 
-      // Tap Archetype Mock toggle
-      await tester.tap(find.text('🎨 Archetype Mock'));
-      await tester.pumpAndSettle();
+      // 2. Toolbar contains [📸 Screenshot] button with screenshot_button key
+      final screenshotBtn = find.byKey(const Key('screenshot_button'));
+      expect(screenshotBtn, findsOneWidget);
+      expect(find.text('📸 Screenshot'), findsOneWidget);
 
-      // Now renders Archetype Mock UI instead of code
-      expect(find.text('Order Checkout V1'), findsNothing);
-      expect(find.text('Review your items before paying.'), findsNothing);
-      // Archetype mock shows route title from RouteNode
-      expect(find.text('Order Checkout'), findsWidgets);
+      // 3. Tapping [📸 Screenshot] triggers capture and saves PNG to screenshots directory
+      await tester.tap(screenshotBtn);
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
-      // Tap back to Code Live Sync
-      await tester.tap(find.text('⚡ Code Live Sync'));
-      await tester.pumpAndSettle();
+      expect(find.textContaining('📸 Screenshot salvo em: screenshots/'), findsOneWidget);
 
-      // Restored live code view!
-      expect(find.text('Order Checkout V1'), findsOneWidget);
-      expect(find.text('Review your items before paying.'), findsOneWidget);
+      // Clean up test file
+      final screenshotsDir = Directory('${Directory.current.path}/screenshots');
+      if (screenshotsDir.existsSync()) {
+        final files = screenshotsDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.contains('checkout'))
+            .toList();
+        for (final f in files) {
+          try {
+            f.deleteSync();
+          } catch (_) {}
+        }
+      }
     });
   });
 

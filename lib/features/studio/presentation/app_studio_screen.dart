@@ -755,56 +755,59 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Flowchart Canvas Area
+            // Flowchart Canvas Area (Isolated with RepaintBoundary)
             if (showCanvas)
               Expanded(
-                child: Stack(
-                children: [
-                  // Zoomable & Pannable Canvas
-                  InteractiveViewer(
-                    transformationController: _transformationController,
-                    panEnabled: !_isDraggingNode,
-                    minScale: 0.1,
-                    maxScale: 2.5,
-                    boundaryMargin: const EdgeInsets.all(5000),
-                    constrained: false,
-                    child: SizedBox(
-                      width: 10000,
-                      height: 6000,
-                      child: Stack(
-                        children: [
-                          // Canvas Paint Layer (Dot-Grid + Curved Arrow Connections)
-                          Positioned.fill(
-                            child: CustomPaint(
-                              painter: RouteConnectorPainter(
-                                nodes: studio.nodes,
-                                selectedNodeId: studio.selectedNodeId,
-                              ),
+                child: RepaintBoundary(
+                  child: Stack(
+                    children: [
+                      // Zoomable & Pannable Canvas (RepaintBoundary isolates zooming/panning/dragging)
+                      RepaintBoundary(
+                        child: InteractiveViewer(
+                          transformationController: _transformationController,
+                          panEnabled: !_isDraggingNode,
+                          minScale: 0.1,
+                          maxScale: 2.5,
+                          boundaryMargin: const EdgeInsets.all(5000),
+                          constrained: false,
+                          child: SizedBox(
+                            width: 10000,
+                            height: 6000,
+                            child: Stack(
+                              children: [
+                                // Canvas Paint Layer (Dot-Grid + Curved Arrow Connections)
+                                Positioned.fill(
+                                  child: CustomPaint(
+                                    painter: RouteConnectorPainter(
+                                      nodes: studio.nodes,
+                                      selectedNodeId: studio.selectedNodeId,
+                                    ),
+                                  ),
+                                ),
+
+                                // Interactive Node Cards
+                                ...studio.nodes.map((node) {
+                                  return Positioned(
+                                    left: node.position.dx,
+                                    top: node.position.dy,
+                                    child: RouteNodeCard(
+                                      node: node,
+                                      isSelected: node.id == studio.selectedNodeId,
+                                      onTap: () => notifier.selectNode(node.id),
+                                      onToggleCollapse: () =>
+                                          notifier.toggleNodeCollapse(node.id),
+                                      onDragStart: _onNodeDragStart,
+                                      onDragUpdate: (delta) =>
+                                          _onNodeDragUpdate(node.id, delta),
+                                      onDragEnd: _onNodeDragEnd,
+                                    ),
+                                  );
+                                }),
+                              ],
                             ),
                           ),
-
-                          // Interactive Node Cards
-                          ...studio.nodes.map((node) {
-                            return Positioned(
-                              left: node.position.dx,
-                              top: node.position.dy,
-                              child: RouteNodeCard(
-                                node: node,
-                                isSelected: node.id == studio.selectedNodeId,
-                                onTap: () => notifier.selectNode(node.id),
-                                onToggleCollapse: () =>
-                                    notifier.toggleNodeCollapse(node.id),
-                                onDragStart: _onNodeDragStart,
-                                onDragUpdate: (delta) =>
-                                    _onNodeDragUpdate(node.id, delta),
-                                onDragEnd: _onNodeDragEnd,
-                              ),
-                            );
-                          }),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
 
                   // Floating Canvas Controls & AI Generator Trigger
                   Positioned(
@@ -919,6 +922,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                 ],
               ),
             ),
+          ),
 
             // Node Inspector Sidebar (When a node is selected)
             if (selectedNode != null)
@@ -928,7 +932,9 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                         decoration: const BoxDecoration(
                           color: AppColors.backgroundSecondary,
                         ),
-                        child: _buildNodeInspector(selectedNode, notifier),
+                        child: RepaintBoundary(
+                          child: _buildNodeInspector(selectedNode, notifier),
+                        ),
                       ),
                     )
                   : Container(
@@ -939,15 +945,19 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                           left: BorderSide(color: AppColors.borderSubtle),
                         ),
                       ),
-                      child: _buildNodeInspector(selectedNode, notifier),
+                      child: RepaintBoundary(
+                        child: _buildNodeInspector(selectedNode, notifier),
+                      ),
                     ),
 
             // Dedicated Right-Anchored Live Preview Pane (when _showLivePreview is true)
             if (_showLivePreview)
-              _buildAnchoredLivePreviewPane(
-                studio: studio,
-                node: selectedNode ?? studio.nodes.firstOrNull,
-                width: previewWidth,
+              RepaintBoundary(
+                child: _buildAnchoredLivePreviewPane(
+                  studio: studio,
+                  node: selectedNode ?? studio.nodes.firstOrNull,
+                  width: previewWidth,
+                ),
               ),
           ],
         );
@@ -964,106 +974,108 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   }
 
   Widget _buildNodeInspector(RouteNode node, StudioNotifier notifier) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(6),
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Icon(node.icon, color: AppColors.primary, size: 16),
                 ),
-                child: Icon(node.icon, color: AppColors.primary, size: 16),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  node.title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              if (_inspectorTabIndex == 1) ...[
-                OutlinedButton.icon(
-                  key: const ValueKey('inspector_toggle_preview_button'),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(
-                      color: _showLivePreview ? AppColors.secondary : AppColors.border,
-                    ),
-                    backgroundColor: _showLivePreview
-                        ? AppColors.secondary.withOpacity(0.12)
-                        : AppColors.surface,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  onPressed: () => setState(() => _showLivePreview = !_showLivePreview),
-                  icon: Icon(
-                    _showLivePreview ? Icons.smartphone_rounded : Icons.smartphone_outlined,
-                    size: 13,
-                    color: _showLivePreview ? AppColors.secondary : AppColors.textSecondary,
-                  ),
-                  label: Text(
-                    _showLivePreview ? 'Hide Preview' : '📱 Live Preview',
-                    style: TextStyle(
-                      color: _showLivePreview ? AppColors.secondary : AppColors.textPrimary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    node.title,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
+                if (_inspectorTabIndex == 1) ...[
+                  OutlinedButton.icon(
+                    key: const ValueKey('inspector_toggle_preview_button'),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                        color: _showLivePreview ? AppColors.secondary : AppColors.border,
+                      ),
+                      backgroundColor: _showLivePreview
+                          ? AppColors.secondary.withOpacity(0.12)
+                          : AppColors.surface,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    onPressed: () => setState(() => _showLivePreview = !_showLivePreview),
+                    icon: Icon(
+                      _showLivePreview ? Icons.smartphone_rounded : Icons.smartphone_outlined,
+                      size: 13,
+                      color: _showLivePreview ? AppColors.secondary : AppColors.textSecondary,
+                    ),
+                    label: Text(
+                      _showLivePreview ? 'Hide Preview' : '📱 Live Preview',
+                      style: TextStyle(
+                        color: _showLivePreview ? AppColors.secondary : AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                if (_isDiagramCollapsed) ...[
+                  OutlinedButton.icon(
+                    key: const ValueKey('inspector_show_diagram_button'),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.primary),
+                      backgroundColor: AppColors.primary.withOpacity(0.12),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    onPressed: () => setState(() => _isDiagramCollapsed = false),
+                    icon: const Icon(Icons.arrow_right_rounded, size: 14, color: AppColors.primary),
+                    label: const Text(
+                      '▶ Show Diagram',
+                      style: TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  color: AppColors.textMuted,
+                  onPressed: () => notifier.selectNode(null),
+                ),
               ],
-              if (_isDiagramCollapsed) ...[
-                OutlinedButton.icon(
-                  key: const ValueKey('inspector_show_diagram_button'),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: AppColors.primary),
-                    backgroundColor: AppColors.primary.withOpacity(0.12),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  onPressed: () => setState(() => _isDiagramCollapsed = false),
-                  icon: const Icon(Icons.arrow_right_rounded, size: 14, color: AppColors.primary),
-                  label: const Text(
-                    '▶ Show Diagram',
-                    style: TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              IconButton(
-                icon: const Icon(Icons.close_rounded, size: 16),
-                color: AppColors.textMuted,
-                onPressed: () => notifier.selectNode(null),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
+            ),
+            const SizedBox(height: 12),
 
-          // Segmented Switcher: [⚙️ Details] vs [💻 Code]
-          _buildInspectorSwitcher(),
-          const SizedBox(height: 14),
+            // Segmented Switcher: [⚙️ Details] vs [💻 Code]
+            _buildInspectorSwitcher(),
+            const SizedBox(height: 14),
 
-          // Inspector Tab Body
-          Expanded(
-            child: _buildInspectorBody(node, notifier),
-          ),
-        ],
+            // Inspector Tab Body
+            Expanded(
+              child: _buildInspectorBody(node, notifier),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1329,18 +1341,19 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   }) {
     final activeNode = node ?? studio.nodes.firstOrNull;
 
-    return Container(
-      key: const ValueKey('anchored_live_preview_pane'),
-      width: width,
-      decoration: const BoxDecoration(
-        color: AppColors.backgroundSecondary,
-        border: Border(
-          left: BorderSide(color: AppColors.borderSubtle),
+    return RepaintBoundary(
+      child: Container(
+        key: const ValueKey('anchored_live_preview_pane'),
+        width: width,
+        decoration: const BoxDecoration(
+          color: AppColors.backgroundSecondary,
+          border: Border(
+            left: BorderSide(color: AppColors.borderSubtle),
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
           // Elegant Header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1463,6 +1476,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           ),
         ],
       ),
+    ),
     );
   }
 

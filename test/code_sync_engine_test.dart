@@ -217,7 +217,7 @@ class FormDemoScreen extends StatelessWidget {
     });
 
     testWidgets(
-        'Toggle pill [⚡ Code Live Sync] / [🎨 Archetype Mock] switches between code view and archetype mock',
+        'Pure Reality: Archetype mock toggle is removed and [📸 Screenshot] button is available',
         (tester) async {
       await tester.pumpWidget(
         buildTestableWidget(
@@ -230,28 +230,15 @@ class FormDemoScreen extends StatelessWidget {
       );
       await tester.pumpAndSettle();
 
-      // Both toggle options are present
-      expect(find.text('⚡ Code Live Sync'), findsOneWidget);
-      expect(find.text('🎨 Archetype Mock'), findsOneWidget);
+      // Archetype toggle pill is completely removed
+      expect(find.text('⚡ Code Live Sync'), findsNothing);
+      expect(find.text('🎨 Archetype Mock'), findsNothing);
 
-      // Defaults to Code Live Sync: rendered from code
-      expect(find.text('Splash & AuthGuard Screen'), findsOneWidget);
-      expect(find.text('FLRD Studio'), findsNothing);
+      // Screenshot button is present in toolbar
+      expect(find.text('📸 Screenshot'), findsOneWidget);
+      expect(find.byKey(const Key('screenshot_button')), findsOneWidget);
 
-      // Tap Archetype Mock toggle
-      await tester.tap(find.text('🎨 Archetype Mock'));
-      await tester.pumpAndSettle();
-
-      // Now renders Archetype Mock!
-      expect(find.text('FLRD Studio'), findsOneWidget);
-      expect(find.text('GoRouter AuthGuard Pipeline'), findsOneWidget);
-      expect(find.text('Simulate Launch Transition'), findsOneWidget);
-
-      // Tap back to Code Live Sync
-      await tester.tap(find.text('⚡ Code Live Sync'));
-      await tester.pumpAndSettle();
-
-      // Renders from code again
+      // Renders directly from code
       expect(find.text('Splash & AuthGuard Screen'), findsOneWidget);
       expect(find.text('FLRD Studio'), findsNothing);
     });
