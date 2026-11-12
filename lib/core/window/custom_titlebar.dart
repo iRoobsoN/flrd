@@ -9,6 +9,9 @@ import '../services/flutter_sdk_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/flutter_doctor_dialog.dart';
 import '../../features/settings/presentation/settings_and_billing_dialog.dart';
+import '../../features/auth/domain/user_account.dart';
+import '../../features/auth/presentation/user_account_dialog.dart';
+import '../../features/auth/providers/auth_provider.dart';
 
 class CustomTitleBar extends ConsumerWidget {
   final bool showBackButton;
@@ -216,6 +219,7 @@ class CustomTitleBar extends ConsumerWidget {
                 padding: EdgeInsets.only(right: 8),
                 child: LanguageSelectorWidget(compact: true),
               ),
+          _buildUserAccountPill(context, ref),
           IconButton(
             tooltip: strings.settingsAndBilling,
             icon: const Icon(
@@ -267,6 +271,125 @@ class CustomTitleBar extends ConsumerWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildUserAccountPill(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final user = authState.user;
+
+    if (user == null) {
+      // Unauthenticated state: [👤 Entrar] pill
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Tooltip(
+          message: 'Entrar ou Criar Conta FLRD',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => UserAccountDialog.show(context),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.person_outline_rounded,
+                    size: 13,
+                    color: AppColors.secondary,
+                  ),
+                  SizedBox(width: 5),
+                  Text(
+                    'Entrar',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Authenticated state: shows user avatar/initials + active tier badge (e.g. ⭐ PRO)
+    final tier = user.subscriptionTier;
+    final isPro = user.isPro;
+    final tierBadgeText = switch (tier) {
+      SubscriptionTier.studioPro => '⭐ PRO',
+      SubscriptionTier.starter => '⚡ STARTER',
+      SubscriptionTier.community => '🌱 FREE',
+    };
+
+    final badgeColor = isPro ? AppColors.secondary : AppColors.success;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Tooltip(
+        message: '${user.effectiveName} (${tier.label}) - Clique para ver o perfil',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => UserAccountDialog.show(context),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isPro
+                    ? AppColors.secondary.withOpacity(0.4)
+                    : AppColors.borderSubtle,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 18,
+                  height: 18,
+                  decoration: const BoxDecoration(
+                    gradient: AppColors.primaryGradient,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    user.initials,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    tierBadgeText,
+                    style: TextStyle(
+                      color: badgeColor,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

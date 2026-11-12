@@ -18,6 +18,10 @@ class MonetizationConfig {
   static const String stripeProAnnualCheckoutUrl =
       'https://buy.stripe.com/test_7sYcN56xV6cU6dB5f40Jq05';
 
+  /// Stripe Customer Billing Portal URL for subscription management and invoice history.
+  static const String stripeCustomerPortalUrl =
+      'https://billing.stripe.com/p/login/test_flrd_portal';
+
   /// Lemon Squeezy direct checkout URL for FLRD Pro license/subscription.
   static const String lemonSqueezyProCheckoutUrl =
       'https://flrd.lemonsqueezy.com/buy/flrd-pro';

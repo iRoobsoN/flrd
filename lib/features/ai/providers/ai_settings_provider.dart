@@ -83,10 +83,10 @@ class AiSettingsNotifier extends StateNotifier<AiSettingsState> {
   }
 
   /// Sets whether FLRD Pro features are active.
-  void setProActive(bool active) {
+  void setProActive(bool active, {String? plan}) {
     state = state.copyWith(
       isProActive: active,
-      selectedPlan: active ? 'studioPro' : 'community',
+      selectedPlan: plan ?? (active ? 'studioPro' : 'community'),
     );
   }
 
@@ -107,7 +107,7 @@ class AiSettingsNotifier extends StateNotifier<AiSettingsState> {
   /// Sets the active subscription plan tier ('community', 'starter', 'studioPro').
   void setSelectedPlan(String plan) {
     final normalized = plan.toLowerCase();
-    final isPro = normalized == 'pro' || normalized == 'studiopro';
+    final isPro = normalized == 'pro' || normalized == 'studiopro' || normalized == 'starter';
     state = state.copyWith(
       selectedPlan: plan,
       isProActive: isPro,

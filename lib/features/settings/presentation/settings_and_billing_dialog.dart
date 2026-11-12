@@ -5,6 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/config/monetization_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../ai/providers/ai_settings_provider.dart';
+import '../../auth/presentation/user_account_dialog.dart';
+import '../../auth/providers/auth_provider.dart';
 
 /// Modal dialog providing centralized settings for Gemini AI API keys,
 /// FLRD subscription & billing via Stripe, and open-source donation options.
@@ -513,12 +515,134 @@ class _SettingsAndBillingDialogState
     );
   }
 
+  Widget _buildAccountSyncStatusCard(BuildContext context) {
+    final authState = ref.watch(authProvider);
+    final user = authState.user;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 18),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: (user != null && user.isPro)
+              ? AppColors.secondary.withOpacity(0.3)
+              : AppColors.borderSubtle,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: user != null
+                  ? (user.isPro
+                      ? AppColors.secondary.withOpacity(0.18)
+                      : AppColors.primary.withOpacity(0.18))
+                  : AppColors.surfaceCard,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              user != null ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+              color: user != null
+                  ? (user.isPro ? AppColors.secondary : AppColors.primary)
+                  : AppColors.textMuted,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        user != null ? user.email : 'Conta Não Conectada',
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: (user != null && user.isPro)
+                            ? AppColors.secondary.withOpacity(0.18)
+                            : AppColors.surfaceCard,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: (user != null && user.isPro)
+                              ? AppColors.secondary.withOpacity(0.3)
+                              : AppColors.borderSubtle,
+                        ),
+                      ),
+                      child: Text(
+                        user != null ? user.subscriptionTier.badgeLabel : 'Modo Offline',
+                        style: TextStyle(
+                          color: (user != null && user.isPro)
+                              ? AppColors.secondary
+                              : AppColors.textSecondary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  user != null
+                      ? 'Sincronização em Nuvem Multi-Dispositivo Ativa • ${user.aiCreditsRemaining}/${user.aiCreditsTotal} créditos IA'
+                      : 'Conecte sua conta FLRD para sincronizar licenças e projetos em múltiplos dispositivos.',
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.textPrimary,
+              side: const BorderSide(color: AppColors.border),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => UserAccountDialog.show(context),
+            icon: Icon(
+              user != null ? Icons.account_circle_rounded : Icons.login_rounded,
+              size: 14,
+              color: AppColors.secondary,
+            ),
+            label: Text(
+              user != null ? 'Gerenciar Conta' : 'Conectar Conta',
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPlanAndBillingTab(BuildContext context, AiSettingsState aiSettings) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Authenticated User & Multi-Device Cloud Sync Card
+          _buildAccountSyncStatusCard(context),
+
           // Billing Period Switcher (Annual vs Monthly)
           Center(
             child: Container(
