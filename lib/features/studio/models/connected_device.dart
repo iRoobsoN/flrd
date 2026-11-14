@@ -197,6 +197,7 @@ enum AndroidBuildIssueType {
   javaGradleIncompatibility,
   cmakeBuildToolMissing,
   cmakeHostCompilerMismatch,
+  cmakeMsvcEnvironmentMissing,
   androidSdkLicenseOrComponentMissing,
 }
 
@@ -237,7 +238,8 @@ class AndroidBuildDiagnostic {
 
   bool get canAutoFixCmake =>
       (issueType == AndroidBuildIssueType.cmakeBuildToolMissing ||
-          issueType == AndroidBuildIssueType.cmakeHostCompilerMismatch) &&
+          issueType == AndroidBuildIssueType.cmakeHostCompilerMismatch ||
+          issueType == AndroidBuildIssueType.cmakeMsvcEnvironmentMissing) &&
       (canClearCxxCache || canFixCmakeHostToolchain);
 }
 

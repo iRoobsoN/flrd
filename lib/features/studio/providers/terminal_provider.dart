@@ -369,7 +369,7 @@ final terminalShellServiceProvider = Provider<TerminalShellService>((ref) {
   return TerminalShellService(
     buildEnvironmentResolver: () => ref
         .read(androidDeviceRunnerServiceProvider)
-        .buildBuildEnvironment(includeMsvc: false),
+        .buildBuildEnvironment(),
   );
 });
 

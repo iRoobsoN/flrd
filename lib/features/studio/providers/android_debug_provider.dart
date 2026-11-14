@@ -169,6 +169,12 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         lower.contains('is not able to compile a simple test program') ||
         lower.contains('host compiler not found') ||
         lower.contains('vulkan_glslc_executable-notfound') ||
+        lower.contains('cmake_mt-notfound') ||
+        lower.contains('lnk1181') ||
+        lower.contains('lnk1104') ||
+        lower.contains('kernel32.lib') ||
+        lower.contains('libcmt.lib') ||
+        lower.contains('detecting c compiler abi info - failed') ||
         lower.contains('licenses not accepted') ||
         lower.contains('cmdline-tools component is missing');
   }
@@ -806,13 +812,16 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
 
     final projectPath = state.projectPath;
     if (projectPath != null && projectPath.trim().isNotEmpty) {
+      await _service.stopProjectGradleDaemons(projectPath: projectPath);
+      if (!mounted) return false;
       return launchProject(projectPath, device: state.selectedDevice);
     }
     return true;
   }
 
-  /// Applies FLRD's Windows CMake host-toolchain fix (when requested) and clears
-  /// `android/app/.cxx`, then relaunches the app on the active device.
+  /// Applies FLRD's Windows CMake host-toolchain fix (when requested), stops stale
+  /// Gradle daemons so updated MSVC/PATH env takes effect, clears `android/app/.cxx`,
+  /// and relaunches the app on the active device.
   Future<bool> applyCmakeFixAndRelaunch() async {
     final projectPath = state.projectPath?.trim();
     final diagnostic = state.buildDiagnostic;
@@ -845,6 +854,13 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         return false;
       }
     }
+
+    _appendLog(
+      '🛑 Encerrando Gradle Daemon antigo para carregar INCLUDE / LIB / PATH atualizados...',
+      isSystem: true,
+    );
+    await _service.stopProjectGradleDaemons(projectPath: projectPath);
+    if (!mounted) return false;
 
     if (diagnostic.canClearCxxCache) {
       _appendLog(

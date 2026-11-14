@@ -1317,7 +1317,10 @@ class _AndroidDebugConsolePanelState
                     ElevatedButton.icon(
                       key: diagnostic.canFixCmakeHostToolchain
                           ? const ValueKey('android_fix_cmake_host_button')
-                          : const ValueKey('android_fix_cmake_ninja_button'),
+                          : (diagnostic.issueType ==
+                                  AndroidBuildIssueType.cmakeMsvcEnvironmentMissing
+                              ? const ValueKey('android_fix_cmake_msvc_env_button')
+                              : const ValueKey('android_fix_cmake_ninja_button')),
                       onPressed: debugState.isApplyingBuildFix
                           ? null
                           : () async {
@@ -1329,7 +1332,11 @@ class _AndroidDebugConsolePanelState
                                   context,
                                   diagnostic.canFixCmakeHostToolchain
                                       ? 'CMake ajustado para MSVC/glslc e cache .cxx limpo! Relançando app...'
-                                      : 'Cache .cxx limpo! Relançando com Ninja e ambiente atualizados...',
+                                      : (diagnostic.issueType ==
+                                              AndroidBuildIssueType
+                                                  .cmakeMsvcEnvironmentMissing
+                                          ? 'Gradle Daemon reiniciado com Windows SDK e cache .cxx limpo! Relançando...'
+                                          : 'Cache .cxx limpo! Relançando com Ninja e ambiente atualizados...'),
                                 );
                               } else {
                                 AppToast.error(
@@ -1349,7 +1356,11 @@ class _AndroidDebugConsolePanelState
                             ? 'Aplicando ajuste CMake...'
                             : (diagnostic.canFixCmakeHostToolchain
                                 ? 'Aplicar Fix Host MSVC/Vulkan no CMake e Rodar'
-                                : 'Limpar Cache .cxx e Rodar com Ninja'),
+                                : (diagnostic.issueType ==
+                                        AndroidBuildIssueType
+                                            .cmakeMsvcEnvironmentMissing
+                                    ? 'Reiniciar Gradle Daemon, Limpar .cxx e Rodar'
+                                    : 'Limpar Cache .cxx e Rodar com Ninja')),
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,

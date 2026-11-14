@@ -1610,6 +1610,7 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
               }
               if (exec == 'cmd.exe' &&
                   args.any((a) => a.contains('vcvars64.bat'))) {
+                expect(args, equals(['/c', 'call', vcvarsBat, '&&', 'set']));
                 return ProcessResult(
                   2,
                   0,
@@ -1870,6 +1871,7 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
             processRunner: (exec, args, {workingDirectory, runInShell = true}) async {
               if (exec == 'cmd.exe' &&
                   args.any((a) => a.contains('vcvars64.bat'))) {
+                expect(args, equals(['/c', 'call', vcvarsBat, '&&', 'set']));
                 return ProcessResult(
                   20,
                   0,
@@ -1968,6 +1970,156 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
           expect(launchEnvs.length, 2);
           expect(launchEnvs[1]?['INCLUDE'], r'C:\VS\include');
           expect(launchEnvs[1]?['LIB'], r'C:\VS\lib');
+
+          await tester.pump(const Duration(seconds: 5));
+        },
+      );
+
+      testWidgets(
+        'AndroidDebugConsolePanel diagnoses cl.exe LNK1181/CMAKE_MT-NOTFOUND, stops Gradle daemon, clears .cxx, and relaunches',
+        (tester) async {
+          final tempProj = Directory.systemTemp.createTempSync('flrd_msvc_sdk_');
+          File(p.join(tempProj.path, 'pubspec.yaml'))
+              .writeAsStringSync('name: snapia\n');
+          final androidDir = Directory(p.join(tempProj.path, 'android'))
+            ..createSync(recursive: true);
+          final gradlewFile = File(p.join(androidDir.path, 'gradlew.bat'))
+            ..writeAsStringSync('@echo off\n');
+          final cxxDir = Directory(p.join(tempProj.path, 'android', 'app', '.cxx'))
+            ..createSync(recursive: true);
+          addTearDown(() {
+            if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+          });
+
+          const vcvarsBat =
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat';
+          final appProcesses = <_FakeProcess>[];
+          final stoppedGradleCalls = <String>[];
+
+          final androidService = AndroidDeviceRunnerService(
+            isWindowsOverride: true,
+            environmentProvider: () => const {
+              'ProgramFiles(x86)': r'C:\Program Files (x86)',
+              'ProgramFiles': r'C:\Program Files',
+              'Path': r'C:\Windows\System32',
+            },
+            fileExists: (path) =>
+                path == vcvarsBat ||
+                path == gradlewFile.path ||
+                (p.isWithin(tempProj.path, path) && File(path).existsSync()),
+            dirExists: (path) =>
+                path == r'C:\Program Files (x86)\Microsoft Visual Studio' ||
+                path == r'C:\Program Files (x86)\Microsoft Visual Studio\2022' ||
+                path == r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools' ||
+                ((path == tempProj.path || p.isWithin(tempProj.path, path)) &&
+                    Directory(path).existsSync()),
+            listSubdirectories: (_) => const [],
+            processRunner: (exec, args, {workingDirectory, runInShell = true}) async {
+              if (exec == 'cmd.exe' &&
+                  args.length >= 3 &&
+                  args[1] == 'call' &&
+                  args[2] == vcvarsBat) {
+                return ProcessResult(
+                  30,
+                  0,
+                  'INCLUDE=C:\\VS\\include\r\nLIB=C:\\VS\\lib\r\nPath=C:\\VS\\bin\r\n',
+                  '',
+                );
+              }
+              if (exec == gradlewFile.path && args.contains('--stop')) {
+                stoppedGradleCalls.add(exec);
+                return ProcessResult(31, 0, 'Stopping Daemon', '');
+              }
+              return ProcessResult(32, 1, '', '');
+            },
+            processEnvStarter: (
+              exec,
+              args, {
+              workingDirectory,
+              runInShell = true,
+              environment,
+            }) async {
+              final proc = _FakeProcess();
+              appProcesses.add(proc);
+              return proc;
+            },
+          );
+
+          final container = ProviderContainer(
+            overrides: [
+              androidDeviceRunnerServiceProvider
+                  .overrideWithValue(androidService),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          container.read(terminalProvider.notifier).setPanelHeight(320.0);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                home: Scaffold(
+                  body: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: AndroidDebugConsolePanel(
+                      projectPath: tempProj.path,
+                      onClose: () {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          final debugNotifier = container.read(androidDebugProvider.notifier);
+          await debugNotifier.launchProject(
+            tempProj.path,
+            device: const ConnectedAndroidDevice(
+              id: 'RXGL20BSBJX',
+              name: 'SM S938B',
+              targetPlatform: 'android-arm64',
+              sdk: 'Android 16',
+            ),
+          );
+
+          appProcesses.first.emitStdoutLine('[{"event":"app.start","params":{"appId":"1"}}]');
+          appProcesses.first.emitStdoutLine(
+            '-- Check for working C compiler: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - broken',
+          );
+          appProcesses.first.emitStdoutLine(
+            'cmake.exe -E vs_link_exe --rc=rc --mt=CMAKE_MT-NOTFOUND -- link.exe',
+          );
+          appProcesses.first.emitStdoutLine(
+            "LINK : fatal error LNK1181: não foi possível abrir o arquivo de entrada 'kernel32.lib'",
+          );
+          appProcesses.first.emitStdoutLine('[{"event":"app.stop","params":{"appId":"1"}}]');
+          appProcesses.first.completeExit(1);
+          await tester.pump(const Duration(milliseconds: 60));
+          await tester.pumpAndSettle();
+
+          expect(
+            container.read(androidDebugProvider).buildDiagnostic?.issueType,
+            AndroidBuildIssueType.cmakeMsvcEnvironmentMissing,
+          );
+          expect(
+            find.byKey(const ValueKey('android_fix_cmake_msvc_env_button')),
+            findsOneWidget,
+          );
+
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('android_fix_cmake_msvc_env_button')),
+          );
+          await tester.tap(
+            find.byKey(const ValueKey('android_fix_cmake_msvc_env_button')),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 60));
+
+          expect(stoppedGradleCalls, equals([gradlewFile.path]));
+          expect(cxxDir.existsSync(), isFalse);
+          expect(appProcesses.length, 2);
 
           await tester.pump(const Duration(seconds: 5));
         },

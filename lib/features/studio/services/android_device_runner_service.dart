@@ -42,6 +42,7 @@ class AndroidDeviceRunnerService {
   final bool? _isWindowsOverride;
 
   Map<String, String>? _cachedMsvcEnv;
+  bool _didStopStaleGradleDaemon = false;
 
   AndroidDeviceRunnerService({
     ProcessRunnerFn? processRunner,
@@ -484,6 +485,7 @@ class AndroidDeviceRunnerService {
     String? projectGradleVersion,
     String? detectedNinjaPath,
     String? detectedMsvcCompilerPath,
+    bool hasMsvcLibs = false,
     bool hasAppCMakeLists = false,
   }) {
     if (logLines.isEmpty) return null;
@@ -563,6 +565,54 @@ class AndroidDeviceRunnerService {
       );
     }
 
+    final isMsvcEnvMissing = lower.contains('cmake_mt-notfound') ||
+        lower.contains('lnk1181') ||
+        lower.contains('lnk1104') ||
+        lower.contains("'kernel32.lib'") ||
+        lower.contains("'libcmt.lib'") ||
+        (lower.contains('cl.exe') &&
+            (lower.contains('is not able to compile a simple test program') ||
+                lower.contains('detecting c compiler abi info - failed')));
+
+    if (isMsvcEnvMissing) {
+      if (detectedMsvcCompilerPath != null && hasMsvcLibs) {
+        return AndroidBuildDiagnostic(
+          issueType: AndroidBuildIssueType.cmakeMsvcEnvironmentMissing,
+          title:
+              'Ambiente MSVC / Windows SDK (LIB / mt.exe) não carregado no Gradle',
+          explanation:
+              'O CMake já encontrou o compilador MSVC (cl.exe), mas o Gradle Daemon em segundo plano '
+              'ou o cache `.cxx` estava sem `LIB` (`kernel32.lib`, `LIBCMT.lib`) e sem as ferramentas do Windows SDK (`mt.exe`, `rc.exe`). '
+              'Clique abaixo para encerrar o Gradle Daemon antigo, limpar o cache `.cxx` e relançar com o `vcvars64.bat` carregado.',
+          detectedToolPath: detectedMsvcCompilerPath,
+          canClearCxxCache: true,
+          steps: [
+            'Script MSVC detectado: $detectedMsvcCompilerPath',
+            'Clique em "Reiniciar Gradle Daemon, Limpar .cxx e Rodar" para aplicar INCLUDE, LIB e Windows SDK.',
+          ],
+        );
+      }
+
+      final vsBuildToolsCmd = _isWindows
+          ? 'winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"'
+          : 'xcode-select --install';
+      return AndroidBuildDiagnostic(
+        issueType: AndroidBuildIssueType.cmakeMsvcEnvironmentMissing,
+        title: 'Windows SDK (kernel32.lib / mt.exe) ausente no Visual Studio C++',
+        explanation:
+            'O CMake encontrou o compilador MSVC (cl.exe), mas não encontrou as bibliotecas/ferramentas do Windows 10/11 SDK '
+            '(`kernel32.lib`, `LIBCMT.lib`, `mt.exe`). Certifique-se de que o componente "Windows 10/11 SDK" esteja marcado no Visual Studio Build Tools.',
+        detectedToolPath: detectedMsvcCompilerPath,
+        suggestedTerminalCommand: vsBuildToolsCmd,
+        externalHelpUrl:
+            'https://visualstudio.microsoft.com/visual-cpp-build-tools/',
+        steps: [
+          'Instale ou repare o Visual Studio Build Tools com `--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`.',
+          'Depois de instalar, limpe `android/app/.cxx` e rode `gradlew --stop` antes de relançar.',
+        ],
+      );
+    }
+
     final isCmakeHostCompilerMismatch =
         ((lower.contains('unable to find library -lkernel32') ||
                     lower.contains('unable to find library -lmingw32')) &&
@@ -570,8 +620,8 @@ class AndroidDeviceRunnerService {
                     lower.contains('lld') ||
                     lower.contains('cmaketestccompiler'))) ||
             (lower.contains('host-toolchain.cmake') &&
-                (lower.contains('is not able to compile a simple test program') ||
-                    lower.contains('cmake_mt-notfound'))) ||
+                !lower.contains('cl.exe') &&
+                lower.contains('is not able to compile a simple test program')) ||
             lower.contains('host compiler not found') ||
             lower.contains('vulkan_glslc_executable-notfound');
 
@@ -738,6 +788,21 @@ class AndroidDeviceRunnerService {
         logLines,
         projectGradleVersion: projectGradleVersion,
         detectedNinjaPath: ninjas.isNotEmpty ? ninjas.first : null,
+        hasAppCMakeLists: hasAppCMakeLists,
+      );
+    }
+
+    if (initial.issueType == AndroidBuildIssueType.cmakeMsvcEnvironmentMissing) {
+      final vcvarsPath = await discoverVcvars64BatPath();
+      final msvcEnv = vcvarsPath != null
+          ? await _loadMsvcVcvarsEnvironment()
+          : const <String, String>{};
+      final hasLibs = msvcEnv.keys.any((k) => k.toUpperCase() == 'LIB');
+      return classifyBuildFailureLogs(
+        logLines,
+        projectGradleVersion: projectGradleVersion,
+        detectedMsvcCompilerPath: vcvarsPath,
+        hasMsvcLibs: hasLibs,
         hasAppCMakeLists: hasAppCMakeLists,
       );
     }
@@ -1064,7 +1129,7 @@ class AndroidDeviceRunnerService {
     try {
       final res = await _processRunner(
         'cmd.exe',
-        ['/c', 'call "$vcvars" >nul && set'],
+        ['/c', 'call', vcvars, '&&', 'set'],
         runInShell: false,
       );
       if (res.exitCode != 0) return const {};
@@ -1137,7 +1202,11 @@ class AndroidDeviceRunnerService {
               }
             }
           } else {
-            env[entry.key] = entry.value;
+            final existingKey = env.keys.firstWhere(
+              (k) => k.toUpperCase() == upper,
+              orElse: () => entry.key,
+            );
+            env[existingKey] = entry.value;
           }
         }
       }
@@ -1167,6 +1236,38 @@ class AndroidDeviceRunnerService {
     );
     if (!_dirExists(cxxPath)) return true;
     return _deleteDirectorySync(cxxPath);
+  }
+
+  /// Stops background Gradle daemons so subsequent builds spawn a fresh daemon
+  /// inheriting FLRD's updated `INCLUDE`, `LIB`, `PATH`, Ninja, and `JAVA_HOME`.
+  Future<bool> stopProjectGradleDaemons({String? projectPath}) async {
+    if (kIsWeb) return false;
+    _didStopStaleGradleDaemon = true;
+    try {
+      if (projectPath != null && projectPath.trim().isNotEmpty) {
+        final androidDir = _joinOsPath(projectPath.trim(), 'android');
+        final wrapperName = _isWindows ? 'gradlew.bat' : 'gradlew';
+        final wrapperPath = _joinOsPath(androidDir, wrapperName);
+        if (_fileExists(wrapperPath)) {
+          final res = await _processRunner(
+            wrapperPath,
+            const ['--stop'],
+            workingDirectory: androidDir,
+            runInShell: _isWindows,
+          ).timeout(const Duration(seconds: 8));
+          if (res.exitCode == 0) return true;
+        }
+      }
+
+      final fallback = await _processRunner(
+        'gradle',
+        const ['--stop'],
+        runInShell: _isWindows,
+      ).timeout(const Duration(seconds: 5));
+      return fallback.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   static const String _cmakeFixMarker =
@@ -1931,6 +2032,17 @@ ConvertTo-Json -InputObject $items -Compress
     }
 
     final env = await buildBuildEnvironment();
+
+    // Pre-existing Gradle daemons retain launch-time env vars (missing INCLUDE/LIB/WinGet PATH).
+    // Reset stale daemons once on first real launch when FLRD injects Windows MSVC/build tools.
+    if (_customProcessStarter == null &&
+        _customProcessEnvStarter == null &&
+        _isWindows &&
+        !_didStopStaleGradleDaemon &&
+        (env.containsKey('LIB') || env.containsKey('INCLUDE'))) {
+      await stopProjectGradleDaemons(projectPath: projectPath);
+    }
+
     final starter = _customProcessEnvStarter ?? _defaultProcessEnvStarter;
     return starter(
       'flutter',
