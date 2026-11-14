@@ -2,16 +2,20 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import '../../../core/localization/language_provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/window/custom_titlebar.dart';
 import '../../marketplace/presentation/widgets/publish_template_dialog.dart';
 import '../../projects/models/registered_project.dart';
+import '../../projects/providers/projects_provider.dart';
+import '../../projects/services/project_analyzer_service.dart';
 import '../models/connected_device.dart';
 import '../models/route_node.dart';
 import '../providers/android_debug_provider.dart';
 import '../providers/studio_provider.dart';
+import '../providers/terminal_provider.dart';
 import 'widgets/ai_screen_generator_dialog.dart';
 import 'widgets/android_debug_controls.dart';
 import 'widgets/device_screen_emulator.dart';
@@ -72,6 +76,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
       TransformationController();
   int _inspectorTabIndex = 0; // 0: Route Details, 1: View Dart Code
   bool _isDraggingNode = false;
+  bool _isRescanningRoutes = false;
   bool _showLivePreview = true;
   bool _isDiagramCollapsed = false;
   bool _showAndroidConsole = false;
@@ -221,6 +226,53 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     _transformationController.value = matrix;
   }
 
+  Future<void> _rescanProjectRoutes() async {
+    if (_isRescanningRoutes) return;
+    if (kIsWeb) {
+      AppToast.info(
+        context,
+        'O reescaneamento de arquivos locais está disponível no app desktop.',
+      );
+      return;
+    }
+
+    final pubspecFile = File(p.join(widget.project.path, 'pubspec.yaml'));
+    if (!pubspecFile.existsSync()) {
+      AppToast.warning(
+        context,
+        'Projeto não encontrado no disco para reescanear rotas.',
+      );
+      return;
+    }
+
+    setState(() => _isRescanningRoutes = true);
+    try {
+      final result =
+          await ProjectAnalyzerService.analyzeProject(widget.project.path);
+      if (!mounted) return;
+      ref.read(projectsProvider.notifier).registerProject(result.project);
+      ref.read(studioProvider.notifier).setNodes(result.routeNodes);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fitView(result.routeNodes);
+      });
+      final count = result.routeNodes.length;
+      AppToast.success(
+        context,
+        '$count ${count == 1 ? 'tela/rota detectada' : 'telas/rotas detectadas'} em ${result.project.name}.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.error(
+        context,
+        'Falha ao reescanear rotas do projeto: $e',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isRescanningRoutes = false);
+      }
+    }
+  }
+
   Future<void> _openVsCode() async {
     if (kIsWeb) {
       AppToast.info(
@@ -259,6 +311,8 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
       final isNowActive = next.isActiveSession;
 
       if (!wasActive && isNowActive) {
+        ref.read(terminalProvider.notifier).setProjectDirectory(widget.project.path);
+        ref.read(terminalProvider.notifier).focusDebugTab();
         setState(() {
           if (_showLivePreview) {
             _showLivePreview = false;
@@ -267,20 +321,19 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           _showAndroidConsole = true;
         });
       } else if (wasActive && !isNowActive) {
-        if (next.status == DeviceRunStatus.error) {
-          setState(() {
-            _showAndroidConsole = true;
-          });
-        } else if (_simulatorAutoHiddenByAndroid) {
-          setState(() {
+        setState(() {
+          if (next.status != DeviceRunStatus.error &&
+              _simulatorAutoHiddenByAndroid) {
             _showLivePreview = true;
             _simulatorAutoHiddenByAndroid = false;
-            _showAndroidConsole = false;
-          });
-        }
+          }
+          // Persistent VS Code-style terminal: keep panel visible after stop/failure/disconnect.
+          _showAndroidConsole = true;
+        });
       } else if (!isNowActive &&
           next.status == DeviceRunStatus.error &&
           prev?.status != DeviceRunStatus.error) {
+        ref.read(terminalProvider.notifier).focusDebugTab();
         setState(() {
           _showAndroidConsole = true;
         });
@@ -321,6 +374,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
 
             if (_showAndroidConsole)
               AndroidDebugConsolePanel(
+                projectPath: widget.project.path,
                 onClose: () => setState(() => _showAndroidConsole = false),
               ),
           ],
@@ -385,23 +439,16 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           ),
           const SizedBox(width: 8),
 
-          // Integrated Studio View Switcher Pills (Reclaims ~50px vertical TabBar space)
-          Flexible(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: _buildStudioViewSwitcher(),
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // Quick Action Buttons
+          // Integrated Studio View Switcher + Quick Action Buttons in one unified
+          // scrollable bar so neither section gets starved by a 50/50 Flex split.
           Expanded(
             child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    _buildStudioViewSwitcher(),
+                    const SizedBox(width: 8),
                     AndroidDebugToolbarControls(
                       projectPath: widget.project.path,
                       isConsoleOpen: _showAndroidConsole,
@@ -415,9 +462,11 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: AppColors.border),
                         backgroundColor: AppColors.surface,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 3,
+                          horizontal: 6,
+                          vertical: 5,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(6),
@@ -454,9 +503,11 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: AppColors.border),
                         backgroundColor: AppColors.surface,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 3,
+                          horizontal: 6,
+                          vertical: 5,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(6),
@@ -491,9 +542,11 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                         backgroundColor: _isDiagramCollapsed
                             ? AppColors.primary.withOpacity(0.12)
                             : AppColors.surface,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 3,
+                          horizontal: 6,
+                          vertical: 5,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(6),
@@ -546,9 +599,11 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                         backgroundColor: _showLivePreview
                             ? AppColors.secondary.withOpacity(0.12)
                             : AppColors.surface,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 3,
+                          horizontal: 6,
+                          vertical: 5,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(6),
@@ -583,13 +638,47 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                       ),
                     ),
                     const SizedBox(width: 4),
+                    Tooltip(
+                      message: 'Reescanear telas e rotas do projeto em disco',
+                      child: InkWell(
+                        key: const ValueKey('studio_rescan_routes_button'),
+                        onTap:
+                            _isRescanningRoutes ? null : _rescanProjectRoutes,
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.all(4.5),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: _isRescanningRoutes
+                              ? const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.6,
+                                    color: AppColors.primary,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 13,
+                                  color: AppColors.textSecondary,
+                                ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: AppColors.border),
                         backgroundColor: AppColors.surface,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 5,
-                          vertical: 3,
+                          vertical: 5,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(6),
@@ -697,14 +786,14 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
               _buildStudioViewTab(
                 index: 1,
                 icon: Icons.security_rounded,
-                label: 'Native Permissions',
+                label: 'Permissions',
                 isSelected: currentIndex == 1,
               ),
               const SizedBox(width: 2),
               _buildStudioViewTab(
                 index: 2,
                 icon: Icons.layers_rounded,
-                label: 'Architecture & Packages',
+                label: 'Architecture',
                 isSelected: currentIndex == 2,
               ),
             ],

@@ -868,5 +868,88 @@ class CameraScanScreen extends StatelessWidget {
       expect(es.viewCodeTab, 'Código');
       expect(es.emulateScreenTab, 'Emular');
     });
+
+    test('DartCodeScreenParser scopes parsing by nodeTitle in multi-class screen files', () {
+      const multiScreenCode = '''
+import 'package:flutter/material.dart';
+
+class AppTokens {
+  static const Color primary = Color(0xFF6366F1);
+}
+
+class Txt2ImgScreen extends StatefulWidget {
+  const Txt2ImgScreen({super.key});
+  @override
+  State<Txt2ImgScreen> createState() => _Txt2ImgScreenState();
+}
+
+class _Txt2ImgScreenState extends State<Txt2ImgScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Txt2Img Studio')),
+      body: Column(
+        children: [
+          const Text('Prompt Input Label'),
+          ElevatedButton(
+            onPressed: () {},
+            child: const Text('Generate Image'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Server Settings')),
+      body: Column(
+        children: [
+          const Text('API Endpoint Config'),
+          ElevatedButton(
+            onPressed: () {},
+            child: const Text('Save Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+''';
+
+      final parsedSettings = DartCodeScreenParser.parse(
+        multiScreenCode,
+        nodeTitle: 'SettingsScreen',
+      );
+      expect(parsedSettings.appBar?.title, 'Server Settings');
+      expect(parsedSettings.colorTokens['primary'], const Color(0xFF6366F1));
+      final settingsTexts = parsedSettings.bodyWidgets
+          .whereType<ParsedTextNode>()
+          .map((w) => w.text)
+          .toList();
+      expect(settingsTexts, contains('API Endpoint Config'));
+      expect(settingsTexts, isNot(contains('Prompt Input Label')));
+
+      final parsedTxt2Img = DartCodeScreenParser.parse(
+        multiScreenCode,
+        nodeTitle: 'Txt2ImgScreen',
+      );
+      expect(parsedTxt2Img.appBar?.title, 'Txt2Img Studio');
+      final txt2ImgTexts = parsedTxt2Img.bodyWidgets
+          .whereType<ParsedTextNode>()
+          .map((w) => w.text)
+          .toList();
+      expect(txt2ImgTexts, contains('Prompt Input Label'));
+      expect(txt2ImgTexts, isNot(contains('API Endpoint Config')));
+    });
   });
 }

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:flrd/features/hub/presentation/widgets/projects_grid_view.dart';
 import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/projects/presentation/widgets/import_project_dialog.dart';
 import 'package:flrd/features/projects/providers/projects_provider.dart';
@@ -489,5 +490,189 @@ dependencies:
       final err = tester.takeException();
       expect(err, isNull);
     });
+  });
+
+  group('Hub Open & Studio Route Rescan Tests', () {
+    RegisteredProject createMultiScreenDiskProjectSync() {
+      File(p.join(tempDir.path, 'pubspec.yaml')).writeAsStringSync('''
+name: multi_screen_app
+dependencies:
+  flutter:
+    sdk: flutter
+''');
+      final libDir = Directory(p.join(tempDir.path, 'lib'));
+      libDir.createSync(recursive: true);
+      File(p.join(libDir.path, 'main.dart')).writeAsStringSync('''
+import 'package:flutter/material.dart';
+import 'screens.dart';
+
+class MainScreen extends StatelessWidget {
+  const MainScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return const DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        body: TabBarView(
+          children: [Txt2ImgScreen(), SettingsScreen()],
+        ),
+      ),
+    );
+  }
+}
+''');
+      File(p.join(libDir.path, 'screens.dart')).writeAsStringSync('''
+import 'package:flutter/material.dart';
+
+class Txt2ImgScreen extends StatelessWidget {
+  const Txt2ImgScreen({super.key});
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Text('Txt2Img'));
+}
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Text('Settings'));
+}
+''');
+      return RegisteredProject(
+        id: 'multi-screen-id',
+        name: 'multi_screen_app',
+        orgId: 'com.example',
+        path: tempDir.path,
+        preset: PresetType.saas,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: const {},
+        lastModified: DateTime(2026),
+        routeCount: 1,
+      );
+    }
+
+    testWidgets(
+      'Opening project card in ProjectsGridView analyzes disk routes into studioProvider',
+      (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final project = createMultiScreenDiskProjectSync();
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        container.read(projectsProvider.notifier).registerProject(project);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(
+              home: Scaffold(
+                body: ProjectsGridView(),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final cardFinder = find.text('multi_screen_app');
+        await tester.ensureVisible(cardFinder);
+        await tester.pump();
+        await tester.runAsync(() async {
+          await tester.tap(cardFinder);
+          for (var i = 0; i < 40; i++) {
+            if (container.read(studioProvider).nodes.length == 4) break;
+            await Future<void>.delayed(const Duration(milliseconds: 25));
+          }
+        });
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        final titles =
+            container.read(studioProvider).nodes.map((n) => n.title).toList();
+        expect(
+          titles,
+          containsAll(<String>[
+            'Root / Entry',
+            'MainScreen',
+            'Txt2ImgScreen',
+            'SettingsScreen',
+          ]),
+        );
+        expect(find.byType(AppStudioScreen), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      },
+    );
+
+    testWidgets(
+      'AppStudioScreen Reescanear button rescans disk routes when graph only has root',
+      (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final project = createMultiScreenDiskProjectSync();
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        container.read(studioProvider.notifier).setNodes([
+          const RouteNode(
+            id: 'root',
+            path: '/',
+            title: 'Root / Entry',
+            subtitle: 'App initial route & shell navigation',
+            icon: Icons.account_tree_rounded,
+            filePath: 'lib/main.dart',
+            position: Offset(80, 200),
+          ),
+        ]);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              home: AppStudioScreen(project: project),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(container.read(studioProvider).nodes.length, 1);
+
+        final rescanBtn =
+            find.byKey(const ValueKey('studio_rescan_routes_button'));
+        expect(rescanBtn, findsOneWidget);
+        await tester.ensureVisible(rescanBtn);
+        await tester.pump();
+        await tester.runAsync(() async {
+          await tester.tap(rescanBtn);
+          for (var i = 0; i < 40; i++) {
+            if (container.read(studioProvider).nodes.length == 4) break;
+            await Future<void>.delayed(const Duration(milliseconds: 25));
+          }
+        });
+        await tester.pump();
+
+        final titles =
+            container.read(studioProvider).nodes.map((n) => n.title).toList();
+        expect(
+          titles,
+          containsAll(<String>[
+            'Root / Entry',
+            'MainScreen',
+            'Txt2ImgScreen',
+            'SettingsScreen',
+          ]),
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      },
+    );
   });
 }

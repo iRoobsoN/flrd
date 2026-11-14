@@ -246,5 +246,188 @@ dependencies:
       expect(jsonContent['screenNames'], contains('HomeScreen'));
       expect(jsonContent['routes'], isNotEmpty);
     });
+
+    test('Discovers multiple screens in lib/screens.dart, MainScreen tabs, and excludes helper widgets', () async {
+      final tempDir = await Directory.systemTemp.createTemp('flrd_snapia_layout_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+
+      await File('${tempDir.path}/pubspec.yaml').writeAsString('''
+name: snapia
+description: AI image client
+dependencies:
+  flutter:
+    sdk: flutter
+''');
+
+      final libDir = Directory('${tempDir.path}/lib');
+      await libDir.create(recursive: true);
+
+      await File('${libDir.path}/main.dart').writeAsString('''
+import 'package:flutter/material.dart';
+import 'screens.dart';
+
+void main() => runApp(const Automatic1111App());
+
+class Automatic1111App extends StatelessWidget {
+  const Automatic1111App({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: const MainScreen(),
+    );
+  }
+}
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return const DefaultTabController(
+      length: 5,
+      child: Scaffold(
+        body: TabBarView(
+          children: [
+            Txt2ImgScreen(),
+            Img2ImgScreen(),
+            InpaintScreen(),
+            HistoryGalleryScreen(),
+            SettingsScreen(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+''');
+
+      await File('${libDir.path}/ai_service.dart').writeAsString('''
+class AiService {
+  Future<void> generate() async {}
+}
+''');
+
+      await File('${libDir.path}/screens.dart').writeAsString('''
+import 'package:flutter/material.dart';
+
+class BeforeAfterSlider extends StatefulWidget {
+  const BeforeAfterSlider({super.key});
+  @override
+  State<BeforeAfterSlider> createState() => _BeforeAfterSliderState();
+}
+
+class _BeforeAfterSliderState extends State<BeforeAfterSlider> {
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class GestureCanvas extends StatelessWidget {
+  const GestureCanvas({super.key});
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class Txt2ImgScreen extends StatefulWidget {
+  const Txt2ImgScreen({super.key});
+  @override
+  State<Txt2ImgScreen> createState() => _Txt2ImgScreenState();
+}
+
+class _Txt2ImgScreenState extends State<Txt2ImgScreen> {
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Text('Txt2Img'));
+}
+
+class Img2ImgScreen extends StatefulWidget {
+  const Img2ImgScreen({super.key});
+  @override
+  State<Img2ImgScreen> createState() => _Img2ImgScreenState();
+}
+
+class _Img2ImgScreenState extends State<Img2ImgScreen> {
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Text('Img2Img'));
+}
+
+class InpaintScreen extends StatefulWidget {
+  const InpaintScreen({super.key});
+  @override
+  State<InpaintScreen> createState() => _InpaintScreenState();
+}
+
+class _InpaintScreenState extends State<InpaintScreen> {
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Text('Inpaint'));
+}
+
+class HistoryGalleryScreen extends StatefulWidget {
+  const HistoryGalleryScreen({super.key});
+  @override
+  State<HistoryGalleryScreen> createState() => _HistoryGalleryScreenState();
+}
+
+class _HistoryGalleryScreenState extends State<HistoryGalleryScreen> {
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Text('History'));
+}
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Text('Settings'));
+}
+''');
+
+      final result = await ProjectAnalyzerService.analyzeProject(tempDir.path);
+      final titles = result.routeNodes.map((n) => n.title).toList();
+
+      expect(result.routeNodes.length, 7);
+      expect(
+        titles,
+        containsAll(<String>[
+          'Root / Entry',
+          'MainScreen',
+          'Txt2ImgScreen',
+          'Img2ImgScreen',
+          'InpaintScreen',
+          'HistoryGalleryScreen',
+          'SettingsScreen',
+        ]),
+      );
+      expect(titles, isNot(contains('Automatic1111App')));
+      expect(titles, isNot(contains('BeforeAfterSlider')));
+      expect(titles, isNot(contains('GestureCanvas')));
+      expect(titles, isNot(contains('AiService')));
+
+      final mainNode = result.routeNodes.firstWhere((n) => n.title == 'MainScreen');
+      expect(mainNode.filePath, 'lib/main.dart');
+      expect(mainNode.parentRouteId, 'root');
+      expect(mainNode.position.dx, greaterThanOrEqualTo(380));
+
+      final tabTitles = <String>[
+        'Txt2ImgScreen',
+        'Img2ImgScreen',
+        'InpaintScreen',
+        'HistoryGalleryScreen',
+        'SettingsScreen',
+      ];
+      final tabPositions = <Offset>{};
+      for (final tabTitle in tabTitles) {
+        final tabNode = result.routeNodes.firstWhere((n) => n.title == tabTitle);
+        expect(tabNode.filePath, 'lib/screens.dart');
+        expect(tabNode.parentRouteId, mainNode.id);
+        expect(tabNode.position.dx, greaterThanOrEqualTo(710));
+        expect(tabPositions.add(tabNode.position), isTrue);
+      }
+    });
   });
 }

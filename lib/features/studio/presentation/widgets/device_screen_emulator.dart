@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../../projects/models/registered_project.dart';
+import '../../../projects/services/project_analyzer_service.dart';
 import '../../models/route_node.dart';
 
 /// Supported mobile device emulator frame configurations.
@@ -1707,17 +1708,26 @@ class DartCodeScreenParser {
   }
 
   static ParsedScreenData parse(
-    String code, {
+    String rawCode, {
     bool isDarkMode = true,
     String? nodeTitle,
   }) {
-    if (code.trim().isEmpty) {
+    if (rawCode.trim().isEmpty) {
       return const ParsedScreenData();
     }
 
     try {
-      // 1. Color tokens extraction
-      final colorTokens = _extractColorTokens(code);
+      // 1. Color tokens extraction (keep file-wide so shared AppColors resolve)
+      final colorTokens = _extractColorTokens(rawCode);
+      final code = (nodeTitle != null &&
+              nodeTitle.trim().isNotEmpty &&
+              nodeTitle != 'Root / Entry')
+          ? (ProjectAnalyzerService.extractWidgetClassAndStateScope(
+                rawCode,
+                nodeTitle,
+              ) ??
+              rawCode)
+          : rawCode;
 
       // 2. Scaffold background color
       Color? scaffoldBg;

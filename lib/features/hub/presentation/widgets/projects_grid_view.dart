@@ -2,11 +2,14 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../../projects/models/registered_project.dart';
 import '../../../projects/providers/projects_provider.dart';
+import '../../../projects/services/project_analyzer_service.dart';
 import '../../../studio/presentation/app_studio_screen.dart';
+import '../../../studio/providers/studio_provider.dart';
 import '../../../wizard/presentation/wizard_screen.dart';
 
 class ProjectsGridView extends ConsumerWidget {
@@ -123,10 +126,29 @@ class ProjectsGridView extends ConsumerWidget {
             final project = projects[index];
             return _ProjectCard(
               project: project,
-              onOpenStudio: () {
-                Navigator.of(context).push(
+              onOpenStudio: () async {
+                var targetProject = project;
+                final navigator = Navigator.of(context);
+                if (!kIsWeb &&
+                    File(p.join(project.path, 'pubspec.yaml')).existsSync()) {
+                  final projectsNotifier = ref.read(projectsProvider.notifier);
+                  final studioNotifier = ref.read(studioProvider.notifier);
+                  try {
+                    final analyzed =
+                        await ProjectAnalyzerService.analyzeProject(
+                      project.path,
+                    );
+                    targetProject = analyzed.project;
+                    projectsNotifier.registerProject(analyzed.project);
+                    studioNotifier.setNodes(analyzed.routeNodes);
+                  } catch (_) {
+                    // Fall back to opening the existing project record if re-analysis fails.
+                  }
+                }
+                if (!context.mounted) return;
+                navigator.push(
                   MaterialPageRoute(
-                    builder: (_) => AppStudioScreen(project: project),
+                    builder: (_) => AppStudioScreen(project: targetProject),
                   ),
                 );
               },

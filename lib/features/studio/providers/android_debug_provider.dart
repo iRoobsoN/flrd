@@ -106,7 +106,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
   int _nextRequestId = 1;
   final Map<int, String> _pendingRpcMethods = {};
 
-  static const int _maxLogEntries = 400;
+  static const int _maxLogEntries = 800;
 
   AndroidDebugNotifier(this._service) : super(const AndroidDebugState());
 
@@ -235,6 +235,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     await stopSession(silent: true);
     if (!mounted) return false;
 
+    final preservedLogs = state.logs;
     state = state.copyWith(
       selectedDevice: targetDevice,
       status: DeviceRunStatus.launching,
@@ -244,8 +245,15 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       devToolsUri: null,
       progressMessage: 'Preparando build para ${targetDevice.name}...',
       errorMessage: null,
-      logs: const [],
+      logs: preservedLogs,
     );
+
+    if (preservedLogs.isNotEmpty) {
+      _appendLog(
+        '────────────────────────────────────────',
+        isSystem: true,
+      );
+    }
 
     _appendLog(
       '🚀 Lançando app em tempo real no ${targetDevice.displayLabel} (${targetDevice.id})...',
@@ -285,6 +293,10 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         _process = null;
 
         if (wasRunning && code != 0) {
+          _appendLog(
+            '❌ Processo encerrado com código $code. O terminal permanece aberto para diagnóstico.',
+            isError: true,
+          );
           state = state.copyWith(
             status: DeviceRunStatus.error,
             activeAppId: null,
@@ -292,6 +304,12 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
             errorMessage: 'Processo encerrado com código $code.',
           );
         } else if (state.status != DeviceRunStatus.error) {
+          if (wasRunning) {
+            _appendLog(
+              '⏹️ Conexão/execução encerrada (código $code). O terminal permanece ativo.',
+              isSystem: true,
+            );
+          }
           state = state.copyWith(
             status: DeviceRunStatus.idle,
             activeAppId: null,
@@ -419,7 +437,10 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       case 'app.stop':
         final stopErr = params['error']?.toString();
         if (stopErr != null && stopErr.isNotEmpty) {
-          _appendLog('❌ Sessão encerrada com erro: $stopErr', isError: true);
+          _appendLog(
+            '❌ Sessão encerrada com erro: $stopErr (terminal mantido aberto).',
+            isError: true,
+          );
           state = state.copyWith(
             status: DeviceRunStatus.error,
             activeAppId: null,
@@ -427,7 +448,10 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
             errorMessage: stopErr,
           );
         } else {
-          _appendLog('⏹️ App encerrado no dispositivo.', isSystem: true);
+          _appendLog(
+            '⏹️ App encerrado no dispositivo. Terminal mantido aberto.',
+            isSystem: true,
+          );
           state = state.copyWith(
             status: DeviceRunStatus.idle,
             activeAppId: null,

@@ -276,15 +276,13 @@ class ProjectAnalyzerService {
     }
   }
 
-  /// Scans lib/ recursively for Dart files ending in _screen.dart, _page.dart, _view.dart,
-  /// builds RouteNode models, and ensures the root route is always present.
+  /// Scans lib/ recursively for Flutter screens across single-screen files
+  /// (*_screen.dart, *_page.dart, *_view.dart) and multi-screen files
+  /// (e.g. lib/screens.dart, lib/main.dart), builds RouteNodes and parent links.
   static Future<List<RouteNode>> _scanRouteNodes(
     String projectPath,
     Set<DevicePermission> projectPermissions,
   ) async {
-    final routeNodes = <RouteNode>[];
-
-    // Always ensure a root '/' node at Offset(50, 220)
     const rootNode = RouteNode(
       id: 'root',
       path: '/',
@@ -296,55 +294,113 @@ class ProjectAnalyzerService {
       filePath: 'lib/main.dart',
       parentRouteId: null,
     );
-    routeNodes.add(rootNode);
 
     final libDir = Directory(p.join(projectPath, 'lib'));
     if (!await libDir.exists()) {
-      return routeNodes;
+      return [rootNode];
     }
 
-    final screenPattern = RegExp(r'(_screen|_page|_view)\.dart$', caseSensitive: false);
-    final screenFiles = <File>[];
-
+    final dartFiles = <File>[];
     await for (final entity in libDir.list(recursive: true, followLinks: false)) {
-      if (entity is File && screenPattern.hasMatch(p.basename(entity.path))) {
-        screenFiles.add(entity);
-      }
+      if (entity is! File) continue;
+      final baseName = p.basename(entity.path).toLowerCase();
+      if (!baseName.endsWith('.dart')) continue;
+      if (_isGeneratedDartFile(baseName)) continue;
+      dartFiles.add(entity);
     }
 
-    // Sort deterministically by relative path
-    screenFiles.sort((a, b) => a.path.compareTo(b.path));
+    // Sort deterministically by relative path so tests and layout order are stable.
+    dartFiles.sort((a, b) => a.path.compareTo(b.path));
 
-    for (var i = 0; i < screenFiles.length; i++) {
-      final file = screenFiles[i];
+    final fileContents = <String, String>{};
+    for (final file in dartFiles) {
+      try {
+        fileContents[file.path] = await file.readAsString();
+      } catch (_) {}
+    }
+
+    // Collect explicit route declarations (GoRoute and MaterialApp routes map) across lib/.
+    final explicitRoutes = _extractExplicitRoutePaths(fileContents.values);
+    final screenFilePattern =
+        RegExp(r'(_screen|_page|_view)\.dart$', caseSensitive: false);
+
+    final candidates = <_DiscoveredScreenCandidate>[];
+    final appShellBlocks = <String>[];
+
+    for (final file in dartFiles) {
       final fileName = p.basename(file.path);
       final relPath = p.relative(file.path, from: projectPath).replaceAll('\\', '/');
+      final content = fileContents[file.path] ?? '';
+      final isExplicitScreenFile = screenFilePattern.hasMatch(fileName);
 
-      final title = _extractScreenTitle(file, fileName);
-      final routePath = _generateRoutePath(fileName, title);
-      final nodeId = title.toLowerCase().replaceAll(' ', '_');
-      final icon = _guessScreenIcon(title);
-      final isProtected = _isProtectedScreen(title, fileName);
-      final requiredPermissions = _detectScreenPermissions(file, projectPermissions);
+      final extractedFromFile = _discoverScreensInFile(
+        fileName: fileName,
+        relPath: relPath,
+        content: content,
+        isExplicitScreenFile: isExplicitScreenFile,
+        explicitRoutes: explicitRoutes,
+        appShellBlocks: appShellBlocks,
+      );
+      candidates.addAll(extractedFromFile);
+    }
 
-      // Grid coordinate calculation (columns to the right of root at X=50)
-      final col = i ~/ 3;
-      final row = i % 3;
-      final x = 380.0 + (col * 330.0);
-      final y = 80.0 + (row * 160.0);
+    if (candidates.isEmpty) {
+      return [rootNode];
+    }
+
+    // Deduplicate candidate IDs deterministically while preserving `'root'` for rootNode.
+    final usedIds = <String>{'root'};
+    for (final c in candidates) {
+      final baseId = _toSnakeCaseId(c.title);
+      var uniqueId = baseId;
+      var suffix = 2;
+      while (usedIds.contains(uniqueId)) {
+        uniqueId = '${baseId}_$suffix';
+        suffix++;
+      }
+      usedIds.add(uniqueId);
+      c.assignedId = uniqueId;
+    }
+
+    // Infer parent-child relationships from AppShell home:/routes: and TabBarView / Navigator calls.
+    _assignParentRelationships(
+      candidates: candidates,
+      appShellBlocks: appShellBlocks,
+    );
+
+    // Position discovered nodes cleanly in a left-to-right tree starting after root at X=50.
+    _assignTreePositions(candidates);
+
+    // Count how many discovered screens share each file for contextual subtitles.
+    final countByFile = <String, int>{};
+    for (final c in candidates) {
+      countByFile[c.relPath] = (countByFile[c.relPath] ?? 0) + 1;
+    }
+
+    final routeNodes = <RouteNode>[rootNode];
+    for (final c in candidates) {
+      final sharedCount = countByFile[c.relPath] ?? 1;
+      final subtitle = sharedCount > 1
+          ? 'Auto-detected in ${c.fileName}'
+          : 'Auto-detected route: ${c.title}';
+
+      final requiredPermissions = _detectScreenPermissionsFromSource(
+        c.scopedSource,
+        projectPermissions,
+      );
 
       routeNodes.add(
         RouteNode(
-          id: nodeId,
-          path: routePath,
-          title: title,
-          subtitle: 'Auto-detected route: $title',
-          icon: icon,
-          isProtected: isProtected,
+          id: c.assignedId,
+          path: c.routePath,
+          title: c.title,
+          subtitle: subtitle,
+          icon: _guessScreenIcon(c.title),
+          isProtected: _isProtectedScreen(c.title, c.fileName),
           requiredPermissions: requiredPermissions,
-          position: Offset(x, y),
-          filePath: relPath,
-          parentRouteId: 'root',
+          position: c.position,
+          filePath: c.relPath,
+          parentRouteId: c.parentRouteId,
         ),
       );
     }
@@ -352,35 +408,369 @@ class ProjectAnalyzerService {
     return routeNodes;
   }
 
-  /// Extracts the screen title in PascalCase from the file name and Dart widget class.
-  static String _extractScreenTitle(File file, String fileName) {
-    // 1. Try extracting actual class name extending Widget from file content
-    try {
-      final content = file.readAsStringSync();
-      final classRegex = RegExp(
-        r'class\s+([A-Za-z0-9_]+)\s+extends\s+(?:StatelessWidget|StatefulWidget|ConsumerWidget|ConsumerStatefulWidget|HookWidget)',
-      );
-      final matches = classRegex.allMatches(content);
-      for (final m in matches) {
-        final className = m.group(1);
-        if (className != null &&
-            (className.endsWith('Screen') ||
-                className.endsWith('Page') ||
-                className.endsWith('View'))) {
-          return className;
+  static bool _isGeneratedDartFile(String lowerBaseName) {
+    return lowerBaseName.endsWith('.g.dart') ||
+        lowerBaseName.endsWith('.freezed.dart') ||
+        lowerBaseName.endsWith('.gr.dart') ||
+        lowerBaseName.endsWith('.mocks.dart') ||
+        lowerBaseName == 'generated_plugin_registrant.dart';
+  }
+
+  static Map<String, String> _extractExplicitRoutePaths(
+    Iterable<String> contents,
+  ) {
+    final map = <String, String>{};
+    final goRouteRegex = RegExp(
+      r'''GoRoute\s*\([\s\S]{0,500}?path:\s*['"]([^'"]+)['"][\s\S]{0,500}?builder:\s*[^=]*=>\s*(?:const\s+)?([A-Z][A-Za-z0-9_]*)\s*\(''',
+    );
+    final routeTableRegex = RegExp(
+      r'''['"](/[^'"]*)['"]\s*:\s*\([^)]*\)\s*(?:=>\s*(?:const\s+)?|\{[\s\S]{0,120}?return\s+(?:const\s+)?)([A-Z][A-Za-z0-9_]*)\s*\(''',
+    );
+
+    for (final content in contents) {
+      for (final match in goRouteRegex.allMatches(content)) {
+        final path = match.group(1);
+        final cls = match.group(2);
+        if (path != null && cls != null) {
+          map.putIfAbsent(cls, () => path);
         }
       }
-    } catch (_) {}
+      for (final match in routeTableRegex.allMatches(content)) {
+        final path = match.group(1);
+        final cls = match.group(2);
+        if (path != null && cls != null && path != '/') {
+          map.putIfAbsent(cls, () => path);
+        }
+      }
+    }
+    return map;
+  }
 
-    // 2. Fallback to formatting filename: e.g. home_screen.dart -> HomeScreen
-    final withoutExt = fileName.replaceAll(RegExp(r'\.dart$', caseSensitive: false), '');
+  static List<_DiscoveredScreenCandidate> _discoverScreensInFile({
+    required String fileName,
+    required String relPath,
+    required String content,
+    required bool isExplicitScreenFile,
+    required Map<String, String> explicitRoutes,
+    required List<String> appShellBlocks,
+  }) {
+    final widgetClassRegex = RegExp(
+      r'^\s*class\s+([A-Z][A-Za-z0-9_]*)\s+extends\s+(?:StatelessWidget|StatefulWidget|ConsumerWidget|ConsumerStatefulWidget|HookWidget|HookConsumerWidget|GetView(?:<[^>]+>)?|GetWidget(?:<[^>]+>)?)\b',
+      multiLine: true,
+    );
+    final materialAppRegex = RegExp(
+      r'\b(?:MaterialApp|CupertinoApp|GetMaterialApp)(?:\.router)?\s*\(',
+    );
+    final scaffoldRegex = RegExp(
+      r'\b(?:Scaffold|CupertinoPageScaffold)\s*\(',
+    );
+
+    final discovered = <_DiscoveredScreenCandidate>[];
+    final seenClassNames = <String>{};
+
+    for (final match in widgetClassRegex.allMatches(content)) {
+      final className = match.group(1);
+      if (className == null || !seenClassNames.add(className)) continue;
+
+      final scopedSource = extractWidgetClassAndStateScope(content, className);
+      final effectiveScope = scopedSource ?? content;
+
+      // App root wrappers (MaterialApp/CupertinoApp) represent '/' already covered by Root / Entry.
+      if (materialAppRegex.hasMatch(effectiveScope)) {
+        appShellBlocks.add(effectiveScope);
+        continue;
+      }
+
+      final hasScreenName = className.endsWith('Screen') ||
+          className.endsWith('Page') ||
+          className.endsWith('View');
+      final buildsScaffold = scaffoldRegex.hasMatch(effectiveScope);
+      final isExplicitRouteTarget = explicitRoutes.containsKey(className);
+
+      // Inside *_screen.dart / *_page.dart / *_view.dart, accept public Widget classes even if stubbed;
+      // across other .dart files (e.g. lib/screens.dart, lib/main.dart), match Screen/Page/View or Scaffold builders.
+      final shouldInclude = isExplicitScreenFile
+          ? (hasScreenName || buildsScaffold || isExplicitRouteTarget || discovered.isEmpty)
+          : (hasScreenName || buildsScaffold || isExplicitRouteTarget);
+
+      if (!shouldInclude) continue;
+
+      final routePath = explicitRoutes[className] ??
+          _generateRoutePathForClass(className);
+
+      discovered.add(
+        _DiscoveredScreenCandidate(
+          title: className,
+          fileName: fileName,
+          relPath: relPath,
+          routePath: routePath,
+          scopedSource: effectiveScope,
+        ),
+      );
+    }
+
+    // Fallback when a traditional *_screen.dart / *_page.dart / *_view.dart uses a custom base widget.
+    if (discovered.isEmpty && isExplicitScreenFile) {
+      final title = _formatFilenameAsTitle(fileName);
+      discovered.add(
+        _DiscoveredScreenCandidate(
+          title: title,
+          fileName: fileName,
+          relPath: relPath,
+          routePath: _generateRoutePath(fileName, title),
+          scopedSource: content,
+        ),
+      );
+    }
+
+    return discovered;
+  }
+
+  /// Extracts [className]'s declaration block plus its companion `State` class block (if any).
+  static String? extractWidgetClassAndStateScope(
+    String content,
+    String className,
+  ) {
+    final blocks = <String>[];
+    final mainBlock = _extractSingleClassBlock(content, className);
+    if (mainBlock == null) return null;
+    blocks.add(mainBlock);
+
+    for (final stateName in ['_${className}State', '${className}State']) {
+      final stateBlock = _extractSingleClassBlock(content, stateName);
+      if (stateBlock != null) {
+        blocks.add(stateBlock);
+      }
+    }
+    return blocks.join('\n\n');
+  }
+
+  static String? _extractSingleClassBlock(String content, String exactClassName) {
+    final escaped = RegExp.escape(exactClassName);
+    final classStartRegex = RegExp(
+      'class\\s+$escaped\\b[^{;]*\\{',
+      multiLine: true,
+    );
+    final match = classStartRegex.firstMatch(content);
+    if (match == null) return null;
+
+    final openBraceIndex = match.end - 1;
+    final closeBraceIndex = _findMatchingBrace(content, openBraceIndex);
+    if (closeBraceIndex == -1) return null;
+    return content.substring(match.start, closeBraceIndex + 1);
+  }
+
+  /// Finds matching `}` while ignoring Dart strings and comments cleanly.
+  static int _findMatchingBrace(String code, int openBraceIndex) {
+    var depth = 0;
+    var i = openBraceIndex;
+    final len = code.length;
+
+    while (i < len) {
+      final ch = code[i];
+
+      // Line comment
+      if (ch == '/' && i + 1 < len && code[i + 1] == '/') {
+        i += 2;
+        while (i < len && code[i] != '\n') {
+          i++;
+        }
+        continue;
+      }
+
+      // Block comment
+      if (ch == '/' && i + 1 < len && code[i + 1] == '*') {
+        i += 2;
+        while (i + 1 < len && !(code[i] == '*' && code[i + 1] == '/')) {
+          i++;
+        }
+        i += 2;
+        continue;
+      }
+
+      // Triple or single string literals
+      if (ch == '\'' || ch == '"') {
+        final isTriple = i + 2 < len && code[i + 1] == ch && code[i + 2] == ch;
+        if (isTriple) {
+          i += 3;
+          while (i + 2 < len) {
+            if (code[i] == '\\') {
+              i += 2;
+              continue;
+            }
+            if (code[i] == ch && code[i + 1] == ch && code[i + 2] == ch) {
+              i += 3;
+              break;
+            }
+            i++;
+          }
+          continue;
+        } else {
+          i++;
+          while (i < len) {
+            if (code[i] == '\\') {
+              i += 2;
+              continue;
+            }
+            if (code[i] == ch || code[i] == '\n') {
+              i++;
+              break;
+            }
+            i++;
+          }
+          continue;
+        }
+      }
+
+      if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0) return i;
+      }
+      i++;
+    }
+
+    return -1;
+  }
+
+  static void _assignParentRelationships({
+    required List<_DiscoveredScreenCandidate> candidates,
+    required List<String> appShellBlocks,
+  }) {
+    final byClass = <String, _DiscoveredScreenCandidate>{
+      for (final c in candidates) c.title: c,
+    };
+    final byId = <String, _DiscoveredScreenCandidate>{
+      for (final c in candidates) c.assignedId: c,
+    };
+
+    // Any screen explicitly set as `home:` inside MaterialApp/CupertinoApp hooks straight to `root`.
+    final rootTargets = <String>{};
+    for (final shell in appShellBlocks) {
+      final homeMatch = RegExp(
+        r'home:\s*(?:const\s+)?([A-Z][A-Za-z0-9_]*)\s*\(',
+      ).firstMatch(shell);
+      final target = homeMatch?.group(1);
+      if (target != null && byClass.containsKey(target)) {
+        rootTargets.add(target);
+        byClass[target]!.parentRouteId = 'root';
+      }
+    }
+
+    bool wouldCreateCycle(String childId, String proposedParentId) {
+      var cursor = proposedParentId;
+      final visited = <String>{childId};
+      while (cursor != 'root') {
+        if (!visited.add(cursor)) return true;
+        final node = byId[cursor];
+        if (node == null || node.parentRouteId == null) break;
+        cursor = node.parentRouteId!;
+      }
+      return false;
+    }
+
+    // Link screens instantiated inside another screen's TabBarView / IndexedStack / Navigator calls.
+    for (final parent in candidates) {
+      for (final child in candidates) {
+        if (identical(parent, child)) continue;
+        if (rootTargets.contains(child.title)) continue;
+        if (child.parentRouteId != null && child.parentRouteId != 'root') {
+          continue;
+        }
+
+        final refRegex = RegExp('\\b${RegExp.escape(child.title)}\\s*\\(');
+        if (refRegex.hasMatch(parent.scopedSource) &&
+            !wouldCreateCycle(child.assignedId, parent.assignedId)) {
+          child.parentRouteId = parent.assignedId;
+        }
+      }
+    }
+
+    for (final c in candidates) {
+      c.parentRouteId ??= 'root';
+    }
+  }
+
+  static void _assignTreePositions(List<_DiscoveredScreenCandidate> candidates) {
+    final byId = <String, _DiscoveredScreenCandidate>{
+      for (final c in candidates) c.assignedId: c,
+    };
+
+    int computeDepth(_DiscoveredScreenCandidate node) {
+      var depth = 1;
+      var parentId = node.parentRouteId ?? 'root';
+      final visited = <String>{node.assignedId};
+      while (parentId != 'root') {
+        if (!visited.add(parentId)) break;
+        depth++;
+        final parent = byId[parentId];
+        if (parent == null) break;
+        parentId = parent.parentRouteId ?? 'root';
+      }
+      return depth;
+    }
+
+    final byDepth = <int, List<_DiscoveredScreenCandidate>>{};
+    for (final c in candidates) {
+      final d = computeDepth(c);
+      byDepth.putIfAbsent(d, () => []).add(c);
+    }
+
+    var currentColOffset = 0;
+    final depths = byDepth.keys.toList()..sort();
+    for (final depth in depths) {
+      final layer = byDepth[depth]!;
+      final baseX = 380.0 + ((depth - 1 + currentColOffset) * 330.0);
+
+      if (layer.length <= 5) {
+        for (var i = 0; i < layer.length; i++) {
+          final y = layer.length == 1 ? 220.0 : 80.0 + (i * 155.0);
+          layer[i].position = Offset(baseX, y);
+        }
+      } else {
+        for (var i = 0; i < layer.length; i++) {
+          final subCol = i ~/ 4;
+          final row = i % 4;
+          layer[i].position = Offset(baseX + (subCol * 330.0), 80.0 + (row * 155.0));
+        }
+        currentColOffset += (layer.length - 1) ~/ 4;
+      }
+    }
+  }
+
+  static String _formatFilenameAsTitle(String fileName) {
+    final withoutExt =
+        fileName.replaceAll(RegExp(r'\.dart$', caseSensitive: false), '');
     final words = withoutExt.split(RegExp(r'[_ -]+'));
     final formatted = words.where((w) => w.isNotEmpty).map((w) {
       if (w.length == 1) return w.toUpperCase();
       return '${w[0].toUpperCase()}${w.substring(1)}';
     }).join('');
-
     return formatted.isNotEmpty ? formatted : 'Screen';
+  }
+
+  static String _generateRoutePathForClass(String className) {
+    var base = className.replaceFirst(RegExp(r'(Screen|Page|View)$'), '');
+    if (base.isEmpty) base = className;
+    final kebab = base
+        .replaceAllMapped(
+          RegExp(r'([a-z0-9])([A-Z])'),
+          (m) => '${m.group(1)}-${m.group(2)}',
+        )
+        .toLowerCase();
+    return '/$kebab';
+  }
+
+  static String _toSnakeCaseId(String input) {
+    return input
+        .replaceAllMapped(
+          RegExp(r'([a-z0-9])([A-Z])'),
+          (m) => '${m.group(1)}_${m.group(2)}',
+        )
+        .replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '')
+        .toLowerCase();
   }
 
   /// Generates a clean route path from the screen filename.
@@ -398,6 +788,9 @@ class ProjectAnalyzerService {
   /// Determines an appropriate icon based on the screen's title or purpose.
   static IconData _guessScreenIcon(String title) {
     final lower = title.toLowerCase();
+    if (lower.contains('main') || lower.contains('shell')) {
+      return Icons.view_carousel_rounded;
+    }
     if (lower.contains('home')) return Icons.home_rounded;
     if (lower.contains('login') || lower.contains('auth') || lower.contains('signin')) {
       return Icons.lock_outline_rounded;
@@ -411,10 +804,16 @@ class ProjectAnalyzerService {
     if (lower.contains('explore') || lower.contains('feed')) {
       return Icons.explore_rounded;
     }
+    if (lower.contains('gallery') || lower.contains('history') || lower.contains('photo') || lower.contains('img')) {
+      return Icons.photo_library_rounded;
+    }
+    if (lower.contains('inpaint') || lower.contains('paint') || lower.contains('draw') || lower.contains('txt')) {
+      return Icons.auto_fix_high_rounded;
+    }
     if (lower.contains('profile') || lower.contains('user') || lower.contains('account')) {
       return Icons.account_circle_rounded;
     }
-    if (lower.contains('setting') || lower.contains('config') || lower.contains('preference')) {
+    if (lower.contains('setting') || lower.contains('config') || lower.contains('preference') || lower.contains('model')) {
       return Icons.settings_rounded;
     }
     if (lower.contains('payment') || lower.contains('checkout') || lower.contains('wallet') || lower.contains('pix')) {
@@ -445,12 +844,12 @@ class ProjectAnalyzerService {
   }
 
   /// Detects specific device permissions invoked in a given screen's Dart source.
-  static List<DevicePermission> _detectScreenPermissions(
-    File file,
+  static List<DevicePermission> _detectScreenPermissionsFromSource(
+    String rawSource,
     Set<DevicePermission> projectPermissions,
   ) {
     try {
-      final content = file.readAsStringSync().toLowerCase();
+      final content = rawSource.toLowerCase();
       final needed = <DevicePermission>[];
       for (final perm in projectPermissions) {
         switch (perm) {
@@ -476,7 +875,9 @@ class ProjectAnalyzerService {
           case DevicePermission.photoLibrary:
             if (content.contains('photo') ||
                 content.contains('gallery') ||
-                content.contains('image_picker')) {
+                content.contains('galeria') ||
+                content.contains('image_picker') ||
+                content.contains('gal.')) {
               needed.add(perm);
             }
             break;
@@ -644,4 +1045,23 @@ class ProjectAnalyzerService {
         return 'Drift / Isar + Provider';
     }
   }
+}
+
+class _DiscoveredScreenCandidate {
+  final String title;
+  final String fileName;
+  final String relPath;
+  final String routePath;
+  final String scopedSource;
+  String assignedId = '';
+  String? parentRouteId;
+  Offset position = Offset.zero;
+
+  _DiscoveredScreenCandidate({
+    required this.title,
+    required this.fileName,
+    required this.relPath,
+    required this.routePath,
+    required this.scopedSource,
+  });
 }

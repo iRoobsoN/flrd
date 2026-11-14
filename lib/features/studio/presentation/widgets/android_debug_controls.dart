@@ -1,11 +1,16 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../models/connected_device.dart';
+import '../../models/terminal_session.dart';
 import '../../providers/android_debug_provider.dart';
+import '../../providers/terminal_provider.dart';
+import '../../services/terminal_shell_service.dart';
 import 'android_connection_troubleshooter_dialog.dart';
 
 /// Compact toolbar controls rendered inside [AppStudioScreen] to detect
@@ -27,12 +32,16 @@ class AndroidDebugToolbarControls extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(androidDebugProvider);
     final notifier = ref.read(androidDebugProvider.notifier);
+    final shellCount = ref.watch(
+      terminalProvider.select((s) => s.interactiveShellCount),
+    );
 
     if (state.isActiveSession) {
       return _ActiveSessionControls(
         state: state,
         notifier: notifier,
         isConsoleOpen: isConsoleOpen,
+        shellCount: shellCount,
         onToggleConsole: onToggleConsole,
       );
     }
@@ -50,7 +59,7 @@ class AndroidDebugToolbarControls extends ConsumerWidget {
           _ToolbarActionPill(
             key: const ValueKey('android_scan_devices_button'),
             icon: isScanning ? Icons.sync_rounded : Icons.usb_rounded,
-            label: isScanning ? 'Buscando Android...' : 'Android USB',
+            label: isScanning ? 'Buscando...' : 'Android USB',
             tooltip: hasDetectedIssue
                 ? '${diagnostic.title} (clique para diagnosticar e resolver)'
                 : 'Detectar aparelhos Android conectados via USB/ADB',
@@ -109,16 +118,13 @@ class AndroidDebugToolbarControls extends ConsumerWidget {
                   AndroidConnectionTroubleshooterDialog.show(context),
             ),
           ],
-          if (state.status == DeviceRunStatus.error ||
-              state.logs.isNotEmpty ||
-              isConsoleOpen) ...[
-            const SizedBox(width: 4),
-            _ConsoleToggleButton(
-              isConsoleOpen: isConsoleOpen,
-              hasError: state.status == DeviceRunStatus.error,
-              onToggleConsole: onToggleConsole,
-            ),
-          ],
+          const SizedBox(width: 4),
+          _ConsoleToggleButton(
+            isConsoleOpen: isConsoleOpen,
+            hasError: state.status == DeviceRunStatus.error,
+            shellCount: shellCount,
+            onToggleConsole: onToggleConsole,
+          ),
         ],
       );
     }
@@ -182,14 +188,13 @@ class AndroidDebugToolbarControls extends ConsumerWidget {
             ),
           ),
         ],
-        if (hasError || state.logs.isNotEmpty || isConsoleOpen) ...[
-          const SizedBox(width: 4),
-          _ConsoleToggleButton(
-            isConsoleOpen: isConsoleOpen,
-            hasError: hasError,
-            onToggleConsole: onToggleConsole,
-          ),
-        ],
+        const SizedBox(width: 4),
+        _ConsoleToggleButton(
+          isConsoleOpen: isConsoleOpen,
+          hasError: hasError,
+          shellCount: shellCount,
+          onToggleConsole: onToggleConsole,
+        ),
       ],
     );
   }
@@ -200,12 +205,14 @@ class _ActiveSessionControls extends StatelessWidget {
     required this.state,
     required this.notifier,
     required this.isConsoleOpen,
+    required this.shellCount,
     required this.onToggleConsole,
   });
 
   final AndroidDebugState state;
   final AndroidDebugNotifier notifier;
   final bool isConsoleOpen;
+  final int shellCount;
   final VoidCallback? onToggleConsole;
 
   @override
@@ -290,6 +297,7 @@ class _ActiveSessionControls extends StatelessWidget {
         _ConsoleToggleButton(
           isConsoleOpen: isConsoleOpen,
           hasError: state.status == DeviceRunStatus.error,
+          shellCount: shellCount,
           onToggleConsole: onToggleConsole,
         ),
         const SizedBox(width: 4),
@@ -421,29 +429,51 @@ class _ConsoleToggleButton extends StatelessWidget {
   const _ConsoleToggleButton({
     required this.isConsoleOpen,
     required this.hasError,
+    required this.shellCount,
     required this.onToggleConsole,
   });
 
   final bool isConsoleOpen;
   final bool hasError;
+  final int shellCount;
   final VoidCallback? onToggleConsole;
 
   @override
   Widget build(BuildContext context) {
     final accent = hasError
         ? AppColors.danger
-        : isConsoleOpen
+        : isConsoleOpen || shellCount > 0
             ? AppColors.secondary
             : AppColors.textSecondary;
-    return _ToolbarActionPill(
+    final tooltip = isConsoleOpen
+        ? 'Ocultar terminal persistente (sessões continuam ativas)'
+        : 'Abrir terminal persistente / console Android';
+
+    if (shellCount > 0) {
+      return _ToolbarActionPill(
+        key: const ValueKey('android_logs_button'),
+        icon: Icons.terminal_rounded,
+        label: '$shellCount',
+        tooltip: tooltip,
+        accentColor: accent,
+        textColor: accent,
+        backgroundColor: isConsoleOpen
+            ? AppColors.secondary.withValues(alpha: 0.14)
+            : AppColors.surface,
+        borderColor: isConsoleOpen
+            ? AppColors.secondary.withValues(alpha: 0.55)
+            : hasError
+                ? AppColors.danger.withValues(alpha: 0.55)
+                : null,
+        onPressed: onToggleConsole,
+      );
+    }
+
+    return _ToolbarIconButton(
       key: const ValueKey('android_logs_button'),
       icon: Icons.terminal_rounded,
-      label: 'Logs',
-      tooltip: isConsoleOpen
-          ? 'Ocultar console de debug Android'
-          : 'Exibir console de debug Android',
-      accentColor: accent,
-      textColor: isConsoleOpen || hasError ? accent : AppColors.textPrimary,
+      tooltip: tooltip,
+      color: accent,
       backgroundColor: isConsoleOpen
           ? AppColors.secondary.withValues(alpha: 0.14)
           : AppColors.surface,
@@ -565,32 +595,221 @@ class _ToolbarIconButton extends StatelessWidget {
   }
 }
 
-/// Collapsible real-time console panel displaying `flutter run --machine`
-/// build progress, VM Service/DevTools URIs, and device log output.
-class AndroidDebugConsolePanel extends ConsumerWidget {
+/// VS Code-style persistent bottom terminal & real-time Android debug console.
+///
+/// Stays alive across build failures, USB disconnects, and session stops, and
+/// lets the user create, switch, restart, resize, and close additional shell tabs.
+class AndroidDebugConsolePanel extends ConsumerStatefulWidget {
   const AndroidDebugConsolePanel({
     super.key,
     required this.onClose,
+    this.projectPath,
   });
 
   final VoidCallback onClose;
+  final String? projectPath;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(androidDebugProvider);
-    final notifier = ref.read(androidDebugProvider.notifier);
+  ConsumerState<AndroidDebugConsolePanel> createState() =>
+      _AndroidDebugConsolePanelState();
+}
 
-    final statusColor = switch (state.status) {
-      DeviceRunStatus.running => AppColors.success,
-      DeviceRunStatus.launching => AppColors.warning,
-      DeviceRunStatus.reloading => AppColors.secondary,
-      DeviceRunStatus.error => AppColors.danger,
-      _ => AppColors.textMuted,
-    };
+class _AndroidDebugConsolePanelState
+    extends ConsumerState<AndroidDebugConsolePanel> {
+  final ScrollController _scrollController = ScrollController();
+  final TextEditingController _commandController = TextEditingController();
+  late final FocusNode _commandFocusNode;
+  int _historyCursor = -1;
+  int _lastLineCount = 0;
+  String _lastTabId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _commandFocusNode = FocusNode(onKeyEvent: _handleCommandKeyEvent);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final dir = widget.projectPath;
+      if (dir != null && dir.trim().isNotEmpty) {
+        ref.read(terminalProvider.notifier).setProjectDirectory(dir);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _commandController.dispose();
+    _commandFocusNode.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _handleCommandKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    final isUp = event.logicalKey == LogicalKeyboardKey.arrowUp;
+    final isDown = event.logicalKey == LogicalKeyboardKey.arrowDown;
+    if (!isUp && !isDown) return KeyEventResult.ignored;
+
+    final history = _activeCommandHistory();
+    if (history.isEmpty) return KeyEventResult.ignored;
+
+    if (isUp) {
+      if (_historyCursor == -1) {
+        _historyCursor = history.length - 1;
+      } else if (_historyCursor > 0) {
+        _historyCursor--;
+      }
+      _applyCommandText(history[_historyCursor]);
+      return KeyEventResult.handled;
+    }
+
+    if (_historyCursor == -1) return KeyEventResult.ignored;
+    if (_historyCursor < history.length - 1) {
+      _historyCursor++;
+      _applyCommandText(history[_historyCursor]);
+    } else {
+      _historyCursor = -1;
+      _applyCommandText('');
+    }
+    return KeyEventResult.handled;
+  }
+
+  List<String> _activeCommandHistory() {
+    final workspace = ref.read(terminalProvider);
+    final active = workspace.activeTab;
+    if (active.isInteractiveShell) return active.commandHistory;
+    for (final tab in workspace.tabs) {
+      if (tab.isInteractiveShell && tab.commandHistory.isNotEmpty) {
+        return tab.commandHistory;
+      }
+    }
+    return const [];
+  }
+
+  void _applyCommandText(String value) {
+    _commandController.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
+  void _scheduleAutoScroll(int lineCount, String tabId) {
+    if (tabId == _lastTabId && lineCount <= _lastLineCount) return;
+    _lastTabId = tabId;
+    _lastLineCount = lineCount;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    });
+  }
+
+  String _effectiveWorkingDirectory(TerminalWorkspaceState workspace) {
+    final fromWidget = (widget.projectPath ?? '').trim();
+    if (fromWidget.isNotEmpty) return fromWidget;
+    final fromDebug = (ref.read(androidDebugProvider).projectPath ?? '').trim();
+    if (fromDebug.isNotEmpty) return fromDebug;
+    return workspace.activeTab.workingDirectory;
+  }
+
+  Future<void> _submitCommand(String raw) async {
+    final cmd = raw.trim();
+    if (cmd.isEmpty) return;
+
+    _commandController.clear();
+    _historyCursor = -1;
+
+    final debugState = ref.read(androidDebugProvider);
+    final debugNotifier = ref.read(androidDebugProvider.notifier);
+    final workspace = ref.read(terminalProvider);
+    final terminalNotifier = ref.read(terminalProvider.notifier);
+    final activeTab = workspace.activeTab;
+
+    if (activeTab.isPinned) {
+      final lower = cmd.toLowerCase();
+      if (debugState.isRunningOrReloading) {
+        if (cmd == 'r') {
+          await debugNotifier.hotReload(reason: 'terminal');
+          return;
+        }
+        if (cmd == 'R') {
+          await debugNotifier.hotRestart();
+          return;
+        }
+        if (lower == 'q' || lower == 'quit') {
+          await debugNotifier.stopSession();
+          return;
+        }
+      }
+      if (lower == 'cls' || lower == 'clear') {
+        debugNotifier.clearLogs();
+        return;
+      }
+
+      // Route shell commands typed in Debug Android into an active/new shell tab
+      // so the terminal stays immediately interactive without dead ends.
+      String? targetShellId;
+      for (final tab in workspace.tabs) {
+        if (tab.isInteractiveShell) {
+          targetShellId = tab.id;
+          break;
+        }
+      }
+      targetShellId ??= await terminalNotifier.createShellTerminal(
+        workingDirectory: _effectiveWorkingDirectory(workspace),
+        activate: true,
+      );
+      terminalNotifier.selectTab(targetShellId);
+      await terminalNotifier.sendCommand(targetShellId, cmd);
+      return;
+    }
+
+    await terminalNotifier.sendCommand(activeTab.id, cmd);
+  }
+
+  Future<void> _copyActiveOutput(
+    BuildContext context,
+    TerminalTabSession activeTab,
+    AndroidDebugState debugState,
+  ) async {
+    final buffer = StringBuffer();
+    if (activeTab.isPinned) {
+      for (final entry in debugState.logs) {
+        buffer.writeln('[${entry.formattedTime}] ${entry.message}');
+      }
+    } else {
+      for (final line in activeTab.lines) {
+        buffer.writeln('[${line.formattedTime}] ${line.text}');
+      }
+    }
+    final text = buffer.toString().trimRight();
+    if (text.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    AppToast.success(context, 'Saída do terminal "${activeTab.title}" copiada.');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final debugState = ref.watch(androidDebugProvider);
+    final debugNotifier = ref.read(androidDebugProvider.notifier);
+    final workspace = ref.watch(terminalProvider);
+    final terminalNotifier = ref.read(terminalProvider.notifier);
+    final shellService = ref.read(terminalShellServiceProvider);
+
+    final activeTab = workspace.activeTab;
+    final lineCount =
+        activeTab.isPinned ? debugState.logs.length : activeTab.lines.length;
+    _scheduleAutoScroll(lineCount, activeTab.id);
+
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final maxResponsiveHeight =
+        (viewportHeight * 0.44).clamp(140.0, TerminalWorkspaceState.maxPanelHeight);
+    final effectiveHeight = math.min(workspace.panelHeight, maxResponsiveHeight);
 
     return Container(
       key: const ValueKey('android_debug_console_panel'),
-      height: 196,
+      height: effectiveHeight,
       decoration: const BoxDecoration(
         color: AppColors.backgroundSecondary,
         border: Border(top: BorderSide(color: AppColors.border)),
@@ -598,49 +817,201 @@ class AndroidDebugConsolePanel extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildConsoleHeader(context, state, notifier, statusColor),
-          if (state.errorMessage != null)
-            _buildErrorBanner(state.errorMessage!, notifier),
-          Expanded(child: _buildLogList(state.logs)),
+          _buildResizeHandle(terminalNotifier, workspace.panelHeight),
+          _buildTabStripHeader(
+            context: context,
+            workspace: workspace,
+            activeTab: activeTab,
+            debugState: debugState,
+            debugNotifier: debugNotifier,
+            terminalNotifier: terminalNotifier,
+            shellService: shellService,
+          ),
+          if (activeTab.isPinned && debugState.errorMessage != null)
+            _buildErrorBanner(debugState.errorMessage!, debugNotifier),
+          if (!activeTab.isPinned &&
+              activeTab.status == TerminalProcessStatus.exited)
+            _buildExitedShellBanner(activeTab, terminalNotifier),
+          Expanded(
+            child: activeTab.isPinned
+                ? _buildAndroidDebugLogList(debugState, workspace, terminalNotifier)
+                : _buildShellLineList(activeTab),
+          ),
+          _buildCommandInputBar(
+            workspace: workspace,
+            activeTab: activeTab,
+            debugState: debugState,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildConsoleHeader(
-    BuildContext context,
-    AndroidDebugState state,
-    AndroidDebugNotifier notifier,
-    Color statusColor,
+  Widget _buildResizeHandle(
+    TerminalNotifier terminalNotifier,
+    double currentHeight,
   ) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeRow,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragUpdate: (details) {
+          terminalNotifier.setPanelHeight(currentHeight - details.delta.dy);
+        },
+        child: Container(
+          height: 5,
+          alignment: Alignment.center,
+          color: AppColors.surface,
+          child: Container(
+            width: 34,
+            height: 2,
+            decoration: BoxDecoration(
+              color: AppColors.border,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabStripHeader({
+    required BuildContext context,
+    required TerminalWorkspaceState workspace,
+    required TerminalTabSession activeTab,
+    required AndroidDebugState debugState,
+    required AndroidDebugNotifier debugNotifier,
+    required TerminalNotifier terminalNotifier,
+    required TerminalShellService shellService,
+  }) {
+    final availableProfiles = shellService.availableProfiles();
+
     return Container(
       height: 34,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: const BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.borderSubtle)),
       ),
       child: Row(
         children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              color: statusColor,
-              shape: BoxShape.circle,
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final tab in workspace.tabs) ...[
+                    _TerminalTabChip(
+                      tab: tab,
+                      isSelected: tab.id == activeTab.id,
+                      debugStatus: tab.isPinned ? debugState.status : null,
+                      onTap: () => terminalNotifier.selectTab(tab.id),
+                      onClose: tab.isPinned
+                          ? null
+                          : () => terminalNotifier.closeTab(tab.id),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  Tooltip(
+                    message: 'Criar novo terminal interativo',
+                    child: InkWell(
+                      key: const ValueKey('terminal_add_tab_button'),
+                      onTap: () => terminalNotifier.createShellTerminal(
+                        workingDirectory: _effectiveWorkingDirectory(workspace),
+                      ),
+                      borderRadius: BorderRadius.circular(5),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceCard,
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.add_rounded,
+                              size: 14,
+                              color: AppColors.textPrimary,
+                            ),
+                            SizedBox(width: 2),
+                            Text(
+                              'Novo Terminal',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (availableProfiles.length > 1) ...[
+                    const SizedBox(width: 2),
+                    PopupMenuButton<TerminalShellProfile>(
+                      key: const ValueKey('terminal_shell_menu_button'),
+                      tooltip: 'Escolher tipo de terminal (PowerShell / CMD)',
+                      padding: EdgeInsets.zero,
+                      color: AppColors.surfaceCard,
+                      onSelected: (profile) =>
+                          terminalNotifier.createShellTerminal(
+                        workingDirectory: _effectiveWorkingDirectory(workspace),
+                        profile: profile,
+                      ),
+                      itemBuilder: (context) => [
+                        for (final profile in availableProfiles)
+                          PopupMenuItem(
+                            value: profile,
+                            height: 32,
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.terminal_rounded,
+                                  size: 13,
+                                  color: AppColors.secondary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Novo ${profile.label}',
+                                  style: const TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 11.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 3,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceCard,
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 14,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
-          const SizedBox(width: 8),
-          const Text(
-            'Console Android Real-Time',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (state.selectedDevice != null) ...[
-            const SizedBox(width: 8),
+          const SizedBox(width: 6),
+          if (activeTab.isPinned && debugState.selectedDevice != null) ...[
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -649,19 +1020,20 @@ class AndroidDebugConsolePanel extends ConsumerWidget {
                 border: Border.all(color: AppColors.border),
               ),
               child: Text(
-                state.selectedDevice!.displayLabel,
+                debugState.selectedDevice!.displayLabel,
                 style: const TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 10,
                 ),
               ),
             ),
+            const SizedBox(width: 6),
           ],
-          if (state.progressMessage != null) ...[
-            const SizedBox(width: 8),
-            Flexible(
+          if (activeTab.isPinned && debugState.progressMessage != null) ...[
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 180),
               child: Text(
-                state.progressMessage!,
+                debugState.progressMessage!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -670,38 +1042,63 @@ class AndroidDebugConsolePanel extends ConsumerWidget {
                 ),
               ),
             ),
+            const SizedBox(width: 6),
           ],
-          const Spacer(),
-          if (state.vmServiceUri != null) ...[
+          if (activeTab.isPinned && debugState.vmServiceUri != null) ...[
             _UriCopyChip(
               label: 'VM Service',
-              uri: state.vmServiceUri!,
+              uri: debugState.vmServiceUri!,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
           ],
-          if (state.devToolsUri != null) ...[
+          if (activeTab.isPinned && debugState.devToolsUri != null) ...[
             _UriCopyChip(
               label: 'DevTools',
-              uri: state.devToolsUri!,
+              uri: debugState.devToolsUri!,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
           ],
+          if (activeTab.isInteractiveShell)
+            IconButton(
+              key: const ValueKey('terminal_restart_button'),
+              onPressed: () =>
+                  terminalNotifier.restartShellTerminal(activeTab.id),
+              icon: const Icon(Icons.restart_alt_rounded, size: 15),
+              color: AppColors.textSecondary,
+              tooltip: 'Reiniciar sessão deste terminal',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+            ),
           IconButton(
-            key: const ValueKey('android_clear_logs_button'),
-            onPressed: notifier.clearLogs,
-            icon: const Icon(Icons.delete_sweep_rounded, size: 15),
+            key: const ValueKey('terminal_copy_output_button'),
+            onPressed: () => _copyActiveOutput(context, activeTab, debugState),
+            icon: const Icon(Icons.content_copy_rounded, size: 13.5),
             color: AppColors.textSecondary,
-            tooltip: 'Limpar logs',
+            tooltip: 'Copiar saída do terminal atual',
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
           ),
-          const SizedBox(width: 2),
+          IconButton(
+            key: const ValueKey('android_clear_logs_button'),
+            onPressed: () {
+              if (activeTab.isPinned) {
+                debugNotifier.clearLogs();
+              } else {
+                terminalNotifier.clearTab(activeTab.id);
+              }
+            },
+            icon: const Icon(Icons.delete_sweep_rounded, size: 15),
+            color: AppColors.textSecondary,
+            tooltip: 'Limpar saída deste terminal',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
           IconButton(
             key: const ValueKey('android_close_console_button'),
-            onPressed: onClose,
-            icon: const Icon(Icons.close_rounded, size: 15),
+            onPressed: widget.onClose,
+            icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 17),
             color: AppColors.textSecondary,
-            tooltip: 'Fechar console',
+            tooltip: 'Minimizar painel (terminais continuam ativos)',
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
           ),
@@ -715,7 +1112,7 @@ class AndroidDebugConsolePanel extends ConsumerWidget {
     AndroidDebugNotifier notifier,
   ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       color: AppColors.danger.withValues(alpha: 0.14),
       child: Row(
         children: [
@@ -750,55 +1147,399 @@ class AndroidDebugConsolePanel extends ConsumerWidget {
     );
   }
 
-  Widget _buildLogList(List<DeviceLogEntry> logs) {
-    if (logs.isEmpty) {
-      return const Center(
-        child: Text(
-          'Aguardando saída do dispositivo Android...',
-          style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+  Widget _buildExitedShellBanner(
+    TerminalTabSession tab,
+    TerminalNotifier terminalNotifier,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      color: AppColors.warning.withValues(alpha: 0.12),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 13,
+            color: AppColors.warning,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Shell encerrado (código ${tab.exitCode ?? 0}). O terminal permanece aberto — envie um comando ou reinicie.',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.warning,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => terminalNotifier.restartShellTerminal(tab.id),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              minimumSize: const Size(0, 22),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Reiniciar',
+              style: TextStyle(
+                color: AppColors.secondary,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAndroidDebugLogList(
+    AndroidDebugState state,
+    TerminalWorkspaceState workspace,
+    TerminalNotifier terminalNotifier,
+  ) {
+    if (state.logs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
+            runSpacing: 6,
+            children: [
+              const Text(
+                'Terminal persistente pronto — execute no Android ou rode comandos abaixo.',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => terminalNotifier.createShellTerminal(
+                  workingDirectory: _effectiveWorkingDirectory(workspace),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.border),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  minimumSize: const Size(0, 26),
+                ),
+                icon: const Icon(
+                  Icons.terminal_rounded,
+                  size: 12,
+                  color: AppColors.secondary,
+                ),
+                label: const Text(
+                  'Abrir Terminal Shell',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     return ListView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      itemCount: logs.length,
+      itemCount: state.logs.length,
       itemBuilder: (context, index) {
-        final entry = logs[index];
+        final entry = state.logs[index];
         final msgColor = entry.isError
             ? AppColors.danger
             : entry.isSystem
                 ? AppColors.secondary
                 : AppColors.textPrimary;
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 1),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '[${entry.formattedTime}] ',
-                style: const TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              Expanded(
-                child: SelectableText(
-                  entry.message,
-                  style: TextStyle(
-                    color: msgColor,
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    height: 1.3,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        return _TerminalOutputRow(
+          timestamp: entry.formattedTime,
+          text: entry.message,
+          color: msgColor,
         );
       },
+    );
+  }
+
+  Widget _buildShellLineList(TerminalTabSession tab) {
+    if (tab.lines.isEmpty) {
+      return const Center(
+        child: Text(
+          'Terminal interativo pronto. Digite um comando abaixo.',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      itemCount: tab.lines.length,
+      itemBuilder: (context, index) {
+        final line = tab.lines[index];
+        final color = line.isError
+            ? AppColors.danger
+            : line.isCommandEcho
+                ? AppColors.secondary
+                : line.isSystem
+                    ? AppColors.textSecondary
+                    : AppColors.textPrimary;
+
+        return _TerminalOutputRow(
+          timestamp: line.formattedTime,
+          text: line.text,
+          color: color,
+          isBold: line.isCommandEcho,
+        );
+      },
+    );
+  }
+
+  Widget _buildCommandInputBar({
+    required TerminalWorkspaceState workspace,
+    required TerminalTabSession activeTab,
+    required AndroidDebugState debugState,
+  }) {
+    final workDir = _effectiveWorkingDirectory(workspace);
+    final dirLabel = activeTab.isPinned
+        ? (debugState.isRunningOrReloading ? 'debug' : 'android')
+        : (workDir.isNotEmpty ? p.basename(workDir) : 'shell');
+
+    final hint = activeTab.isPinned
+        ? (debugState.isRunningOrReloading
+            ? 'r = Hot Reload · R = Hot Restart · q = Parar · ou comando CLI...'
+            : 'Digite um comando CLI (ex: flutter devices, adb devices, flutter doctor)...')
+        : 'Digite um comando (${activeTab.profile.label}) — Enter para executar, ↑/↓ histórico';
+
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              '$dirLabel >',
+              style: const TextStyle(
+                color: AppColors.secondary,
+                fontSize: 10.5,
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              key: const ValueKey('terminal_command_input'),
+              controller: _commandController,
+              focusNode: _commandFocusNode,
+              onSubmitted: _submitCommand,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 11.5,
+                fontFamily: 'monospace',
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                hintText: hint,
+                hintStyle: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 10.5,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            key: const ValueKey('terminal_send_command_button'),
+            onPressed: () => _submitCommand(_commandController.text),
+            icon: const Icon(Icons.keyboard_return_rounded, size: 14),
+            color: AppColors.secondary,
+            tooltip: 'Executar comando',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TerminalTabChip extends StatelessWidget {
+  const _TerminalTabChip({
+    required this.tab,
+    required this.isSelected,
+    this.debugStatus,
+    required this.onTap,
+    this.onClose,
+  });
+
+  final TerminalTabSession tab;
+  final bool isSelected;
+  final DeviceRunStatus? debugStatus;
+  final VoidCallback onTap;
+  final VoidCallback? onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color statusColor;
+    if (tab.isPinned) {
+      statusColor = switch (debugStatus) {
+        DeviceRunStatus.running => AppColors.success,
+        DeviceRunStatus.launching => AppColors.warning,
+        DeviceRunStatus.reloading => AppColors.secondary,
+        DeviceRunStatus.error => AppColors.danger,
+        _ => AppColors.textMuted,
+      };
+    } else {
+      statusColor = switch (tab.status) {
+        TerminalProcessStatus.running => AppColors.success,
+        TerminalProcessStatus.starting => AppColors.warning,
+        TerminalProcessStatus.exited =>
+          (tab.exitCode ?? 0) != 0 ? AppColors.danger : AppColors.textMuted,
+        TerminalProcessStatus.idle => AppColors.textMuted,
+      };
+    }
+
+    return Tooltip(
+      message: tab.workingDirectory.isNotEmpty
+          ? '${tab.title} • ${tab.workingDirectory}'
+          : tab.title,
+      child: InkWell(
+        key: ValueKey('terminal_tab_${tab.id}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(5),
+        child: Container(
+          padding: EdgeInsets.only(
+            left: 8,
+            right: onClose != null ? 4 : 8,
+            top: 4,
+            bottom: 4,
+          ),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.backgroundSecondary
+                : AppColors.surfaceCard.withValues(alpha: 0.45),
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.primary.withValues(alpha: 0.65)
+                  : AppColors.borderSubtle,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Icon(
+                tab.isPinned
+                    ? Icons.phone_android_rounded
+                    : Icons.terminal_rounded,
+                size: 11.5,
+                color: isSelected
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                tab.title,
+                style: TextStyle(
+                  color: isSelected
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
+                  fontSize: 10.5,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              if (onClose != null) ...[
+                const SizedBox(width: 4),
+                InkWell(
+                  key: ValueKey('terminal_close_tab_${tab.id}'),
+                  onTap: onClose,
+                  borderRadius: BorderRadius.circular(3),
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 11.5,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TerminalOutputRow extends StatelessWidget {
+  const _TerminalOutputRow({
+    required this.timestamp,
+    required this.text,
+    required this.color,
+    this.isBold = false,
+  });
+
+  final String timestamp;
+  final String text;
+  final Color color;
+  final bool isBold;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '[$timestamp] ',
+            style: const TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 11,
+              fontFamily: 'monospace',
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              text,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontFamily: 'monospace',
+                fontWeight: isBold ? FontWeight.w600 : FontWeight.w400,
+                height: 1.32,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
