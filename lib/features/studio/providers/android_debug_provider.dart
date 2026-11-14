@@ -23,6 +23,8 @@ class AndroidDebugState {
   final String? progressMessage;
   final String? errorMessage;
   final AndroidConnectionDiagnostic? lastDiagnostic;
+  final AndroidBuildDiagnostic? buildDiagnostic;
+  final bool isApplyingBuildFix;
   final List<DeviceLogEntry> logs;
 
   const AndroidDebugState({
@@ -36,6 +38,8 @@ class AndroidDebugState {
     this.progressMessage,
     this.errorMessage,
     this.lastDiagnostic,
+    this.buildDiagnostic,
+    this.isApplyingBuildFix = false,
     this.logs = const [],
   });
 
@@ -60,6 +64,8 @@ class AndroidDebugState {
     Object? progressMessage = _unset,
     Object? errorMessage = _unset,
     Object? lastDiagnostic = _unset,
+    Object? buildDiagnostic = _unset,
+    bool? isApplyingBuildFix,
     List<DeviceLogEntry>? logs,
   }) {
     return AndroidDebugState(
@@ -89,6 +95,10 @@ class AndroidDebugState {
       lastDiagnostic: identical(lastDiagnostic, _unset)
           ? this.lastDiagnostic
           : lastDiagnostic as AndroidConnectionDiagnostic?,
+      buildDiagnostic: identical(buildDiagnostic, _unset)
+          ? this.buildDiagnostic
+          : buildDiagnostic as AndroidBuildDiagnostic?,
+      isApplyingBuildFix: isApplyingBuildFix ?? this.isApplyingBuildFix,
       logs: logs ?? this.logs,
     );
   }
@@ -103,8 +113,14 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
   Timer? _reloadDebounceTimer;
+  Timer? _exitDrainTimer;
   int _nextRequestId = 1;
   final Map<int, String> _pendingRpcMethods = {};
+  final List<String> _currentRunLines = [];
+  int _launchGeneration = 0;
+  bool _hasActiveAppStarted = false;
+  bool _evaluatedCurrentRunFailure = false;
+  bool _isDiagnosingFailure = false;
 
   static const int _maxLogEntries = 800;
 
@@ -119,6 +135,11 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     final clean = rawMessage.trimRight();
     if (clean.isEmpty) return;
 
+    _currentRunLines.add(clean);
+    if (_currentRunLines.length > _maxLogEntries) {
+      _currentRunLines.removeRange(0, _currentRunLines.length - _maxLogEntries);
+    }
+
     final updated = List<DeviceLogEntry>.from(state.logs)
       ..add(
         DeviceLogEntry(
@@ -132,6 +153,72 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       updated.removeRange(0, updated.length - _maxLogEntries);
     }
     state = state.copyWith(logs: updated);
+  }
+
+  bool _hasFatalBuildFailureInCurrentRun() {
+    final lower = _currentRunLines.join('\n').toLowerCase();
+    return lower.contains('app failed to start') ||
+        lower.contains('gradle build failed') ||
+        lower.contains('failure: build failed with an exception') ||
+        lower.contains('cmake was unable to find a build program corresponding to') ||
+        lower.contains('cmake_make_program is not set') ||
+        lower.contains('licenses not accepted') ||
+        lower.contains('cmdline-tools component is missing');
+  }
+
+  Future<void> _evaluateBuildFailureDiagnostics({
+    required int generation,
+    String? projectPath,
+  }) async {
+    if (!mounted ||
+        generation != _launchGeneration ||
+        _evaluatedCurrentRunFailure ||
+        _isDiagnosingFailure) {
+      return;
+    }
+
+    _isDiagnosingFailure = true;
+    final snapshot = List<String>.from(_currentRunLines);
+    final lineCountAtStart = snapshot.length;
+    try {
+      final diagnostic = await _service.diagnoseBuildFailure(
+        snapshot,
+        projectPath: projectPath ?? state.projectPath,
+      );
+      if (!mounted || generation != _launchGeneration) return;
+      if (diagnostic != null) {
+        _evaluatedCurrentRunFailure = true;
+        state = state.copyWith(
+          status: DeviceRunStatus.error,
+          progressMessage: null,
+          errorMessage: diagnostic.title,
+          buildDiagnostic: diagnostic,
+        );
+        _appendLog('💡 Diagnóstico automático: ${diagnostic.title}', isSystem: true);
+        _appendLog('ℹ️ ${diagnostic.explanation}', isSystem: true);
+        if (diagnostic.suggestedTerminalCommand != null) {
+          _appendLog(
+            '🛠️ Comando sugerido: ${diagnostic.suggestedTerminalCommand}',
+            isSystem: true,
+          );
+        }
+      }
+    } finally {
+      _isDiagnosingFailure = false;
+      // Re-run once if additional failure lines arrived while inspecting JDKs.
+      if (mounted &&
+          generation == _launchGeneration &&
+          !_evaluatedCurrentRunFailure &&
+          _currentRunLines.length > lineCountAtStart &&
+          _hasFatalBuildFailureInCurrentRun()) {
+        unawaited(
+          _evaluateBuildFailureDiagnostics(
+            generation: generation,
+            projectPath: projectPath,
+          ),
+        );
+      }
+    }
   }
 
   /// Scans connected Android devices via `flutter devices --machine` and runs
@@ -235,16 +322,25 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     await stopSession(silent: true);
     if (!mounted) return false;
 
+    final runGeneration = ++_launchGeneration;
+    _hasActiveAppStarted = false;
+    _evaluatedCurrentRunFailure = false;
+    _isDiagnosingFailure = false;
+    _currentRunLines.clear();
+
+    final normalizedProjectPath = p.normalize(projectPath);
     final preservedLogs = state.logs;
     state = state.copyWith(
       selectedDevice: targetDevice,
       status: DeviceRunStatus.launching,
       activeAppId: null,
-      projectPath: p.normalize(projectPath),
+      projectPath: normalizedProjectPath,
       vmServiceUri: null,
       devToolsUri: null,
       progressMessage: 'Preparando build para ${targetDevice.name}...',
       errorMessage: null,
+      buildDiagnostic: null,
+      isApplyingBuildFix: false,
       logs: preservedLogs,
     );
 
@@ -271,28 +367,66 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       }
 
       _process = proc;
+      final stdoutDone = Completer<void>();
+      final stderrDone = Completer<void>();
 
       _stdoutSub = proc.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
-          .listen(_handleStdoutLine);
+          .listen(
+            _handleStdoutLine,
+            onDone: () {
+              if (!stdoutDone.isCompleted) stdoutDone.complete();
+            },
+            onError: (_) {
+              if (!stdoutDone.isCompleted) stdoutDone.complete();
+            },
+          );
 
       _stderrSub = proc.stderr
           .transform(utf8.decoder)
           .transform(const LineSplitter())
-          .listen((line) {
-        if (line.trim().isNotEmpty) {
-          _appendLog(line, isError: true);
-        }
-      });
+          .listen(
+            (line) {
+              if (line.trim().isNotEmpty) {
+                _appendLog(line, isError: true);
+              }
+            },
+            onDone: () {
+              if (!stderrDone.isCompleted) stderrDone.complete();
+            },
+            onError: (_) {
+              if (!stderrDone.isCompleted) stderrDone.complete();
+            },
+          );
 
-      unawaited(proc.exitCode.then((code) {
+      unawaited(proc.exitCode.then((code) async {
+        // Allow buffered stdout/stderr chunks to flush through LineSplitter
+        // before tearing down subscriptions and classifying build failures.
+        if (!stdoutDone.isCompleted || !stderrDone.isCompleted) {
+          final drainCompleter = Completer<void>();
+          _exitDrainTimer?.cancel();
+          _exitDrainTimer = Timer(const Duration(milliseconds: 25), () {
+            if (!drainCompleter.isCompleted) drainCompleter.complete();
+          });
+          unawaited(
+            Future.wait([stdoutDone.future, stderrDone.future]).then((_) {
+              _exitDrainTimer?.cancel();
+              _exitDrainTimer = null;
+              if (!drainCompleter.isCompleted) drainCompleter.complete();
+            }),
+          );
+          await drainCompleter.future;
+        }
         if (!mounted || _process != proc) return;
         final wasRunning = state.isActiveSession;
         _cleanupSubscriptions();
         _process = null;
 
-        if (wasRunning && code != 0) {
+        final failedLaunch =
+            code != 0 && (wasRunning || !_hasActiveAppStarted);
+
+        if (failedLaunch) {
           _appendLog(
             '❌ Processo encerrado com código $code. O terminal permanece aberto para diagnóstico.',
             isError: true,
@@ -301,8 +435,18 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
             status: DeviceRunStatus.error,
             activeAppId: null,
             progressMessage: null,
-            errorMessage: 'Processo encerrado com código $code.',
+            errorMessage: state.buildDiagnostic?.title ??
+                state.errorMessage ??
+                'Processo encerrado com código $code.',
           );
+          if (!_evaluatedCurrentRunFailure) {
+            unawaited(
+              _evaluateBuildFailureDiagnostics(
+                generation: runGeneration,
+                projectPath: normalizedProjectPath,
+              ),
+            );
+          }
         } else if (state.status != DeviceRunStatus.error) {
           if (wasRunning) {
             _appendLog(
@@ -336,6 +480,18 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     final parsed = AndroidDeviceRunnerService.parseDaemonMessageLine(line);
     if (parsed == null) {
       _appendLog(line);
+      if (!_hasActiveAppStarted &&
+          line.toLowerCase().contains('app failed to start')) {
+        if (state.status != DeviceRunStatus.error) {
+          state = state.copyWith(
+            status: DeviceRunStatus.error,
+            activeAppId: null,
+            progressMessage: null,
+            errorMessage: state.errorMessage ?? 'App failed to start',
+          );
+        }
+        unawaited(_evaluateBuildFailureDiagnostics(generation: _launchGeneration));
+      }
       return;
     }
 
@@ -415,10 +571,12 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         break;
 
       case 'app.started':
+        _hasActiveAppStarted = true;
         state = state.copyWith(
           status: DeviceRunStatus.running,
           progressMessage: null,
           errorMessage: null,
+          buildDiagnostic: null,
         );
         _appendLog(
           '✅ App em execução em tempo real no ${state.selectedDevice?.name ?? "Android"}! Edições salvas serão aplicadas via Hot Reload.',
@@ -447,6 +605,20 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
             progressMessage: null,
             errorMessage: stopErr,
           );
+          unawaited(_evaluateBuildFailureDiagnostics(generation: _launchGeneration));
+        } else if (!_hasActiveAppStarted && _hasFatalBuildFailureInCurrentRun()) {
+          _appendLog(
+            '❌ Build falhou antes de iniciar no dispositivo. Terminal mantido aberto para diagnóstico.',
+            isError: true,
+          );
+          state = state.copyWith(
+            status: DeviceRunStatus.error,
+            activeAppId: null,
+            progressMessage: null,
+            errorMessage:
+                state.buildDiagnostic?.title ?? 'Falha ao iniciar app no dispositivo.',
+          );
+          unawaited(_evaluateBuildFailureDiagnostics(generation: _launchGeneration));
         } else {
           _appendLog(
             '⏹️ App encerrado no dispositivo. Terminal mantido aberto.',
@@ -588,14 +760,65 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     state = state.copyWith(logs: const []);
   }
 
+  /// Applies a discovered compatible JDK via `flutter config --jdk-dir` and
+  /// automatically relaunches the current project on the selected Android device.
+  Future<bool> applyCompatibleJdkAndRelaunch({String? jdkPath}) async {
+    final targetPath =
+        (jdkPath ?? state.buildDiagnostic?.compatibleJdk?.path)?.trim();
+    if (targetPath == null || targetPath.isEmpty || state.isApplyingBuildFix) {
+      return false;
+    }
+
+    state = state.copyWith(isApplyingBuildFix: true);
+    _appendLog(
+      '🛠️ Configurando `flutter config --jdk-dir="$targetPath"`...',
+      isSystem: true,
+    );
+
+    final ok = await _service.configureFlutterJdkDir(targetPath);
+    if (!mounted) return false;
+
+    if (!ok) {
+      state = state.copyWith(isApplyingBuildFix: false);
+      _appendLog(
+        '❌ Não foi possível aplicar `--jdk-dir`. Execute no terminal: flutter config --jdk-dir="$targetPath"',
+        isError: true,
+      );
+      return false;
+    }
+
+    _appendLog(
+      '✅ JDK compatível salvo no Flutter! Relançando app no dispositivo...',
+      isSystem: true,
+    );
+    state = state.copyWith(
+      isApplyingBuildFix: false,
+      buildDiagnostic: null,
+      errorMessage: null,
+    );
+
+    final projectPath = state.projectPath;
+    if (projectPath != null && projectPath.trim().isNotEmpty) {
+      return launchProject(projectPath, device: state.selectedDevice);
+    }
+    return true;
+  }
+
+  void dismissBuildDiagnostic() {
+    state = state.copyWith(buildDiagnostic: null);
+  }
+
   void dismissError() {
     state = state.copyWith(
       status: DeviceRunStatus.idle,
       errorMessage: null,
+      buildDiagnostic: null,
     );
   }
 
   void _cleanupSubscriptions() {
+    _exitDrainTimer?.cancel();
+    _exitDrainTimer = null;
     _stdoutSub?.cancel();
     _stdoutSub = null;
     _stderrSub?.cancel();

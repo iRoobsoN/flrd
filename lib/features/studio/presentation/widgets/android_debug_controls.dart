@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
@@ -712,6 +713,28 @@ class _AndroidDebugConsolePanelState
     return workspace.activeTab.workingDirectory;
   }
 
+  Future<void> _runInInteractiveShell(String cmd) async {
+    final trimmed = cmd.trim();
+    if (trimmed.isEmpty) return;
+
+    final workspace = ref.read(terminalProvider);
+    final terminalNotifier = ref.read(terminalProvider.notifier);
+
+    String? targetShellId;
+    for (final tab in workspace.tabs) {
+      if (tab.isInteractiveShell) {
+        targetShellId = tab.id;
+        break;
+      }
+    }
+    targetShellId ??= await terminalNotifier.createShellTerminal(
+      workingDirectory: _effectiveWorkingDirectory(workspace),
+      activate: true,
+    );
+    terminalNotifier.selectTab(targetShellId);
+    await terminalNotifier.sendCommand(targetShellId, trimmed);
+  }
+
   Future<void> _submitCommand(String raw) async {
     final cmd = raw.trim();
     if (cmd.isEmpty) return;
@@ -748,19 +771,7 @@ class _AndroidDebugConsolePanelState
 
       // Route shell commands typed in Debug Android into an active/new shell tab
       // so the terminal stays immediately interactive without dead ends.
-      String? targetShellId;
-      for (final tab in workspace.tabs) {
-        if (tab.isInteractiveShell) {
-          targetShellId = tab.id;
-          break;
-        }
-      }
-      targetShellId ??= await terminalNotifier.createShellTerminal(
-        workingDirectory: _effectiveWorkingDirectory(workspace),
-        activate: true,
-      );
-      terminalNotifier.selectTab(targetShellId);
-      await terminalNotifier.sendCommand(targetShellId, cmd);
+      await _runInInteractiveShell(cmd);
       return;
     }
 
@@ -827,7 +838,15 @@ class _AndroidDebugConsolePanelState
             terminalNotifier: terminalNotifier,
             shellService: shellService,
           ),
-          if (activeTab.isPinned && debugState.errorMessage != null)
+          if (activeTab.isPinned && debugState.buildDiagnostic != null)
+            _buildDiagnosticAssistantCard(
+              context: context,
+              diagnostic: debugState.buildDiagnostic!,
+              debugState: debugState,
+              debugNotifier: debugNotifier,
+              effectiveHeight: effectiveHeight,
+            )
+          else if (activeTab.isPinned && debugState.errorMessage != null)
             _buildErrorBanner(debugState.errorMessage!, debugNotifier),
           if (!activeTab.isPinned &&
               activeTab.status == TerminalProcessStatus.exited)
@@ -1103,6 +1122,289 @@ class _AndroidDebugConsolePanelState
             constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDiagnosticAssistantCard({
+    required BuildContext context,
+    required AndroidBuildDiagnostic diagnostic,
+    required AndroidDebugState debugState,
+    required AndroidDebugNotifier debugNotifier,
+    required double effectiveHeight,
+  }) {
+    final maxCardHeight =
+        math.max(36.0, math.min(136.0, (effectiveHeight - 82.0) * 0.65));
+
+    return Container(
+      key: const ValueKey('android_build_diagnostic_card'),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.08),
+        border: Border(
+          bottom: BorderSide(
+            color: AppColors.warning.withValues(alpha: 0.35),
+          ),
+        ),
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxCardHeight),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(
+                      Icons.auto_fix_high_rounded,
+                      size: 14,
+                      color: AppColors.warning,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      diagnostic.title,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (diagnostic.detectedJavaVersion != null ||
+                      diagnostic.gradleVersion != null) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: AppColors.warning.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Text(
+                        [
+                          if (diagnostic.detectedJavaVersion != null)
+                            'Java ${diagnostic.detectedJavaVersion}',
+                          if (diagnostic.gradleVersion != null)
+                            'Gradle ${diagnostic.gradleVersion}',
+                        ].join(' · '),
+                        style: const TextStyle(
+                          color: AppColors.warning,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 6),
+                  InkWell(
+                    key: const ValueKey('android_build_diagnostic_close'),
+                    onTap: debugNotifier.dismissBuildDiagnostic,
+                    borderRadius: BorderRadius.circular(4),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 14,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Text(
+                diagnostic.explanation,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                  height: 1.35,
+                ),
+              ),
+              if (diagnostic.steps.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                for (final step in diagnostic.steps)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '• ',
+                          style: TextStyle(
+                            color: AppColors.warning,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            step,
+                            style: const TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 10.5,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 7),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  if (diagnostic.canAutoApplyJdk)
+                    ElevatedButton.icon(
+                      key: const ValueKey('android_fix_jdk_button'),
+                      onPressed: debugState.isApplyingBuildFix
+                          ? null
+                          : () async {
+                              final ok = await debugNotifier
+                                  .applyCompatibleJdkAndRelaunch();
+                              if (!context.mounted) return;
+                              if (ok) {
+                                AppToast.success(
+                                  context,
+                                  'JDK ${diagnostic.compatibleJdk!.version} configurado no Flutter! Relançando app...',
+                                );
+                              } else {
+                                AppToast.error(
+                                  context,
+                                  'Não foi possível aplicar --jdk-dir automaticamente.',
+                                );
+                              }
+                            },
+                      icon: Icon(
+                        debugState.isApplyingBuildFix
+                            ? Icons.hourglass_top_rounded
+                            : Icons.flash_on_rounded,
+                        size: 13,
+                      ),
+                      label: Text(
+                        debugState.isApplyingBuildFix
+                            ? 'Configurando JDK ${diagnostic.compatibleJdk!.majorVersion}...'
+                            : 'Aplicar JDK ${diagnostic.compatibleJdk!.majorVersion} no Flutter e Rodar',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  if (diagnostic.suggestedTerminalCommand != null) ...[
+                    OutlinedButton.icon(
+                      key: const ValueKey('android_run_fix_in_terminal_button'),
+                      onPressed: () => _runInInteractiveShell(
+                        diagnostic.suggestedTerminalCommand!,
+                      ),
+                      icon: const Icon(Icons.terminal_rounded, size: 13),
+                      label: const Text(
+                        'Executar no Terminal',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.secondary,
+                        side: BorderSide(
+                          color: AppColors.secondary.withValues(alpha: 0.45),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      key: const ValueKey('android_copy_fix_command_button'),
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(
+                            text: diagnostic.suggestedTerminalCommand!,
+                          ),
+                        );
+                        if (!context.mounted) return;
+                        AppToast.success(
+                          context,
+                          'Comando copiado: ${diagnostic.suggestedTerminalCommand}',
+                        );
+                      },
+                      icon: const Icon(Icons.copy_rounded, size: 12),
+                      label: const Text(
+                        'Copiar Comando',
+                        style: TextStyle(fontSize: 10.5),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: AppColors.border),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
+                  if (diagnostic.externalHelpUrl != null)
+                    OutlinedButton.icon(
+                      key: const ValueKey('android_open_fix_help_url_button'),
+                      onPressed: () async {
+                        final uri = Uri.tryParse(diagnostic.externalHelpUrl!);
+                        if (uri == null) return;
+                        try {
+                          await launchUrl(
+                            uri,
+                            mode: LaunchMode.externalApplication,
+                          );
+                        } catch (_) {}
+                      },
+                      icon: const Icon(Icons.open_in_new_rounded, size: 12),
+                      label: const Text(
+                        'Baixar / Guia',
+                        style: TextStyle(fontSize: 10.5),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textSecondary,
+                        side: const BorderSide(color: AppColors.border),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

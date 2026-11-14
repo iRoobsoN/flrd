@@ -26,6 +26,8 @@ class AndroidDeviceRunnerService {
   final Map<String, String> Function() _environmentProvider;
   final bool Function(String path) _fileExists;
   final bool Function(String path) _dirExists;
+  final String? Function(String path) _readFileSync;
+  final List<String> Function(String path) _listSubdirectories;
   final bool? _isWindowsOverride;
 
   AndroidDeviceRunnerService({
@@ -34,6 +36,8 @@ class AndroidDeviceRunnerService {
     Map<String, String> Function()? environmentProvider,
     bool Function(String path)? fileExists,
     bool Function(String path)? dirExists,
+    String? Function(String path)? readFileSync,
+    List<String> Function(String path)? listSubdirectories,
     bool? isWindowsOverride,
   })  : _processRunner = processRunner ?? _defaultProcessRunner,
         _processStarter = processStarter ?? _defaultProcessStarter,
@@ -41,7 +45,36 @@ class AndroidDeviceRunnerService {
             environmentProvider ?? (() => Platform.environment),
         _fileExists = fileExists ?? ((path) => File(path).existsSync()),
         _dirExists = dirExists ?? ((path) => Directory(path).existsSync()),
+        _readFileSync = readFileSync ?? _defaultReadFileSync,
+        _listSubdirectories =
+            listSubdirectories ?? _defaultListSubdirectories,
         _isWindowsOverride = isWindowsOverride;
+
+  static String? _defaultReadFileSync(String path) {
+    if (kIsWeb) return null;
+    try {
+      final file = File(path);
+      if (!file.existsSync()) return null;
+      return file.readAsStringSync();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static List<String> _defaultListSubdirectories(String path) {
+    if (kIsWeb) return const [];
+    try {
+      final dir = Directory(path);
+      if (!dir.existsSync()) return const [];
+      return dir
+          .listSync(followLinks: false)
+          .whereType<Directory>()
+          .map((d) => d.path)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
 
   bool get _isWindows =>
       _isWindowsOverride ?? (!kIsWeb && Platform.isWindows);
@@ -175,6 +208,391 @@ class AndroidDeviceRunnerService {
       runInShell: _isWindows,
     );
     return res.exitCode == 0;
+  }
+
+  /// Configures Flutter's explicit `--jdk-dir` override so Gradle uses a
+  /// compatible JDK (e.g., JDK 17/21) instead of Android Studio's newer JBR.
+  Future<bool> configureFlutterJdkDir(String jdkPath) async {
+    if (kIsWeb || jdkPath.trim().isEmpty) return false;
+    final res = await _processRunner(
+      'flutter',
+      ['config', '--jdk-dir', jdkPath.trim()],
+      runInShell: _isWindows,
+    );
+    return res.exitCode == 0;
+  }
+
+  String _joinOsPath(String base, String child) {
+    final sep = _isWindows ? '\\' : '/';
+    final cleanBase = base.endsWith('\\') || base.endsWith('/')
+        ? base.substring(0, base.length - 1)
+        : base;
+    final cleanChild =
+        child.startsWith('\\') || child.startsWith('/') ? child.substring(1) : child;
+    return '$cleanBase$sep$cleanChild';
+  }
+
+  /// Extracts `JAVA_VERSION` from the contents of a JDK `release` file.
+  static String? parseJavaReleaseVersion(String? releaseContent) {
+    if (releaseContent == null || releaseContent.trim().isEmpty) return null;
+    final quoted = RegExp(
+      r'JAVA_VERSION\s*=\s*"([^"]+)"',
+      caseSensitive: false,
+    ).firstMatch(releaseContent);
+    if (quoted != null) {
+      return quoted.group(1)?.trim();
+    }
+    final unquoted = RegExp(
+      r'JAVA_VERSION\s*=\s*([^\s#]+)',
+      caseSensitive: false,
+    ).firstMatch(releaseContent);
+    return unquoted?.group(1)?.trim();
+  }
+
+  /// Parses the Java feature/major version (e.g. `"25.0.4"` -> `25`, `"1.8.0"` -> `8`).
+  static int? parseJavaMajorVersion(String? version) {
+    if (version == null) return null;
+    final trimmed = version.trim();
+    if (trimmed.isEmpty) return null;
+    final legacy = RegExp(r'^1\.(\d+)').firstMatch(trimmed);
+    if (legacy != null) {
+      return int.tryParse(legacy.group(1)!);
+    }
+    final modern = RegExp(r'^(\d+)').firstMatch(trimmed);
+    if (modern != null) {
+      return int.tryParse(modern.group(1)!);
+    }
+    return null;
+  }
+
+  /// Extracts Gradle version (e.g. `8.14`) from `gradle-wrapper.properties`.
+  static String? extractGradleWrapperVersion(String? content) {
+    if (content == null || content.isEmpty) return null;
+    final match = RegExp(
+      r'gradle-(\d+\.\d+(?:\.\d+)?)(?:-[a-zA-Z0-9]+)?\.zip',
+    ).firstMatch(content);
+    return match?.group(1);
+  }
+
+  static List<int> _parseNumericSegments(String version) {
+    return version
+        .split(RegExp(r'[^0-9]+'))
+        .where((s) => s.isNotEmpty)
+        .map((s) => int.tryParse(s) ?? 0)
+        .toList();
+  }
+
+  static int _compareVersions(String a, String b) {
+    final segA = _parseNumericSegments(a);
+    final segB = _parseNumericSegments(b);
+    final maxLen = segA.length > segB.length ? segA.length : segB.length;
+    for (var i = 0; i < maxLen; i++) {
+      final va = i < segA.length ? segA[i] : 0;
+      final vb = i < segB.length ? segB[i] : 0;
+      if (va != vb) return va.compareTo(vb);
+    }
+    return 0;
+  }
+
+  /// Checks whether [javaMajor] is supported by [gradleVersion] for Flutter builds.
+  static bool isJavaCompatibleWithGradle({
+    required int javaMajor,
+    required String gradleVersion,
+  }) {
+    if (javaMajor < 17) return false;
+    final minGradleByJava = <int, String>{
+      17: '7.3',
+      18: '7.5',
+      19: '7.6',
+      20: '8.3',
+      21: '8.5',
+      22: '8.8',
+      23: '8.10',
+      24: '8.14',
+      25: '9.1',
+    };
+    final minGradle = minGradleByJava[javaMajor] ?? (javaMajor > 25 ? '9.1' : '7.3');
+    return _compareVersions(gradleVersion, minGradle) >= 0;
+  }
+
+  JavaJdkInfo? _inspectJdkDirectory(String rawPath, {required String source}) {
+    var clean = rawPath.trim();
+    if (clean.isEmpty) return null;
+    while (clean.length > 3 && (clean.endsWith('\\') || clean.endsWith('/'))) {
+      clean = clean.substring(0, clean.length - 1);
+    }
+    if (!_dirExists(clean)) return null;
+
+    var homePath = clean;
+    var releaseContent = _readFileSync(_joinOsPath(homePath, 'release'));
+    if (releaseContent == null && !_isWindows) {
+      final macHome = _joinOsPath(_joinOsPath(clean, 'Contents'), 'Home');
+      if (_dirExists(macHome)) {
+        homePath = macHome;
+        releaseContent = _readFileSync(_joinOsPath(homePath, 'release'));
+      }
+    }
+
+    final version = parseJavaReleaseVersion(releaseContent);
+    final major = parseJavaMajorVersion(version);
+    if (version == null || major == null) return null;
+
+    final javaExe = _joinOsPath(
+      _joinOsPath(homePath, 'bin'),
+      _isWindows ? 'java.exe' : 'java',
+    );
+    if (!_fileExists(javaExe)) return null;
+
+    return JavaJdkInfo(
+      path: homePath,
+      version: version,
+      majorVersion: major,
+      source: source,
+    );
+  }
+
+  /// Discovers locally installed compatible LTS JDKs (17..21) ordered by preference.
+  Future<List<JavaJdkInfo>> discoverCompatibleJdks() async {
+    if (kIsWeb) return const [];
+    final env = _environmentProvider();
+    final found = <JavaJdkInfo>[];
+    final seenPaths = <String>{};
+
+    void tryAdd(String? candidatePath, String source) {
+      if (candidatePath == null || candidatePath.trim().isEmpty) return;
+      final info = _inspectJdkDirectory(candidatePath, source: source);
+      if (info == null || !info.isLtsCompatible) return;
+      final key = _isWindows ? info.path.toLowerCase() : info.path;
+      if (seenPaths.add(key)) {
+        found.add(info);
+      }
+    }
+
+    tryAdd(env['JAVA_HOME'], 'JAVA_HOME');
+    tryAdd(env['JDK_HOME'], 'JDK_HOME');
+
+    if (_isWindows) {
+      final roots = <String>[
+        env['ProgramFiles'] ?? r'C:\Program Files',
+        env['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)',
+        if ((env['LOCALAPPDATA'] ?? '').isNotEmpty)
+          _joinOsPath(env['LOCALAPPDATA']!, 'Programs'),
+      ];
+      const windowsVendors = <({String folder, String label})>[
+        (folder: 'Eclipse Adoptium', label: 'Eclipse Adoptium'),
+        (folder: 'Java', label: 'Oracle / OpenJDK'),
+        (folder: 'Microsoft', label: 'Microsoft OpenJDK'),
+        (folder: 'Zulu', label: 'Azul Zulu'),
+        (folder: 'BellSoft', label: 'BellSoft Liberica'),
+        (folder: 'Amazon Corretto', label: 'Amazon Corretto'),
+        (folder: 'Semeru', label: 'IBM Semeru'),
+      ];
+      for (final root in roots) {
+        for (final vendor in windowsVendors) {
+          final vendorDir = _joinOsPath(root, vendor.folder);
+          if (!_dirExists(vendorDir)) continue;
+          tryAdd(vendorDir, vendor.label);
+          for (final subDir in _listSubdirectories(vendorDir)) {
+            tryAdd(subDir, vendor.label);
+          }
+        }
+      }
+    } else {
+      final home = env['HOME'] ?? '';
+      final unixContainers = <({String path, String label})>[
+        (path: '/Library/Java/JavaVirtualMachines', label: 'System JVM'),
+        (path: '/usr/lib/jvm', label: 'System JVM'),
+        if (home.isNotEmpty)
+          (path: _joinOsPath(home, '.sdkman/candidates/java'), label: 'SDKMAN'),
+      ];
+      for (final container in unixContainers) {
+        if (!_dirExists(container.path)) continue;
+        for (final subDir in _listSubdirectories(container.path)) {
+          tryAdd(subDir, container.label);
+        }
+      }
+    }
+
+    found.sort((a, b) {
+      final aHome = a.source == 'JAVA_HOME' ? 0 : 1;
+      final bHome = b.source == 'JAVA_HOME' ? 0 : 1;
+      if (aHome != bHome) return aHome.compareTo(bHome);
+
+      final aIs17 = a.majorVersion == 17 ? 0 : 1;
+      final bIs17 = b.majorVersion == 17 ? 0 : 1;
+      if (aIs17 != bIs17) return aIs17.compareTo(bIs17);
+
+      final majorCmp = b.majorVersion.compareTo(a.majorVersion);
+      if (majorCmp != 0) return majorCmp;
+
+      return _compareVersions(b.version, a.version);
+    });
+
+    return found;
+  }
+
+  /// Classifies captured Flutter/Gradle/CMake build logs into an actionable
+  /// [AndroidBuildDiagnostic], or returns `null` if no known pattern matches.
+  AndroidBuildDiagnostic? classifyBuildFailureLogs(
+    List<String> logLines, {
+    List<JavaJdkInfo> availableCompatibleJdks = const [],
+    String? projectGradleVersion,
+  }) {
+    if (logLines.isEmpty) return null;
+    final joined = logLines.join('\n');
+    final lower = joined.toLowerCase();
+
+    final isJavaGradleMismatch =
+        lower.contains('gradle build failed due to java/gradle incompatibility') ||
+            (lower.contains('the java version used for the build is') &&
+                lower.contains('incompatible with gradle')) ||
+            lower.contains('unsupported class file major version') ||
+            (lower.contains('could not open cp_init generic class cache') &&
+                lower.contains('semantic analysis'));
+
+    if (isJavaGradleMismatch) {
+      final javaMatch = RegExp(
+        r'The Java version used for the build is\s+([0-9][0-9._+-]*)',
+        caseSensitive: false,
+      ).firstMatch(joined);
+      final detectedJava = javaMatch?.group(1);
+
+      final gradleMatch = RegExp(
+        r'incompatible with Gradle\s+([0-9]+(?:\.[0-9]+)*)',
+        caseSensitive: false,
+      ).firstMatch(joined);
+      final detectedGradle = gradleMatch?.group(1) ?? projectGradleVersion;
+
+      final preferredJdk = availableCompatibleJdks.isNotEmpty
+          ? availableCompatibleJdks.first
+          : null;
+
+      final javaLabel = detectedJava ?? 'incompatível';
+      final gradleLabel = detectedGradle ?? 'atual';
+
+      if (preferredJdk != null) {
+        return AndroidBuildDiagnostic(
+          issueType: AndroidBuildIssueType.javaGradleIncompatibility,
+          title: 'Java $javaLabel conflita com o Gradle $gradleLabel',
+          explanation:
+              'O Flutter usou o Java $javaLabel (geralmente o JBR atualizado do Android Studio), '
+              'mas o Gradle $gradleLabel deste projeto não suporta essa versão. '
+              'Apenas subir o Gradle para 9.1+ costuma quebrar projetos com AGP 8.x. '
+              'Encontramos o JDK ${preferredJdk.version} (${preferredJdk.source}) no seu PC — '
+              'aplique-o no Flutter em 1 clique e tente rodar novamente.',
+          detectedJavaVersion: detectedJava,
+          gradleVersion: detectedGradle,
+          compatibleJdk: preferredJdk,
+          suggestedTerminalCommand:
+              'flutter config --jdk-dir="${preferredJdk.path}"',
+          steps: [
+            'Encontrado JDK ${preferredJdk.version} (${preferredJdk.source}) em ${preferredJdk.path}.',
+            'Clique em "Aplicar JDK ${preferredJdk.majorVersion} no Flutter e Rodar" para configurar `flutter config --jdk-dir` automaticamente.',
+            'Não é preciso alterar `gradle-wrapper.properties` nem quebrar o AGP 8.x do projeto.',
+          ],
+        );
+      }
+
+      final installCmd = _isWindows
+          ? 'winget install -e --id EclipseAdoptium.Temurin.17.JDK'
+          : 'brew install --cask temurin@17';
+
+      return AndroidBuildDiagnostic(
+        issueType: AndroidBuildIssueType.javaGradleIncompatibility,
+        title: 'Java $javaLabel conflita com o Gradle $gradleLabel',
+        explanation:
+            'O Flutter usou o Java $javaLabel (geralmente o JBR embutido no Android Studio atualizado), '
+            'mas o Gradle $gradleLabel do projeto não suporta essa versão e nenhum JDK 17/21 compatível '
+            'foi encontrado automaticamente. Apenas subir o Gradle para 9.1+ quebra projetos com AGP 8.x.',
+        detectedJavaVersion: detectedJava,
+        gradleVersion: detectedGradle,
+        suggestedTerminalCommand: installCmd,
+        externalHelpUrl: 'https://adoptium.net/temurin/releases/?version=17',
+        steps: [
+          'Instale o Eclipse Temurin JDK 17 LTS pelo terminal (`$installCmd`) ou pelo botão de download.',
+          'Depois de instalar, clique em "Detectar Celular" / "Rodar" ou configure `flutter config --jdk-dir="<caminho-jdk-17>"`.',
+        ],
+      );
+    }
+
+    final isNinjaMissing =
+        (lower.contains('cmake was unable to find a build program corresponding to') &&
+                lower.contains('ninja')) ||
+            lower.contains('cmake_make_program is not set');
+
+    if (isNinjaMissing) {
+      final ninjaCmd =
+          _isWindows ? 'winget install -e --id Ninja-build.Ninja' : 'brew install ninja';
+      return AndroidBuildDiagnostic(
+        issueType: AndroidBuildIssueType.cmakeBuildToolMissing,
+        title: 'CMake não encontrou o executável "Ninja"',
+        explanation:
+            'O Gradle e o Java compilaram normalmente, mas este projeto possui módulos nativos C/C++ (CMake ExternalProject) '
+            'que exigem a ferramenta "Ninja" disponível no PATH do sistema (CMAKE_MAKE_PROGRAM não definido).',
+        suggestedTerminalCommand: ninjaCmd,
+        externalHelpUrl: 'https://ninja-build.org/',
+        steps: [
+          'Instale o Ninja no PATH (`$ninjaCmd`) ou informe `-DCMAKE_MAKE_PROGRAM` no `CMakeLists.txt` do módulo C++.',
+          'Após instalar no PATH, reinicie o FLRD/terminal para atualizar as variáveis de ambiente e rode novamente.',
+        ],
+      );
+    }
+
+    final isSdkLicenseOrComponent =
+        lower.contains('licenses not accepted') ||
+            lower.contains('you have not accepted the license agreements') ||
+            lower.contains('cmdline-tools component is missing') ||
+            lower.contains('failed to install the following android sdk packages');
+
+    if (isSdkLicenseOrComponent) {
+      return const AndroidBuildDiagnostic(
+        issueType: AndroidBuildIssueType.androidSdkLicenseOrComponentMissing,
+        title: 'Licenças ou componentes do Android SDK pendentes',
+        explanation:
+            'O build falhou porque há licenças do Android SDK não aceitas ou o pacote `cmdline-tools` está ausente.',
+        suggestedTerminalCommand: 'flutter doctor --android-licenses',
+        steps: [
+          'Execute `flutter doctor --android-licenses` no terminal interativo e confirme com `y`.',
+          'Se faltar `cmdline-tools`, abra o Android Studio > SDK Manager > SDK Tools e marque "Android SDK Command-line Tools".',
+        ],
+      );
+    }
+
+    return null;
+  }
+
+  /// Inspects failed build logs together with locally installed JDKs and the
+  /// target project's `gradle-wrapper.properties`.
+  Future<AndroidBuildDiagnostic?> diagnoseBuildFailure(
+    List<String> logLines, {
+    String? projectPath,
+  }) async {
+    String? projectGradleVersion;
+    if (projectPath != null && projectPath.trim().isNotEmpty) {
+      final wrapperPath = _joinOsPath(
+        _joinOsPath(_joinOsPath(projectPath.trim(), 'android'), 'gradle'),
+        _joinOsPath('wrapper', 'gradle-wrapper.properties'),
+      );
+      projectGradleVersion =
+          extractGradleWrapperVersion(_readFileSync(wrapperPath));
+    }
+
+    final initial = classifyBuildFailureLogs(
+      logLines,
+      projectGradleVersion: projectGradleVersion,
+    );
+    if (initial == null) return null;
+
+    if (initial.issueType == AndroidBuildIssueType.javaGradleIncompatibility) {
+      final jdks = await discoverCompatibleJdks();
+      return classifyBuildFailureLogs(
+        logLines,
+        availableCompatibleJdks: jdks,
+        projectGradleVersion: projectGradleVersion,
+      );
+    }
+
+    return initial;
   }
 
   Future<({String? adbPath, String? sdkPath})> _locateAdbAndSdk() async {

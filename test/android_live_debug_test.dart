@@ -10,7 +10,9 @@ import 'package:flrd/features/studio/presentation/widgets/android_debug_controls
 import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/embedded_code_viewer.dart';
 import 'package:flrd/features/studio/providers/android_debug_provider.dart';
+import 'package:flrd/features/studio/providers/terminal_provider.dart';
 import 'package:flrd/features/studio/services/android_device_runner_service.dart';
+import 'package:flrd/features/studio/services/terminal_shell_service.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1100,5 +1102,415 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
         expect(find.textContaining('SM S938B'), findsWidgets);
       },
     );
+
+    group('Build Failure Diagnostics & 1-Click JDK Remediation', () {
+      test('parses Java release versions, major versions, and Gradle compatibility', () {
+        expect(
+          AndroidDeviceRunnerService.parseJavaReleaseVersion(
+            'IMPLEMENTOR="Eclipse Adoptium"\nJAVA_VERSION="17.0.21"\nOS_NAME="Windows"',
+          ),
+          '17.0.21',
+        );
+        expect(
+          AndroidDeviceRunnerService.parseJavaReleaseVersion('JAVA_VERSION="25.0.4"'),
+          '25.0.4',
+        );
+        expect(AndroidDeviceRunnerService.parseJavaMajorVersion('25.0.4'), 25);
+        expect(AndroidDeviceRunnerService.parseJavaMajorVersion('17.0.21'), 17);
+        expect(AndroidDeviceRunnerService.parseJavaMajorVersion('1.8.0_402'), 8);
+
+        expect(
+          AndroidDeviceRunnerService.extractGradleWrapperVersion(
+            r'distributionUrl=https\://services.gradle.org/distributions/gradle-8.14-all.zip',
+          ),
+          '8.14',
+        );
+
+        expect(
+          AndroidDeviceRunnerService.isJavaCompatibleWithGradle(
+            javaMajor: 25,
+            gradleVersion: '8.14',
+          ),
+          isFalse,
+        );
+        expect(
+          AndroidDeviceRunnerService.isJavaCompatibleWithGradle(
+            javaMajor: 17,
+            gradleVersion: '8.14',
+          ),
+          isTrue,
+        );
+        expect(
+          AndroidDeviceRunnerService.isJavaCompatibleWithGradle(
+            javaMajor: 25,
+            gradleVersion: '9.1.0',
+          ),
+          isTrue,
+        );
+        expect(
+          AndroidDeviceRunnerService.isJavaCompatibleWithGradle(
+            javaMajor: 11,
+            gradleVersion: '8.14',
+          ),
+          isFalse,
+        );
+      });
+
+      test('discovers compatible LTS JDKs while skipping Java 25 JBR', () async {
+        const jdk17Dir = r'C:\Program Files\Eclipse Adoptium\jdk-17.0.21';
+        const jdk21Dir = r'C:\Program Files\Eclipse Adoptium\jdk-21.0.5';
+        const jbr25Dir = r'C:\Program Files\Android\Android Studio\jbr';
+
+        final dirs = <String>{
+          r'C:\Program Files\Eclipse Adoptium',
+          jdk17Dir,
+          jdk21Dir,
+          jbr25Dir,
+        };
+        final files = <String, String>{
+          '$jdk17Dir\\release': 'JAVA_VERSION="17.0.21"',
+          '$jdk17Dir\\bin\\java.exe': 'bin',
+          '$jdk21Dir\\release': 'JAVA_VERSION="21.0.5"',
+          '$jdk21Dir\\bin\\java.exe': 'bin',
+          '$jbr25Dir\\release': 'JAVA_VERSION="25.0.4"',
+          '$jbr25Dir\\bin\\java.exe': 'bin',
+        };
+
+        final service = AndroidDeviceRunnerService(
+          isWindowsOverride: true,
+          environmentProvider: () => const {
+            'JAVA_HOME': jdk17Dir,
+            'ProgramFiles': r'C:\Program Files',
+          },
+          dirExists: dirs.contains,
+          fileExists: files.containsKey,
+          readFileSync: (path) => files[path],
+          listSubdirectories: (dir) =>
+              dir == r'C:\Program Files\Eclipse Adoptium'
+                  ? [jdk21Dir, jdk17Dir]
+                  : const [],
+        );
+
+        final jdks = await service.discoverCompatibleJdks();
+        expect(jdks.map((j) => j.majorVersion).toList(), [17, 21]);
+        expect(jdks.first.path, jdk17Dir);
+        expect(jdks.first.source, 'JAVA_HOME');
+      });
+
+      test('diagnoses Java 25 / Gradle 8.14 and CMake Ninja build failures', () async {
+        const jdk17Dir = r'C:\Program Files\Eclipse Adoptium\jdk-17.0.21';
+        final filesWithJdk = <String, String>{
+          '$jdk17Dir\\release': 'JAVA_VERSION="17.0.21"',
+          '$jdk17Dir\\bin\\java.exe': 'bin',
+        };
+
+        final serviceWithJdk = AndroidDeviceRunnerService(
+          isWindowsOverride: true,
+          environmentProvider: () => const {'JAVA_HOME': jdk17Dir},
+          dirExists: (p) => p == jdk17Dir,
+          fileExists: filesWithJdk.containsKey,
+          readFileSync: (p) => filesWithJdk[p],
+          listSubdirectories: (_) => const [],
+        );
+
+        final javaDiag = await serviceWithJdk.diagnoseBuildFailure([
+          'Error: Gradle build failed due to Java/Gradle incompatibility.',
+          'The Java version used for the build is 25.0.4, which is incompatible with Gradle 8.14.',
+          'App failed to start',
+        ]);
+        expect(javaDiag, isNotNull);
+        expect(javaDiag!.issueType, AndroidBuildIssueType.javaGradleIncompatibility);
+        expect(javaDiag.detectedJavaVersion, '25.0.4');
+        expect(javaDiag.gradleVersion, '8.14');
+        expect(javaDiag.canAutoApplyJdk, isTrue);
+        expect(javaDiag.compatibleJdk!.path, jdk17Dir);
+
+        final serviceWithoutJdk = AndroidDeviceRunnerService(
+          isWindowsOverride: true,
+          environmentProvider: () => const {},
+          dirExists: (_) => false,
+          fileExists: (_) => false,
+          readFileSync: (_) => null,
+          listSubdirectories: (_) => const [],
+        );
+        final noJdkDiag = await serviceWithoutJdk.diagnoseBuildFailure([
+          'Error: Gradle build failed due to Java/Gradle incompatibility.',
+          'The Java version used for the build is 25.0.4, which is incompatible with Gradle 8.14.',
+        ]);
+        expect(noJdkDiag, isNotNull);
+        expect(noJdkDiag!.canAutoApplyJdk, isFalse);
+        expect(noJdkDiag.suggestedTerminalCommand, contains('Temurin.17'));
+        expect(noJdkDiag.externalHelpUrl, contains('adoptium.net'));
+
+        final ninjaDiag = await serviceWithoutJdk.diagnoseBuildFailure([
+          'CMake Error: CMake was unable to find a build program corresponding to "Ninja".',
+          'CMAKE_MAKE_PROGRAM is not set.',
+        ]);
+        expect(ninjaDiag, isNotNull);
+        expect(ninjaDiag!.issueType, AndroidBuildIssueType.cmakeBuildToolMissing);
+        expect(ninjaDiag.suggestedTerminalCommand, contains('Ninja-build.Ninja'));
+      });
+
+      test('notifier promotes silent app.stop + App failed to start to error and applies JDK fix', () async {
+        const jdk17Dir = r'C:\Program Files\Eclipse Adoptium\jdk-17.0.21';
+        final tempProj = Directory.systemTemp.createTempSync('flrd_jdk_unit_');
+        File(p.join(tempProj.path, 'pubspec.yaml')).writeAsStringSync('name: snapia\n');
+        addTearDown(() {
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+
+        final processes = <_FakeProcess>[];
+        final configuredArgs = <List<String>>[];
+
+        final files = <String, String>{
+          '$jdk17Dir\\release': 'JAVA_VERSION="17.0.21"',
+          '$jdk17Dir\\bin\\java.exe': 'bin',
+        };
+
+        final service = AndroidDeviceRunnerService(
+          isWindowsOverride: true,
+          environmentProvider: () => const {'JAVA_HOME': jdk17Dir},
+          dirExists: (p) => p == jdk17Dir,
+          fileExists: files.containsKey,
+          readFileSync: (p) => files[p],
+          listSubdirectories: (_) => const [],
+          processRunner: (exec, args, {workingDirectory, runInShell = true}) async {
+            if (exec == 'flutter' && args.length >= 3 && args[0] == 'config') {
+              configuredArgs.add(List<String>.from(args));
+              return ProcessResult(1, 0, 'Setting "jdk-dir" value to "$jdk17Dir".', '');
+            }
+            return ProcessResult(2, 0, '', '');
+          },
+          processStarter: (exec, args, {workingDirectory, runInShell = true}) async {
+            final proc = _FakeProcess();
+            processes.add(proc);
+            return proc;
+          },
+        );
+
+        final notifier = AndroidDebugNotifier(service);
+        const device = ConnectedAndroidDevice(
+          id: 'RXGL20BSBJX',
+          name: 'SM S938B',
+          targetPlatform: 'android-arm64',
+          sdk: 'Android 16',
+        );
+
+        final launched = await notifier.launchProject(
+          tempProj.path,
+          device: device,
+        );
+        expect(launched, isTrue);
+
+        final firstProc = processes.single;
+        firstProc.emitStdoutLine('[{"event":"app.start","params":{"appId":"1"}}]');
+        firstProc.emitStdoutLine('Error: Gradle build failed due to Java/Gradle incompatibility.');
+        firstProc.emitStdoutLine(
+          'The Java version used for the build is 25.0.4, which is incompatible with Gradle 8.14.',
+        );
+        // Simulate real flutter_tools daemon quirk: app.stop has NO params.error!
+        firstProc.emitStdoutLine('[{"event":"app.stop","params":{"appId":"1"}}]');
+        firstProc.emitStdoutLine('App failed to start');
+        firstProc.completeExit(1);
+
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+
+        expect(notifier.state.status, DeviceRunStatus.error);
+        expect(notifier.state.buildDiagnostic, isNotNull);
+        expect(
+          notifier.state.buildDiagnostic!.issueType,
+          AndroidBuildIssueType.javaGradleIncompatibility,
+        );
+        expect(notifier.state.buildDiagnostic!.compatibleJdk?.path, jdk17Dir);
+
+        // Apply 1-click JDK fix & automatic relaunch
+        final relaunched = await notifier.applyCompatibleJdkAndRelaunch();
+        expect(relaunched, isTrue);
+        expect(configuredArgs, [
+          ['config', '--jdk-dir', jdk17Dir],
+        ]);
+        expect(processes.length, 2);
+        expect(notifier.state.buildDiagnostic, isNull);
+
+        processes[1].emitStdoutLine('[{"event":"app.started","params":{"appId":"2"}}]');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(notifier.state.status, DeviceRunStatus.running);
+
+        notifier.dispose();
+      });
+
+      testWidgets(
+        'AndroidDebugConsolePanel shows 1-click JDK fix without overflow even at 140px and supports Run in Terminal',
+        (tester) async {
+          const jdk17Dir = r'C:\Program Files\Eclipse Adoptium\jdk-17.0.21';
+          final tempProj = Directory.systemTemp.createTempSync('flrd_jdk_widget_');
+          File(p.join(tempProj.path, 'pubspec.yaml')).writeAsStringSync('name: snapia\n');
+          addTearDown(() {
+            if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+          });
+
+          final appProcesses = <_FakeProcess>[];
+          final shellProcesses = <_FakeProcess>[];
+          final configuredJdkArgs = <String>[];
+
+          final files = <String, String>{
+            '$jdk17Dir\\release': 'JAVA_VERSION="17.0.21"',
+            '$jdk17Dir\\bin\\java.exe': 'bin',
+          };
+
+          final androidService = AndroidDeviceRunnerService(
+            isWindowsOverride: true,
+            environmentProvider: () => const {'JAVA_HOME': jdk17Dir},
+            dirExists: (p) => p == jdk17Dir,
+            fileExists: files.containsKey,
+            readFileSync: (p) => files[p],
+            listSubdirectories: (_) => const [],
+            processRunner: (exec, args, {workingDirectory, runInShell = true}) async {
+              if (exec == 'flutter' &&
+                  args.length >= 3 &&
+                  args[0] == 'config' &&
+                  args[1] == '--jdk-dir') {
+                configuredJdkArgs.add(args[2]);
+                return ProcessResult(10, 0, '', '');
+              }
+              return ProcessResult(11, 0, '', '');
+            },
+            processStarter: (exec, args, {workingDirectory, runInShell = true}) async {
+              final proc = _FakeProcess();
+              appProcesses.add(proc);
+              return proc;
+            },
+          );
+
+          final shellService = TerminalShellService(
+            isWindowsOverride: true,
+            dirExists: (_) => true,
+            processRunner: (exec, args, {workingDirectory, runInShell = true}) async {
+              if (exec == 'where' && args.contains('pwsh.exe')) {
+                return ProcessResult(12, 0, r'C:\Program Files\PowerShell\7\pwsh.exe', '');
+              }
+              return ProcessResult(13, 1, '', '');
+            },
+            processStarter: (exec, args, {workingDirectory, runInShell = true}) async {
+              final proc = _FakeProcess();
+              shellProcesses.add(proc);
+              return proc;
+            },
+          );
+
+          final container = ProviderContainer(
+            overrides: [
+              androidDeviceRunnerServiceProvider.overrideWithValue(androidService),
+              terminalShellServiceProvider.overrideWithValue(shellService),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          // Shrink panel height to minimum (140px) first.
+          container.read(terminalProvider.notifier).setPanelHeight(140.0);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                home: Scaffold(
+                  body: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: AndroidDebugConsolePanel(
+                      projectPath: tempProj.path,
+                      onClose: () {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          final debugNotifier = container.read(androidDebugProvider.notifier);
+          await debugNotifier.launchProject(
+            tempProj.path,
+            device: const ConnectedAndroidDevice(
+              id: 'RXGL20BSBJX',
+              name: 'SM S938B',
+              targetPlatform: 'android-arm64',
+              sdk: 'Android 16',
+            ),
+          );
+
+          appProcesses.first.emitStdoutLine('[{"event":"app.start","params":{"appId":"1"}}]');
+          appProcesses.first.emitStdoutLine(
+            'Error: Gradle build failed due to Java/Gradle incompatibility.',
+          );
+          appProcesses.first.emitStdoutLine(
+            'The Java version used for the build is 25.0.4, which is incompatible with Gradle 8.14.',
+          );
+          appProcesses.first.emitStdoutLine('[{"event":"app.stop","params":{"appId":"1"}}]');
+          appProcesses.first.emitStdoutLine('App failed to start');
+          appProcesses.first.completeExit(1);
+          await tester.pump(const Duration(milliseconds: 60));
+          await tester.pumpAndSettle();
+
+          expect(tester.takeException(), isNull);
+          expect(
+            find.byKey(const ValueKey('android_build_diagnostic_card')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('android_fix_jdk_button')),
+            findsOneWidget,
+          );
+
+          // Expand panel for spacious click & click 1-click JDK fix button
+          container.read(terminalProvider.notifier).setPanelHeight(300.0);
+          await tester.pumpAndSettle();
+
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('android_fix_jdk_button')),
+          );
+          await tester.tap(find.byKey(const ValueKey('android_fix_jdk_button')));
+          // Do not pumpAndSettle here because relaunch enters DeviceRunStatus.launching spinner.
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 50));
+
+          expect(configuredJdkArgs, [jdk17Dir]);
+          expect(appProcesses.length, 2);
+
+          // Simulate second build hitting CMake Ninja missing error and verify "Executar no Terminal"
+          appProcesses[1].emitStdoutLine('[{"event":"app.start","params":{"appId":"2"}}]');
+          appProcesses[1].emitStdoutLine(
+            'CMake Error: CMake was unable to find a build program corresponding to "Ninja".',
+          );
+          appProcesses[1].emitStdoutLine('CMAKE_MAKE_PROGRAM is not set.');
+          appProcesses[1].emitStdoutLine('[{"event":"app.stop","params":{"appId":"2"}}]');
+          appProcesses[1].completeExit(1);
+          await tester.pump(const Duration(milliseconds: 60));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const ValueKey('android_run_fix_in_terminal_button')),
+            findsOneWidget,
+          );
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('android_run_fix_in_terminal_button')),
+          );
+          await tester.tap(
+            find.byKey(const ValueKey('android_run_fix_in_terminal_button')),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 60));
+
+          expect(shellProcesses.length, 1);
+          expect(
+            shellProcesses.single.fakeStdin.writtenLines
+                .any((l) => l.contains('Ninja-build.Ninja')),
+            isTrue,
+          );
+
+          // Clear any remaining AppToast dismissal timers cleanly before teardown.
+          await tester.pump(const Duration(seconds: 5));
+        },
+      );
+    });
   });
 }

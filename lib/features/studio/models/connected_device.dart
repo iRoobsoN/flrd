@@ -174,6 +174,61 @@ class AndroidConnectionDiagnostic {
       issueType == AndroidConnectionIssueType.adbReadyFlutterBlocked;
 }
 
+/// Metadata about a Java JDK installation discovered on the machine.
+class JavaJdkInfo {
+  final String path;
+  final String version;
+  final int majorVersion;
+  final String source;
+
+  const JavaJdkInfo({
+    required this.path,
+    required this.version,
+    required this.majorVersion,
+    required this.source,
+  });
+
+  /// LTS versions (17..21) are broadly compatible with AGP 8.x & Gradle 8.x.
+  bool get isLtsCompatible => majorVersion >= 17 && majorVersion <= 21;
+}
+
+/// Known build-time environment errors detected from Flutter/Gradle/CMake logs.
+enum AndroidBuildIssueType {
+  javaGradleIncompatibility,
+  cmakeBuildToolMissing,
+  androidSdkLicenseOrComponentMissing,
+}
+
+/// Structured, user-friendly explanation and 1-click remediation for Android
+/// build failures captured during live device launch.
+class AndroidBuildDiagnostic {
+  final AndroidBuildIssueType issueType;
+  final String title;
+  final String explanation;
+  final String? detectedJavaVersion;
+  final String? gradleVersion;
+  final JavaJdkInfo? compatibleJdk;
+  final String? suggestedTerminalCommand;
+  final String? externalHelpUrl;
+  final List<String> steps;
+
+  const AndroidBuildDiagnostic({
+    required this.issueType,
+    required this.title,
+    required this.explanation,
+    this.detectedJavaVersion,
+    this.gradleVersion,
+    this.compatibleJdk,
+    this.suggestedTerminalCommand,
+    this.externalHelpUrl,
+    this.steps = const [],
+  });
+
+  bool get canAutoApplyJdk =>
+      issueType == AndroidBuildIssueType.javaGradleIncompatibility &&
+      compatibleJdk != null;
+}
+
 /// Represents a physical or emulated Android device reported by Flutter CLI.
 @immutable
 class ConnectedAndroidDevice {
