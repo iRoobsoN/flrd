@@ -18,37 +18,80 @@ typedef ProcessStarterFn = Future<Process> Function(
   bool runInShell,
 });
 
+typedef ProcessEnvStarterFn = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  bool runInShell,
+  Map<String, String>? environment,
+});
+
 /// Handles detection of connected Android devices, live USB/SDK troubleshooting
 /// diagnostics, and `flutter run --machine` sessions with JSON-RPC Hot Reload / Hot Restart.
 class AndroidDeviceRunnerService {
   final ProcessRunnerFn _processRunner;
-  final ProcessStarterFn _processStarter;
+  final ProcessStarterFn? _customProcessStarter;
+  final ProcessEnvStarterFn? _customProcessEnvStarter;
   final Map<String, String> Function() _environmentProvider;
   final bool Function(String path) _fileExists;
   final bool Function(String path) _dirExists;
   final String? Function(String path) _readFileSync;
+  final bool Function(String path, String content) _writeFileSync;
+  final bool Function(String path) _deleteDirectorySync;
   final List<String> Function(String path) _listSubdirectories;
   final bool? _isWindowsOverride;
+
+  Map<String, String>? _cachedMsvcEnv;
 
   AndroidDeviceRunnerService({
     ProcessRunnerFn? processRunner,
     ProcessStarterFn? processStarter,
+    ProcessEnvStarterFn? processEnvStarter,
     Map<String, String> Function()? environmentProvider,
     bool Function(String path)? fileExists,
     bool Function(String path)? dirExists,
     String? Function(String path)? readFileSync,
+    bool Function(String path, String content)? writeFileSync,
+    bool Function(String path)? deleteDirectorySync,
     List<String> Function(String path)? listSubdirectories,
     bool? isWindowsOverride,
   })  : _processRunner = processRunner ?? _defaultProcessRunner,
-        _processStarter = processStarter ?? _defaultProcessStarter,
+        _customProcessStarter = processStarter,
+        _customProcessEnvStarter = processEnvStarter,
         _environmentProvider =
             environmentProvider ?? (() => Platform.environment),
         _fileExists = fileExists ?? ((path) => File(path).existsSync()),
         _dirExists = dirExists ?? ((path) => Directory(path).existsSync()),
         _readFileSync = readFileSync ?? _defaultReadFileSync,
+        _writeFileSync = writeFileSync ?? _defaultWriteFileSync,
+        _deleteDirectorySync =
+            deleteDirectorySync ?? _defaultDeleteDirectorySync,
         _listSubdirectories =
             listSubdirectories ?? _defaultListSubdirectories,
         _isWindowsOverride = isWindowsOverride;
+
+  static bool _defaultWriteFileSync(String path, String content) {
+    if (kIsWeb) return false;
+    try {
+      File(path).writeAsStringSync(content);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool _defaultDeleteDirectorySync(String path) {
+    if (kIsWeb) return false;
+    try {
+      final dir = Directory(path);
+      if (dir.existsSync()) {
+        dir.deleteSync(recursive: true);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static String? _defaultReadFileSync(String path) {
     if (kIsWeb) return null;
@@ -93,17 +136,19 @@ class AndroidDeviceRunnerService {
     );
   }
 
-  static Future<Process> _defaultProcessStarter(
+  static Future<Process> _defaultProcessEnvStarter(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
     bool runInShell = true,
+    Map<String, String>? environment,
   }) {
     return Process.start(
       executable,
       arguments,
       workingDirectory: workingDirectory,
       runInShell: runInShell,
+      environment: environment,
     );
   }
 
@@ -437,6 +482,9 @@ class AndroidDeviceRunnerService {
     List<String> logLines, {
     List<JavaJdkInfo> availableCompatibleJdks = const [],
     String? projectGradleVersion,
+    String? detectedNinjaPath,
+    String? detectedMsvcCompilerPath,
+    bool hasAppCMakeLists = false,
   }) {
     if (logLines.isEmpty) return null;
     final joined = logLines.join('\n');
@@ -515,12 +563,97 @@ class AndroidDeviceRunnerService {
       );
     }
 
+    final isCmakeHostCompilerMismatch =
+        ((lower.contains('unable to find library -lkernel32') ||
+                    lower.contains('unable to find library -lmingw32')) &&
+                (lower.contains('clang') ||
+                    lower.contains('lld') ||
+                    lower.contains('cmaketestccompiler'))) ||
+            (lower.contains('host-toolchain.cmake') &&
+                (lower.contains('is not able to compile a simple test program') ||
+                    lower.contains('cmake_mt-notfound'))) ||
+            lower.contains('host compiler not found') ||
+            lower.contains('vulkan_glslc_executable-notfound');
+
+    if (isCmakeHostCompilerMismatch) {
+      if (detectedMsvcCompilerPath != null && hasAppCMakeLists) {
+        return AndroidBuildDiagnostic(
+          issueType: AndroidBuildIssueType.cmakeHostCompilerMismatch,
+          title:
+              'CMake usou clang.exe do Android NDK para ferramenta do Windows',
+          explanation:
+              'Ao compilar módulo nativo C++/Vulkan (ex.: ggml-vulkan / vulkan-shaders-gen), o CMake do Android '
+              'escolheu o clang.exe do NDK no lugar do MSVC (cl.exe) porque o NDK injeta o prefixo dele antes do PATH. '
+              'Encontramos o MSVC (cl.exe) instalado no seu PC — clique abaixo para configurar o host MSVC + glslc '
+              'no CMakeLists.txt, limpar o cache .cxx e relançar.',
+          detectedToolPath: detectedMsvcCompilerPath,
+          canClearCxxCache: true,
+          canFixCmakeHostToolchain: true,
+          steps: [
+            'Compilador MSVC detectado em: $detectedMsvcCompilerPath',
+            'Clique em "Aplicar Fix Host MSVC/Vulkan no CMake e Rodar" para configurar HOST_C_COMPILER / glslc e limpar android/app/.cxx.',
+          ],
+        );
+      }
+
+      if (detectedMsvcCompilerPath != null) {
+        return AndroidBuildDiagnostic(
+          issueType: AndroidBuildIssueType.cmakeHostCompilerMismatch,
+          title: 'Submódulo C++/Vulkan falhou ao compilar executável no host',
+          explanation:
+              'O sub-build do plugin nativo (vulkan-shaders-gen) usou o clang do Android NDK para gerar um .exe Windows '
+              'e falhou no link de kernel32, ou o cache .cxx ficou desatualizado. O MSVC foi encontrado no PC.',
+          detectedToolPath: detectedMsvcCompilerPath,
+          canClearCxxCache: true,
+          steps: [
+            'Clique em "Limpar Cache .cxx e Rodar" para reconstruir com o ambiente Visual Studio C++ ativo.',
+            'Se o erro persistir dentro de um plugin CMake próprio, defina HOST_C_COMPILER e HOST_CXX_COMPILER com o cl.exe antes de add_subdirectory().',
+          ],
+        );
+      }
+
+      final vsBuildToolsCmd = _isWindows
+          ? 'winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"'
+          : 'xcode-select --install';
+      return AndroidBuildDiagnostic(
+        issueType: AndroidBuildIssueType.cmakeHostCompilerMismatch,
+        title: 'Compilador C++ do Windows (MSVC Build Tools) ausente',
+        explanation:
+            'Este projeto compila um gerador nativo para Windows durante o build Android (ex.: ggml-vulkan / vulkan-shaders-gen), '
+            'mas não encontrou o compilador MSVC (cl.exe) e acabou tentando usar o clang.exe do Android NDK.',
+        suggestedTerminalCommand: vsBuildToolsCmd,
+        externalHelpUrl:
+            'https://visualstudio.microsoft.com/visual-cpp-build-tools/',
+        steps: [
+          'Instale o "Desktop development with C++" (Visual Studio Build Tools) pelo botão ou terminal.',
+          'Depois de instalar, limpe `android/app/.cxx` e execute novamente no FLRD.',
+        ],
+      );
+    }
+
     final isNinjaMissing =
         (lower.contains('cmake was unable to find a build program corresponding to') &&
                 lower.contains('ninja')) ||
             lower.contains('cmake_make_program is not set');
 
     if (isNinjaMissing) {
+      if (detectedNinjaPath != null) {
+        return AndroidBuildDiagnostic(
+          issueType: AndroidBuildIssueType.cmakeBuildToolMissing,
+          title: 'Ninja já existe no PC, mas o cache CMake / PATH estava antigo',
+          explanation:
+              'Encontramos o executável Ninja em "$detectedNinjaPath". '
+              'O build anterior falhou porque a janela foi aberta antes da instalação do Ninja ou o cache `android/app/.cxx` guardou a falha antiga. '
+              'Clique abaixo para limpar o cache .cxx e relançar já com o Ninja e o MSVC no ambiente.',
+          detectedToolPath: detectedNinjaPath,
+          canClearCxxCache: true,
+          steps: [
+            'Ninja detectado em: $detectedNinjaPath',
+            'Clique em "Limpar Cache .cxx e Rodar com Ninja" para atualizar automaticamente sem reiniciar o FLRD.',
+          ],
+        );
+      }
+
       final ninjaCmd =
           _isWindows ? 'winget install -e --id Ninja-build.Ninja' : 'brew install ninja';
       return AndroidBuildDiagnostic(
@@ -532,8 +665,8 @@ class AndroidDeviceRunnerService {
         suggestedTerminalCommand: ninjaCmd,
         externalHelpUrl: 'https://ninja-build.org/',
         steps: [
-          'Instale o Ninja no PATH (`$ninjaCmd`) ou informe `-DCMAKE_MAKE_PROGRAM` no `CMakeLists.txt` do módulo C++.',
-          'Após instalar no PATH, reinicie o FLRD/terminal para atualizar as variáveis de ambiente e rode novamente.',
+          'Instale o Ninja pelo terminal (`$ninjaCmd`) usando o botão abaixo.',
+          'Assim que terminar, clique em "Rodar" novamente — o FLRD recarrega o PATH do registro automaticamente.',
         ],
       );
     }
@@ -561,25 +694,31 @@ class AndroidDeviceRunnerService {
     return null;
   }
 
-  /// Inspects failed build logs together with locally installed JDKs and the
-  /// target project's `gradle-wrapper.properties`.
+  /// Inspects failed build logs together with locally installed JDKs, Ninja,
+  /// MSVC host compilers, and the target project's `gradle-wrapper.properties`.
   Future<AndroidBuildDiagnostic?> diagnoseBuildFailure(
     List<String> logLines, {
     String? projectPath,
   }) async {
     String? projectGradleVersion;
+    var hasAppCMakeLists = false;
     if (projectPath != null && projectPath.trim().isNotEmpty) {
+      final cleanProj = projectPath.trim();
       final wrapperPath = _joinOsPath(
-        _joinOsPath(_joinOsPath(projectPath.trim(), 'android'), 'gradle'),
+        _joinOsPath(_joinOsPath(cleanProj, 'android'), 'gradle'),
         _joinOsPath('wrapper', 'gradle-wrapper.properties'),
       );
       projectGradleVersion =
           extractGradleWrapperVersion(_readFileSync(wrapperPath));
+
+      final appCMakePath = _appCMakeListsPath(cleanProj);
+      hasAppCMakeLists = _fileExists(appCMakePath);
     }
 
     final initial = classifyBuildFailureLogs(
       logLines,
       projectGradleVersion: projectGradleVersion,
+      hasAppCMakeLists: hasAppCMakeLists,
     );
     if (initial == null) return null;
 
@@ -589,10 +728,540 @@ class AndroidDeviceRunnerService {
         logLines,
         availableCompatibleJdks: jdks,
         projectGradleVersion: projectGradleVersion,
+        hasAppCMakeLists: hasAppCMakeLists,
+      );
+    }
+
+    if (initial.issueType == AndroidBuildIssueType.cmakeBuildToolMissing) {
+      final ninjas = await discoverLocalNinjaPaths();
+      return classifyBuildFailureLogs(
+        logLines,
+        projectGradleVersion: projectGradleVersion,
+        detectedNinjaPath: ninjas.isNotEmpty ? ninjas.first : null,
+        hasAppCMakeLists: hasAppCMakeLists,
+      );
+    }
+
+    if (initial.issueType == AndroidBuildIssueType.cmakeHostCompilerMismatch) {
+      final clPath = await discoverMsvcCompilerPath();
+      return classifyBuildFailureLogs(
+        logLines,
+        projectGradleVersion: projectGradleVersion,
+        detectedMsvcCompilerPath: clPath,
+        hasAppCMakeLists: hasAppCMakeLists,
       );
     }
 
     return initial;
+  }
+
+  String _parentDir(String filePath) {
+    final idx = filePath.lastIndexOf(RegExp(r'[/\\]'));
+    return idx > 0 ? filePath.substring(0, idx) : '';
+  }
+
+  String _appCMakeListsPath(String projectPath) {
+    return _joinOsPath(
+      _joinOsPath(
+        _joinOsPath(
+          _joinOsPath(_joinOsPath(projectPath, 'android'), 'app'),
+          'src',
+        ),
+        'main',
+      ),
+      _joinOsPath('cpp', 'CMakeLists.txt'),
+    );
+  }
+
+  /// Merges [prioritizedDirs] ahead of existing [basePath] entries without duplicates.
+  static String mergePathEntries(
+    String? basePath,
+    List<String> prioritizedDirs, {
+    required bool isWindows,
+  }) {
+    final sep = isWindows ? ';' : ':';
+    final result = <String>[];
+    final seen = <String>{};
+
+    void addEntry(String raw) {
+      var trimmed = raw.trim();
+      if (trimmed.isEmpty) return;
+      while (trimmed.length > 3 &&
+          (trimmed.endsWith('\\') || trimmed.endsWith('/'))) {
+        trimmed = trimmed.substring(0, trimmed.length - 1);
+      }
+      final key = isWindows ? trimmed.toLowerCase() : trimmed;
+      if (seen.add(key)) {
+        result.add(trimmed);
+      }
+    }
+
+    for (final dir in prioritizedDirs) {
+      addEntry(dir);
+    }
+    if (basePath != null && basePath.isNotEmpty) {
+      for (final part in basePath.split(sep)) {
+        addEntry(part);
+      }
+    }
+    return result.join(sep);
+  }
+
+  String _expandWindowsEnvTokens(String input, Map<String, String> env) {
+    final lowerLookup = <String, String>{};
+    for (final entry in env.entries) {
+      lowerLookup[entry.key.toLowerCase()] = entry.value;
+    }
+    return input.replaceAllMapped(RegExp(r'%([^%]+)%'), (m) {
+      final token = m.group(1) ?? '';
+      return lowerLookup[token.toLowerCase()] ?? m.group(0)!;
+    });
+  }
+
+  Future<List<String>> _readFreshWindowsRegistryPath() async {
+    if (!_isWindows || kIsWeb) return const [];
+    final env = _environmentProvider();
+    final collected = <String>[];
+
+    const regKeys = <String>[
+      r'HKCU\Environment',
+      r'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+    ];
+
+    for (final key in regKeys) {
+      try {
+        final res = await _processRunner(
+          'reg',
+          ['query', key, '/v', 'Path'],
+          runInShell: false,
+        );
+        if (res.exitCode != 0) continue;
+        final match = RegExp(
+          r'Path\s+REG_(?:EXPAND_)?SZ\s+(.+)',
+          caseSensitive: false,
+        ).firstMatch(res.stdout.toString());
+        final raw = match?.group(1)?.trim();
+        if (raw == null || raw.isEmpty) continue;
+        for (final part in raw.split(';')) {
+          final expanded = _expandWindowsEnvTokens(part, env);
+          if (expanded.isNotEmpty) {
+            collected.add(expanded);
+          }
+        }
+      } catch (_) {}
+    }
+
+    return collected;
+  }
+
+  Future<String?> _findSdkRootQuick() async {
+    final env = _environmentProvider();
+    final candidates = <String>[
+      if ((env['ANDROID_HOME'] ?? '').trim().isNotEmpty) env['ANDROID_HOME']!,
+      if ((env['ANDROID_SDK_ROOT'] ?? '').trim().isNotEmpty)
+        env['ANDROID_SDK_ROOT']!,
+      if (_isWindows && (env['LOCALAPPDATA'] ?? '').trim().isNotEmpty)
+        _joinOsPath(_joinOsPath(env['LOCALAPPDATA']!, 'Android'), 'Sdk'),
+      if (_isWindows) r'C:\Android\Sdk',
+      if (!_isWindows && (env['HOME'] ?? '').trim().isNotEmpty)
+        _joinOsPath(env['HOME']!, 'Library/Android/sdk'),
+      if (!_isWindows && (env['HOME'] ?? '').trim().isNotEmpty)
+        _joinOsPath(env['HOME']!, 'Android/Sdk'),
+    ];
+    for (final c in candidates) {
+      final clean = c.trim();
+      if (clean.isNotEmpty && _dirExists(clean)) return clean;
+    }
+    final adbAndSdk = await _locateAdbAndSdk();
+    return adbAndSdk.sdkPath;
+  }
+
+  /// Discovers locally installed `ninja` executables (WinGet, Android SDK CMake, PATH).
+  Future<List<String>> discoverLocalNinjaPaths() async {
+    if (kIsWeb) return const [];
+    final env = _environmentProvider();
+    final exeName = _isWindows ? 'ninja.exe' : 'ninja';
+    final found = <String>[];
+    final seen = <String>{};
+
+    void checkDir(String? dirPath) {
+      if (dirPath == null || dirPath.trim().isEmpty) return;
+      final candidate = _joinOsPath(dirPath.trim(), exeName);
+      if (_fileExists(candidate)) {
+        final key = _isWindows ? candidate.toLowerCase() : candidate;
+        if (seen.add(key)) {
+          found.add(candidate);
+        }
+      }
+    }
+
+    if (_isWindows) {
+      final localAppData = (env['LOCALAPPDATA'] ?? '').trim();
+      if (localAppData.isNotEmpty) {
+        checkDir(
+          _joinOsPath(_joinOsPath(localAppData, 'Microsoft'), r'WinGet\Links'),
+        );
+        final packagesDir =
+            _joinOsPath(_joinOsPath(localAppData, 'Microsoft'), r'WinGet\Packages');
+        if (_dirExists(packagesDir)) {
+          for (final pkg in _listSubdirectories(packagesDir)) {
+            if (pkg.toLowerCase().contains('ninja')) {
+              checkDir(pkg);
+            }
+          }
+        }
+      }
+      checkDir(r'C:\ProgramData\chocolatey\bin');
+    } else {
+      checkDir('/opt/homebrew/bin');
+      checkDir('/usr/local/bin');
+      checkDir('/usr/bin');
+    }
+
+    final sdkPath = await _findSdkRootQuick();
+    if (sdkPath != null) {
+      final cmakeRoot = _joinOsPath(sdkPath, 'cmake');
+      if (_dirExists(cmakeRoot)) {
+        final versions = List<String>.from(_listSubdirectories(cmakeRoot))
+          ..sort((a, b) => _compareVersions(b, a));
+        for (final verDir in versions) {
+          checkDir(_joinOsPath(verDir, 'bin'));
+        }
+      }
+    }
+
+    final pathKey = env.containsKey('Path') ? 'Path' : 'PATH';
+    final sep = _isWindows ? ';' : ':';
+    for (final entry in (env[pathKey] ?? '').split(sep)) {
+      checkDir(entry);
+    }
+
+    return found;
+  }
+
+  /// Discovers Android NDK `shader-tools` directories containing `glslc`.
+  Future<List<String>> discoverNdkShaderToolDirs() async {
+    if (kIsWeb) return const [];
+    final sdkPath = await _findSdkRootQuick();
+    if (sdkPath == null) return const [];
+
+    final ndkRoot = _joinOsPath(sdkPath, 'ndk');
+    if (!_dirExists(ndkRoot)) return const [];
+
+    final found = <String>[];
+    final ndkVersions = List<String>.from(_listSubdirectories(ndkRoot))
+      ..sort((a, b) => _compareVersions(b, a));
+    final glslcName = _isWindows ? 'glslc.exe' : 'glslc';
+    final hostTags = _isWindows
+        ? const ['windows-x86_64', 'windows-x64']
+        : const ['darwin-x86_64', 'linux-x86_64'];
+
+    for (final ndkDir in ndkVersions) {
+      for (final tag in hostTags) {
+        final dir = _joinOsPath(_joinOsPath(ndkDir, 'shader-tools'), tag);
+        if (_fileExists(_joinOsPath(dir, glslcName))) {
+          found.add(dir);
+        }
+      }
+    }
+    return found;
+  }
+
+  Future<String?> _findVisualStudioInstallPath() async {
+    if (!_isWindows || kIsWeb) return null;
+    final env = _environmentProvider();
+    final pf86 = env['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)';
+    final pf = env['ProgramFiles'] ?? r'C:\Program Files';
+
+    final vswherePath = _joinOsPath(
+      _joinOsPath(_joinOsPath(pf86, 'Microsoft Visual Studio'), 'Installer'),
+      'vswhere.exe',
+    );
+    if (_fileExists(vswherePath)) {
+      try {
+        final res = await _processRunner(
+          vswherePath,
+          const [
+            '-latest',
+            '-products',
+            '*',
+            '-requires',
+            'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+            '-property',
+            'installationPath',
+          ],
+          runInShell: false,
+        );
+        if (res.exitCode == 0) {
+          final firstLine = res.stdout
+              .toString()
+              .split(RegExp(r'\r?\n'))
+              .map((l) => l.trim())
+              .firstWhere((l) => l.isNotEmpty, orElse: () => '');
+          if (firstLine.isNotEmpty && _dirExists(firstLine)) {
+            return firstLine;
+          }
+        }
+      } catch (_) {}
+    }
+
+    for (final root in [pf86, pf]) {
+      final vsRoot = _joinOsPath(root, 'Microsoft Visual Studio');
+      if (!_dirExists(vsRoot)) continue;
+      for (final year in const ['2022', '2019', '18']) {
+        final yearDir = _joinOsPath(vsRoot, year);
+        if (!_dirExists(yearDir)) continue;
+        for (final edition in const [
+          'BuildTools',
+          'Community',
+          'Professional',
+          'Enterprise',
+        ]) {
+          final edDir = _joinOsPath(yearDir, edition);
+          if (_dirExists(edDir)) return edDir;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Discovers Visual Studio `vcvars64.bat` if MSVC C++ tools are installed.
+  Future<String?> discoverVcvars64BatPath() async {
+    final vsPath = await _findVisualStudioInstallPath();
+    if (vsPath == null) return null;
+    final bat = _joinOsPath(
+      _joinOsPath(_joinOsPath(vsPath, 'VC'), 'Auxiliary'),
+      _joinOsPath('Build', 'vcvars64.bat'),
+    );
+    return _fileExists(bat) ? bat : null;
+  }
+
+  /// Discovers MSVC host compiler (`cl.exe`) on Windows if installed.
+  Future<String?> discoverMsvcCompilerPath() async {
+    if (!_isWindows || kIsWeb) return null;
+    final vsPath = await _findVisualStudioInstallPath();
+    if (vsPath == null) return null;
+
+    final msvcRoot = _joinOsPath(_joinOsPath(vsPath, 'VC'), r'Tools\MSVC');
+    if (!_dirExists(msvcRoot)) return null;
+    final toolsets = List<String>.from(_listSubdirectories(msvcRoot))
+      ..sort((a, b) => _compareVersions(b, a));
+    for (final tsDir in toolsets) {
+      final clPath = _joinOsPath(tsDir, r'bin\Hostx64\x64\cl.exe');
+      if (_fileExists(clPath)) return clPath;
+    }
+    return null;
+  }
+
+  Future<Map<String, String>> _loadMsvcVcvarsEnvironment() async {
+    if (!_isWindows || kIsWeb) return const {};
+    if (_cachedMsvcEnv != null) return _cachedMsvcEnv!;
+
+    final vcvars = await discoverVcvars64BatPath();
+    if (vcvars == null) return const {};
+
+    try {
+      final res = await _processRunner(
+        'cmd.exe',
+        ['/c', 'call "$vcvars" >nul && set'],
+        runInShell: false,
+      );
+      if (res.exitCode != 0) return const {};
+
+      const relevantKeys = <String>{
+        'PATH',
+        'INCLUDE',
+        'LIB',
+        'LIBPATH',
+        'VSINSTALLDIR',
+        'VCINSTALLDIR',
+        'WINDOWSSDKDIR',
+        'WINDOWSSDKVERSION',
+        'WINDOWSSDKLIBVERSION',
+        'UCRTVERSION',
+        'VCTOOLSINSTALLDIR',
+      };
+
+      final captured = <String, String>{};
+      for (final rawLine in res.stdout.toString().split(RegExp(r'\r?\n'))) {
+        final eq = rawLine.indexOf('=');
+        if (eq <= 0) continue;
+        final key = rawLine.substring(0, eq).trim();
+        final value = rawLine.substring(eq + 1);
+        if (relevantKeys.contains(key.toUpperCase())) {
+          captured[key] = value;
+        }
+      }
+      if (captured.isNotEmpty) {
+        _cachedMsvcEnv = captured;
+      }
+      return captured;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Builds an enriched process environment with fresh Registry `PATH`,
+  /// discovered Ninja/glslc binaries, and (when available) MSVC `vcvars64`.
+  Future<Map<String, String>> buildBuildEnvironment({
+    bool includeMsvc = true,
+  }) async {
+    final env = Map<String, String>.from(_environmentProvider());
+    if (kIsWeb) return env;
+
+    final prioritizedDirs = <String>[];
+    final ninjas = await discoverLocalNinjaPaths();
+    for (final ninjaExe in ninjas) {
+      final dir = _parentDir(ninjaExe);
+      if (dir.isNotEmpty) prioritizedDirs.add(dir);
+    }
+
+    final shaderDirs = await discoverNdkShaderToolDirs();
+    prioritizedDirs.addAll(shaderDirs);
+
+    final pathKey = env.containsKey('Path')
+        ? 'Path'
+        : (env.containsKey('PATH') ? 'PATH' : 'PATH');
+
+    if (_isWindows) {
+      if (includeMsvc) {
+        final msvcEnv = await _loadMsvcVcvarsEnvironment();
+        for (final entry in msvcEnv.entries) {
+          final upper = entry.key.toUpperCase();
+          if (upper == 'PATH') {
+            for (final seg in entry.value.split(';')) {
+              final cleaned = seg.trim();
+              if (cleaned.isNotEmpty) {
+                prioritizedDirs.add(cleaned);
+              }
+            }
+          } else {
+            env[entry.key] = entry.value;
+          }
+        }
+      }
+
+      final regPathDirs = await _readFreshWindowsRegistryPath();
+      prioritizedDirs.addAll(regPathDirs);
+    }
+
+    if (prioritizedDirs.isNotEmpty) {
+      env[pathKey] = mergePathEntries(
+        env[pathKey],
+        prioritizedDirs,
+        isWindows: _isWindows,
+      );
+    }
+
+    return env;
+  }
+
+  /// Deletes AGP/CMake's generated `android/app/.cxx` directory so subsequent
+  /// builds re-run toolchain detection cleanly with the updated environment.
+  Future<bool> clearAndroidCxxCache(String projectPath) async {
+    if (kIsWeb || projectPath.trim().isEmpty) return false;
+    final cxxPath = _joinOsPath(
+      _joinOsPath(_joinOsPath(projectPath.trim(), 'android'), 'app'),
+      '.cxx',
+    );
+    if (!_dirExists(cxxPath)) return true;
+    return _deleteDirectorySync(cxxPath);
+  }
+
+  static const String _cmakeFixMarker =
+      '# --- FLRD_WINDOWS_HOST_TOOLCHAIN_FIX ---';
+  static const String _cmakeFixEndMarker =
+      '# --- END FLRD_WINDOWS_HOST_TOOLCHAIN_FIX ---';
+
+  /// Patches `android/app/src/main/cpp/CMakeLists.txt` idempotently so CMake
+  /// cross-compiles host generators (like `ggml-vulkan` / `vulkan-shaders-gen`)
+  /// with MSVC `cl.exe` and Android NDK `glslc.exe` instead of NDK `clang.exe`.
+  Future<bool> applyWindowsHostToolchainCmakeFix(
+    String projectPath, {
+    String? msvcCompilerPath,
+  }) async {
+    if (kIsWeb || projectPath.trim().isEmpty) return false;
+    final cmakePath = _appCMakeListsPath(projectPath.trim());
+    final existing = _readFileSync(cmakePath);
+    if (existing == null) return false;
+    if (existing.contains(_cmakeFixMarker)) return true;
+
+    final clPath = (msvcCompilerPath ?? await discoverMsvcCompilerPath())
+        ?.replaceAll('\\', '/');
+    final useCrLf = existing.contains('\r\n');
+    final nl = useCrLf ? '\r\n' : '\n';
+
+    final blockLines = <String>[
+      _cmakeFixMarker,
+      'if(CMAKE_HOST_WIN32 AND ANDROID)',
+      if (clPath != null && clPath.isNotEmpty) ...[
+        '    if(EXISTS "$clPath")',
+        '        set(_flrd_cl_exe "$clPath")',
+        '    endif()',
+      ],
+      '    if(NOT _flrd_cl_exe)',
+      '        file(GLOB _flrd_msvc_cl',
+      '            "C:/Program Files/Microsoft Visual Studio/*/*/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe"',
+      '            "C:/Program Files (x86)/Microsoft Visual Studio/*/*/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe"',
+      '        )',
+      '        if(_flrd_msvc_cl)',
+      '            list(SORT _flrd_msvc_cl)',
+      '            list(REVERSE _flrd_msvc_cl)',
+      '            list(GET _flrd_msvc_cl 0 _flrd_cl_exe)',
+      '        endif()',
+      '    endif()',
+      '    if(_flrd_cl_exe)',
+      '        set(HOST_C_COMPILER "\${_flrd_cl_exe}" CACHE FILEPATH "Host C compiler (FLRD)" FORCE)',
+      '        set(HOST_CXX_COMPILER "\${_flrd_cl_exe}" CACHE FILEPATH "Host CXX compiler (FLRD)" FORCE)',
+      '    endif()',
+      '    set(_flrd_ndk_dir "\${ANDROID_NDK}")',
+      '    if(NOT _flrd_ndk_dir AND CMAKE_ANDROID_NDK)',
+      '        set(_flrd_ndk_dir "\${CMAKE_ANDROID_NDK}")',
+      '    endif()',
+      '    if(_flrd_ndk_dir)',
+      '        find_program(_flrd_glslc',
+      '            NAMES glslc glslc.exe',
+      '            PATHS "\${_flrd_ndk_dir}/shader-tools/windows-x86_64" "\${_flrd_ndk_dir}/shader-tools/windows-x64"',
+      '            NO_DEFAULT_PATH',
+      '            NO_CMAKE_FIND_ROOT_PATH',
+      '        )',
+      '        if(_flrd_glslc)',
+      '            set(Vulkan_GLSLC_EXECUTABLE "\${_flrd_glslc}" CACHE FILEPATH "Vulkan glslc (FLRD)" FORCE)',
+      '        endif()',
+      '    endif()',
+      'endif()',
+      _cmakeFixEndMarker,
+    ];
+    final fixBlock = blockLines.join(nl);
+
+    final addSubdirMatch = RegExp(
+      r'^[\t ]*add_subdirectory\s*\(',
+      multiLine: true,
+      caseSensitive: false,
+    ).firstMatch(existing);
+
+    String updated;
+    if (addSubdirMatch != null) {
+      final idx = addSubdirMatch.start;
+      updated =
+          '${existing.substring(0, idx)}$fixBlock$nl$nl${existing.substring(idx)}';
+    } else {
+      final projectMatch = RegExp(
+        r'^[\t ]*project\s*\([^\n]*\)',
+        multiLine: true,
+        caseSensitive: false,
+      ).firstMatch(existing);
+      if (projectMatch != null) {
+        final idx = projectMatch.end;
+        updated =
+            '${existing.substring(0, idx)}$nl$nl$fixBlock${existing.substring(idx)}';
+      } else {
+        updated = '$fixBlock$nl$nl$existing';
+      }
+    }
+
+    return _writeFileSync(cmakePath, updated);
   }
 
   Future<({String? adbPath, String? sdkPath})> _locateAdbAndSdk() async {
@@ -1245,16 +1914,30 @@ ConvertTo-Json -InputObject $items -Compress
     return devices;
   }
 
-  /// Spawns an interactive `flutter run --machine -d <deviceId>` daemon process.
+  /// Spawns an interactive `flutter run --machine -d <deviceId>` daemon process
+  /// with an enriched toolchain environment (fresh Registry PATH, Ninja, NDK glslc, MSVC).
   Future<Process> startAppProcess({
     required String projectPath,
     required String deviceId,
-  }) {
-    return _processStarter(
+  }) async {
+    final customStarter = _customProcessStarter;
+    if (customStarter != null && _customProcessEnvStarter == null) {
+      return customStarter(
+        'flutter',
+        ['run', '--machine', '-d', deviceId],
+        workingDirectory: projectPath,
+        runInShell: _isWindows,
+      );
+    }
+
+    final env = await buildBuildEnvironment();
+    final starter = _customProcessEnvStarter ?? _defaultProcessEnvStarter;
+    return starter(
       'flutter',
       ['run', '--machine', '-d', deviceId],
       workingDirectory: projectPath,
       runInShell: _isWindows,
+      environment: env,
     );
   }
 

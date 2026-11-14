@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/terminal_session.dart';
 import '../services/terminal_shell_service.dart';
+import 'android_debug_provider.dart';
 
 class _ShellProcessHandle {
   final Process process;
@@ -365,7 +366,11 @@ class TerminalNotifier extends StateNotifier<TerminalWorkspaceState> {
 }
 
 final terminalShellServiceProvider = Provider<TerminalShellService>((ref) {
-  return TerminalShellService();
+  return TerminalShellService(
+    buildEnvironmentResolver: () => ref
+        .read(androidDeviceRunnerServiceProvider)
+        .buildBuildEnvironment(includeMsvc: false),
+  );
 });
 
 final terminalProvider =

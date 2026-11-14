@@ -160,8 +160,15 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     return lower.contains('app failed to start') ||
         lower.contains('gradle build failed') ||
         lower.contains('failure: build failed with an exception') ||
+        lower.contains('failed with exit code') ||
+        lower.contains('cmake error') ||
         lower.contains('cmake was unable to find a build program corresponding to') ||
         lower.contains('cmake_make_program is not set') ||
+        lower.contains('unable to find library -lkernel32') ||
+        lower.contains('unable to find library -lmingw32') ||
+        lower.contains('is not able to compile a simple test program') ||
+        lower.contains('host compiler not found') ||
+        lower.contains('vulkan_glslc_executable-notfound') ||
         lower.contains('licenses not accepted') ||
         lower.contains('cmdline-tools component is missing');
   }
@@ -802,6 +809,71 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       return launchProject(projectPath, device: state.selectedDevice);
     }
     return true;
+  }
+
+  /// Applies FLRD's Windows CMake host-toolchain fix (when requested) and clears
+  /// `android/app/.cxx`, then relaunches the app on the active device.
+  Future<bool> applyCmakeFixAndRelaunch() async {
+    final projectPath = state.projectPath?.trim();
+    final diagnostic = state.buildDiagnostic;
+    if (projectPath == null ||
+        projectPath.isEmpty ||
+        diagnostic == null ||
+        !diagnostic.canAutoFixCmake ||
+        state.isApplyingBuildFix) {
+      return false;
+    }
+
+    state = state.copyWith(isApplyingBuildFix: true);
+
+    if (diagnostic.canFixCmakeHostToolchain) {
+      _appendLog(
+        '🛠️ Configurando HOST_C_COMPILER / glslc no CMakeLists.txt...',
+        isSystem: true,
+      );
+      final patched = await _service.applyWindowsHostToolchainCmakeFix(
+        projectPath,
+        msvcCompilerPath: diagnostic.detectedToolPath,
+      );
+      if (!mounted) return false;
+      if (!patched) {
+        state = state.copyWith(isApplyingBuildFix: false);
+        _appendLog(
+          '❌ Não foi possível atualizar android/app/src/main/cpp/CMakeLists.txt.',
+          isError: true,
+        );
+        return false;
+      }
+    }
+
+    if (diagnostic.canClearCxxCache) {
+      _appendLog(
+        '🧹 Limpando cache android/app/.cxx...',
+        isSystem: true,
+      );
+      final cleared = await _service.clearAndroidCxxCache(projectPath);
+      if (!mounted) return false;
+      if (!cleared) {
+        state = state.copyWith(isApplyingBuildFix: false);
+        _appendLog(
+          '❌ Não foi possível limpar android/app/.cxx (verifique se nenhum processo trava a pasta).',
+          isError: true,
+        );
+        return false;
+      }
+    }
+
+    _appendLog(
+      '✅ Ambiente CMake atualizado! Relançando app com PATH/Ninja/MSVC atualizados...',
+      isSystem: true,
+    );
+    state = state.copyWith(
+      isApplyingBuildFix: false,
+      buildDiagnostic: null,
+      errorMessage: null,
+    );
+
+    return launchProject(projectPath, device: state.selectedDevice);
   }
 
   void dismissBuildDiagnostic() {

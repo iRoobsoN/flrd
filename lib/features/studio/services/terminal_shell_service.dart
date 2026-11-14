@@ -6,38 +6,46 @@ import 'android_device_runner_service.dart';
 /// Spawns and manages persistent OS shell processes (PowerShell, CMD, Bash/Zsh)
 /// for VS Code-style interactive terminal tabs inside FLRD Studio.
 class TerminalShellService {
-  final ProcessStarterFn _processStarter;
+  final ProcessStarterFn? _customProcessStarter;
+  final ProcessEnvStarterFn? _customProcessEnvStarter;
   final ProcessRunnerFn _processRunner;
   final Map<String, String> Function() _environmentProvider;
+  final Future<Map<String, String>> Function()? _buildEnvironmentResolver;
   final bool Function(String path) _dirExists;
   final bool? _isWindowsOverride;
 
   TerminalShellService({
     ProcessStarterFn? processStarter,
+    ProcessEnvStarterFn? processEnvStarter,
     ProcessRunnerFn? processRunner,
     Map<String, String> Function()? environmentProvider,
+    Future<Map<String, String>> Function()? buildEnvironmentResolver,
     bool Function(String path)? dirExists,
     bool? isWindowsOverride,
-  })  : _processStarter = processStarter ?? _defaultProcessStarter,
+  })  : _customProcessStarter = processStarter,
+        _customProcessEnvStarter = processEnvStarter,
         _processRunner = processRunner ?? _defaultProcessRunner,
         _environmentProvider =
             environmentProvider ?? (() => Platform.environment),
+        _buildEnvironmentResolver = buildEnvironmentResolver,
         _dirExists = dirExists ?? ((path) => Directory(path).existsSync()),
         _isWindowsOverride = isWindowsOverride;
 
   bool get isWindows => _isWindowsOverride ?? (!kIsWeb && Platform.isWindows);
 
-  static Future<Process> _defaultProcessStarter(
+  static Future<Process> _defaultProcessEnvStarter(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
     bool runInShell = true,
+    Map<String, String>? environment,
   }) {
     return Process.start(
       executable,
       arguments,
       workingDirectory: workingDirectory,
       runInShell: runInShell,
+      environment: environment,
     );
   }
 
@@ -127,12 +135,34 @@ class TerminalShellService {
 
     final resolvedDir = resolveWorkingDirectory(workingDirectory);
     final cmd = resolveShellCommand(profile);
-    final process = await _processStarter(
-      cmd.executable,
-      cmd.arguments,
-      workingDirectory: resolvedDir,
-      runInShell: false,
-    );
+    final Process process;
+    final customStarter = _customProcessStarter;
+    if (customStarter != null && _customProcessEnvStarter == null) {
+      process = await customStarter(
+        cmd.executable,
+        cmd.arguments,
+        workingDirectory: resolvedDir,
+        runInShell: false,
+      );
+    } else {
+      Map<String, String>? env;
+      final resolver = _buildEnvironmentResolver;
+      if (resolver != null) {
+        try {
+          env = await resolver();
+        } catch (_) {
+          env = null;
+        }
+      }
+      final starter = _customProcessEnvStarter ?? _defaultProcessEnvStarter;
+      process = await starter(
+        cmd.executable,
+        cmd.arguments,
+        workingDirectory: resolvedDir,
+        runInShell: false,
+        environment: env,
+      );
+    }
 
     for (final initCmd in cmd.initCommands) {
       try {

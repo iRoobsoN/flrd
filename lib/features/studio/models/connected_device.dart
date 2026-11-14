@@ -196,6 +196,7 @@ class JavaJdkInfo {
 enum AndroidBuildIssueType {
   javaGradleIncompatibility,
   cmakeBuildToolMissing,
+  cmakeHostCompilerMismatch,
   androidSdkLicenseOrComponentMissing,
 }
 
@@ -208,6 +209,9 @@ class AndroidBuildDiagnostic {
   final String? detectedJavaVersion;
   final String? gradleVersion;
   final JavaJdkInfo? compatibleJdk;
+  final String? detectedToolPath;
+  final bool canClearCxxCache;
+  final bool canFixCmakeHostToolchain;
   final String? suggestedTerminalCommand;
   final String? externalHelpUrl;
   final List<String> steps;
@@ -219,6 +223,9 @@ class AndroidBuildDiagnostic {
     this.detectedJavaVersion,
     this.gradleVersion,
     this.compatibleJdk,
+    this.detectedToolPath,
+    this.canClearCxxCache = false,
+    this.canFixCmakeHostToolchain = false,
     this.suggestedTerminalCommand,
     this.externalHelpUrl,
     this.steps = const [],
@@ -227,6 +234,11 @@ class AndroidBuildDiagnostic {
   bool get canAutoApplyJdk =>
       issueType == AndroidBuildIssueType.javaGradleIncompatibility &&
       compatibleJdk != null;
+
+  bool get canAutoFixCmake =>
+      (issueType == AndroidBuildIssueType.cmakeBuildToolMissing ||
+          issueType == AndroidBuildIssueType.cmakeHostCompilerMismatch) &&
+      (canClearCxxCache || canFixCmakeHostToolchain);
 }
 
 /// Represents a physical or emulated Android device reported by Flutter CLI.

@@ -1313,6 +1313,59 @@ class _AndroidDebugConsolePanelState
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
+                  if (diagnostic.canAutoFixCmake)
+                    ElevatedButton.icon(
+                      key: diagnostic.canFixCmakeHostToolchain
+                          ? const ValueKey('android_fix_cmake_host_button')
+                          : const ValueKey('android_fix_cmake_ninja_button'),
+                      onPressed: debugState.isApplyingBuildFix
+                          ? null
+                          : () async {
+                              final ok = await debugNotifier
+                                  .applyCmakeFixAndRelaunch();
+                              if (!context.mounted) return;
+                              if (ok) {
+                                AppToast.success(
+                                  context,
+                                  diagnostic.canFixCmakeHostToolchain
+                                      ? 'CMake ajustado para MSVC/glslc e cache .cxx limpo! Relançando app...'
+                                      : 'Cache .cxx limpo! Relançando com Ninja e ambiente atualizados...',
+                                );
+                              } else {
+                                AppToast.error(
+                                  context,
+                                  'Não foi possível aplicar o ajuste CMake/.cxx automaticamente.',
+                                );
+                              }
+                            },
+                      icon: Icon(
+                        debugState.isApplyingBuildFix
+                            ? Icons.hourglass_top_rounded
+                            : Icons.auto_fix_high_rounded,
+                        size: 13,
+                      ),
+                      label: Text(
+                        debugState.isApplyingBuildFix
+                            ? 'Aplicando ajuste CMake...'
+                            : (diagnostic.canFixCmakeHostToolchain
+                                ? 'Aplicar Fix Host MSVC/Vulkan no CMake e Rodar'
+                                : 'Limpar Cache .cxx e Rodar com Ninja'),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
                   if (diagnostic.suggestedTerminalCommand != null) ...[
                     OutlinedButton.icon(
                       key: const ValueKey('android_run_fix_in_terminal_button'),

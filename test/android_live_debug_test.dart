@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/studio/models/connected_device.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
+import 'package:flrd/features/studio/models/terminal_session.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
 import 'package:flrd/features/studio/presentation/widgets/android_debug_controls.dart';
 import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
@@ -1508,6 +1509,466 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
           );
 
           // Clear any remaining AppToast dismissal timers cleanly before teardown.
+          await tester.pump(const Duration(seconds: 5));
+        },
+      );
+    });
+
+    group('Windows Ninja, NDK glslc & MSVC auto-remediation', () {
+      test(
+        'mergePathEntries prioritizes new dirs and deduplicates case-insensitively on Windows',
+        () {
+          final merged = AndroidDeviceRunnerService.mergePathEntries(
+            r'C:\Windows\System32;C:\Users\Rob\AppData\Local\Microsoft\WinGet\Links\;C:\flutter\bin',
+            const [
+              r'C:\Users\Rob\AppData\Local\Microsoft\WinGet\Links',
+              r'C:\Users\Rob\AppData\Local\Android\Sdk\cmake\3.22.1\bin',
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64',
+            ],
+            isWindows: true,
+          );
+
+          final parts = merged.split(';');
+          expect(
+            parts,
+            equals([
+              r'C:\Users\Rob\AppData\Local\Microsoft\WinGet\Links',
+              r'C:\Users\Rob\AppData\Local\Android\Sdk\cmake\3.22.1\bin',
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64',
+              r'C:\Windows\System32',
+              r'C:\flutter\bin',
+            ]),
+          );
+        },
+      );
+
+      test(
+        'buildBuildEnvironment and startAppProcess inject WinGet Ninja, NDK glslc, Registry PATH and MSVC vcvars64',
+        () async {
+          const wingetLinks =
+              r'C:\Users\Rob\AppData\Local\Microsoft\WinGet\Links';
+          const sdkRoot = r'C:\Users\Rob\AppData\Local\Android\Sdk';
+          const cmakeBin = r'C:\Users\Rob\AppData\Local\Android\Sdk\cmake\3.22.1\bin';
+          const ndkShaderDir =
+              r'C:\Users\Rob\AppData\Local\Android\Sdk\ndk\28.2.13676358\shader-tools\windows-x86_64';
+          const vsRoot =
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools';
+          const vcvarsBat =
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat';
+          const msvcVerDir =
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207';
+          const clExe =
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe';
+          const vswhereExe =
+              r'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe';
+
+          final existingFiles = <String>{
+            '$wingetLinks\\ninja.exe',
+            '$cmakeBin\\ninja.exe',
+            '$ndkShaderDir\\glslc.exe',
+            vcvarsBat,
+            clExe,
+            vswhereExe,
+          };
+          final existingDirs = <String>{
+            sdkRoot,
+            r'C:\Users\Rob\AppData\Local\Android\Sdk\cmake',
+            r'C:\Users\Rob\AppData\Local\Android\Sdk\ndk',
+            vsRoot,
+            r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC',
+          };
+
+          Map<String, String>? capturedEnv;
+          final service = AndroidDeviceRunnerService(
+            isWindowsOverride: true,
+            environmentProvider: () => const {
+              'LOCALAPPDATA': r'C:\Users\Rob\AppData\Local',
+              'ProgramFiles(x86)': r'C:\Program Files (x86)',
+              'ProgramFiles': r'C:\Program Files',
+              'Path': r'C:\Windows\System32;C:\flutter\bin',
+            },
+            fileExists: existingFiles.contains,
+            dirExists: existingDirs.contains,
+            listSubdirectories: (dir) {
+              if (dir == r'C:\Users\Rob\AppData\Local\Android\Sdk\cmake') {
+                return const [r'C:\Users\Rob\AppData\Local\Android\Sdk\cmake\3.22.1'];
+              }
+              if (dir == r'C:\Users\Rob\AppData\Local\Android\Sdk\ndk') {
+                return const [
+                  r'C:\Users\Rob\AppData\Local\Android\Sdk\ndk\28.2.13676358',
+                ];
+              }
+              if (dir ==
+                  r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC') {
+                return const [msvcVerDir];
+              }
+              return const [];
+            },
+            processRunner: (exec, args, {workingDirectory, runInShell = true}) async {
+              if (exec == vswhereExe) {
+                return ProcessResult(1, 0, '$vsRoot\r\n', '');
+              }
+              if (exec == 'cmd.exe' &&
+                  args.any((a) => a.contains('vcvars64.bat'))) {
+                return ProcessResult(
+                  2,
+                  0,
+                  'INCLUDE=C:\\VS\\include\r\n'
+                      'LIB=C:\\VS\\lib\\x64\r\n'
+                      'Path=$msvcVerDir\\bin\\Hostx64\\x64;C:\\Windows\\System32\r\n',
+                  '',
+                );
+              }
+              if (exec == 'reg' && args.contains(r'HKCU\Environment')) {
+                return ProcessResult(
+                  3,
+                  0,
+                  '    Path    REG_EXPAND_SZ    %LOCALAPPDATA%\\CustomTools\r\n',
+                  '',
+                );
+              }
+              return ProcessResult(4, 1, '', '');
+            },
+            processEnvStarter: (
+              exec,
+              args, {
+              workingDirectory,
+              runInShell = true,
+              environment,
+            }) async {
+              capturedEnv = environment;
+              return _FakeProcess();
+            },
+          );
+
+          await service.startAppProcess(
+            projectPath: r'C:\Users\Rob\Downloads\snapia',
+            deviceId: 'RXGL20BSBJX',
+          );
+
+          expect(capturedEnv, isNotNull);
+          expect(capturedEnv!['INCLUDE'], r'C:\VS\include');
+          expect(capturedEnv!['LIB'], r'C:\VS\lib\x64');
+          final pathValue = capturedEnv!['Path'] ?? '';
+          expect(pathValue, contains(wingetLinks));
+          expect(pathValue, contains(cmakeBin));
+          expect(pathValue, contains(ndkShaderDir));
+          expect(pathValue, contains(r'C:\Users\Rob\AppData\Local\CustomTools'));
+          expect(pathValue, contains('$msvcVerDir\\bin\\Hostx64\\x64'));
+        },
+      );
+
+      test(
+        'diagnoseBuildFailure detects locally installed Ninja + MSVC host compiler mismatch and patches CMakeLists idempotently',
+        () async {
+          final files = <String, String>{
+            r'C:\Users\Rob\AppData\Local\Microsoft\WinGet\Links\ninja.exe':
+                'bin',
+            r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe':
+                'bin',
+            r'C:\proj\android\app\src\main\cpp\CMakeLists.txt':
+                'cmake_minimum_required(VERSION 3.22.1)\r\n'
+                    'project(gguf_engine)\r\n\r\n'
+                    'add_subdirectory(stable-diffusion.cpp)\r\n'
+                    'add_library(gguf_engine SHARED bridge.cpp)\r\n',
+          };
+          final dirs = <String>{
+            r'C:\Program Files (x86)\Microsoft Visual Studio',
+            r'C:\Program Files (x86)\Microsoft Visual Studio\2022',
+            r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools',
+            r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC',
+            r'C:\proj\android\app\.cxx',
+          };
+
+          final service = AndroidDeviceRunnerService(
+            isWindowsOverride: true,
+            environmentProvider: () => const {
+              'LOCALAPPDATA': r'C:\Users\Rob\AppData\Local',
+              'ProgramFiles(x86)': r'C:\Program Files (x86)',
+              'ProgramFiles': r'C:\Program Files',
+              'Path': r'C:\Windows\System32',
+            },
+            fileExists: files.containsKey,
+            dirExists: dirs.contains,
+            readFileSync: (path) => files[path],
+            writeFileSync: (path, content) {
+              files[path] = content;
+              return true;
+            },
+            deleteDirectorySync: (path) {
+              dirs.remove(path);
+              return true;
+            },
+            listSubdirectories: (dir) {
+              if (dir ==
+                  r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC') {
+                return const [
+                  r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207',
+                ];
+              }
+              return const [];
+            },
+          );
+
+          // 1) Ninja exists on disk but CMake complained about missing Ninja -> 1-click cache clear + relaunch
+          final ninjaDiag = await service.diagnoseBuildFailure(
+            const [
+              'CMake Error: CMake was unable to find a build program corresponding to "Ninja".',
+              'CMAKE_MAKE_PROGRAM is not set.',
+            ],
+            projectPath: r'C:\proj',
+          );
+          expect(ninjaDiag, isNotNull);
+          expect(ninjaDiag!.issueType, AndroidBuildIssueType.cmakeBuildToolMissing);
+          expect(ninjaDiag.canClearCxxCache, isTrue);
+          expect(ninjaDiag.canAutoFixCmake, isTrue);
+          expect(ninjaDiag.canFixCmakeHostToolchain, isFalse);
+
+          // 2) Cross-compile vulkan-shaders-gen picked NDK clang.exe -> -lkernel32 failure -> 1-click MSVC/glslc CMake patch
+          final hostDiag = await service.diagnoseBuildFailure(
+            const [
+              "Performing configure step for 'vulkan-shaders-gen'",
+              ' host-toolchain.cmake -- Check for working C compiler: C:/Android/Sdk/ndk/28/clang.exe',
+              'ld.lld: error: unable to find library -lkernel32',
+              'is not able to compile a simple test program.',
+            ],
+            projectPath: r'C:\proj',
+          );
+          expect(hostDiag, isNotNull);
+          expect(
+            hostDiag!.issueType,
+            AndroidBuildIssueType.cmakeHostCompilerMismatch,
+          );
+          expect(hostDiag.canFixCmakeHostToolchain, isTrue);
+          expect(hostDiag.canClearCxxCache, isTrue);
+          expect(hostDiag.canAutoFixCmake, isTrue);
+
+          final ok1 = await service.applyWindowsHostToolchainCmakeFix(
+            r'C:\proj',
+            msvcCompilerPath: hostDiag.detectedToolPath,
+          );
+          expect(ok1, isTrue);
+          final patchedContent =
+              files[r'C:\proj\android\app\src\main\cpp\CMakeLists.txt']!;
+          expect(patchedContent, contains('FLRD_WINDOWS_HOST_TOOLCHAIN_FIX'));
+          expect(patchedContent, contains('HOST_C_COMPILER'));
+          expect(patchedContent, contains('HOST_CXX_COMPILER'));
+          expect(patchedContent, contains('Vulkan_GLSLC_EXECUTABLE'));
+          expect(
+            patchedContent.indexOf('FLRD_WINDOWS_HOST_TOOLCHAIN_FIX'),
+            lessThan(patchedContent.indexOf('add_subdirectory(stable-diffusion.cpp)')),
+          );
+
+          // Idempotent on second call
+          final ok2 = await service.applyWindowsHostToolchainCmakeFix(r'C:\proj');
+          expect(ok2, isTrue);
+          expect(
+            files[r'C:\proj\android\app\src\main\cpp\CMakeLists.txt'],
+            patchedContent,
+          );
+
+          expect(await service.clearAndroidCxxCache(r'C:\proj'), isTrue);
+          expect(dirs.contains(r'C:\proj\android\app\.cxx'), isFalse);
+        },
+      );
+
+      test(
+        'TerminalShellService forwards refreshed PATH from buildEnvironmentResolver',
+        () async {
+          Map<String, String>? capturedEnv;
+          final shellService = TerminalShellService(
+            isWindowsOverride: true,
+            dirExists: (_) => true,
+            buildEnvironmentResolver: () async => const {
+              'Path':
+                  r'C:\Users\Rob\AppData\Local\Microsoft\WinGet\Links;C:\Windows\System32',
+            },
+            processRunner: (exec, args, {workingDirectory, runInShell = true}) async {
+              return ProcessResult(1, 0, r'C:\Program Files\PowerShell\7\pwsh.exe', '');
+            },
+            processEnvStarter: (
+              exec,
+              args, {
+              workingDirectory,
+              runInShell = true,
+              environment,
+            }) async {
+              capturedEnv = environment;
+              return _FakeProcess();
+            },
+          );
+
+          await shellService.startInteractiveShell(
+            workingDirectory: r'C:\Users\Rob\Downloads\snapia',
+            profile: TerminalShellProfile.powerShell,
+          );
+
+          expect(
+            capturedEnv?['Path'],
+            contains(r'Microsoft\WinGet\Links'),
+          );
+        },
+      );
+
+      testWidgets(
+        'AndroidDebugConsolePanel 1-click MSVC/Vulkan CMake fix patches file, clears .cxx, and relaunches with enriched env',
+        (tester) async {
+          final tempProj = Directory.systemTemp.createTempSync('flrd_cmake_fix_');
+          File(p.join(tempProj.path, 'pubspec.yaml'))
+              .writeAsStringSync('name: snapia\n');
+          final cppDir = Directory(
+            p.join(tempProj.path, 'android', 'app', 'src', 'main', 'cpp'),
+          )..createSync(recursive: true);
+          final cmakeFile = File(p.join(cppDir.path, 'CMakeLists.txt'))
+            ..writeAsStringSync(
+              'cmake_minimum_required(VERSION 3.22.1)\n'
+              'project(gguf_engine)\n'
+              'add_subdirectory(stable-diffusion.cpp)\n',
+            );
+          final cxxDir = Directory(p.join(tempProj.path, 'android', 'app', '.cxx'))
+            ..createSync(recursive: true);
+          addTearDown(() {
+            if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+          });
+
+          const clExe =
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe';
+          const vcvarsBat =
+              r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat';
+          final appProcesses = <_FakeProcess>[];
+          final launchEnvs = <Map<String, String>?>[];
+
+          final androidService = AndroidDeviceRunnerService(
+            isWindowsOverride: true,
+            environmentProvider: () => const {
+              'LOCALAPPDATA': r'C:\Users\Rob\AppData\Local',
+              'ProgramFiles(x86)': r'C:\Program Files (x86)',
+              'ProgramFiles': r'C:\Program Files',
+              'Path': r'C:\Windows\System32',
+            },
+            fileExists: (path) =>
+                path == clExe ||
+                path == vcvarsBat ||
+                (p.isWithin(tempProj.path, path) && File(path).existsSync()),
+            dirExists: (path) =>
+                path == r'C:\Program Files (x86)\Microsoft Visual Studio' ||
+                path == r'C:\Program Files (x86)\Microsoft Visual Studio\2022' ||
+                path == r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools' ||
+                path ==
+                    r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC' ||
+                ((path == tempProj.path || p.isWithin(tempProj.path, path)) &&
+                    Directory(path).existsSync()),
+            listSubdirectories: (dir) {
+              if (dir ==
+                  r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC') {
+                return const [
+                  r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207',
+                ];
+              }
+              return const [];
+            },
+            processRunner: (exec, args, {workingDirectory, runInShell = true}) async {
+              if (exec == 'cmd.exe' &&
+                  args.any((a) => a.contains('vcvars64.bat'))) {
+                return ProcessResult(
+                  20,
+                  0,
+                  'INCLUDE=C:\\VS\\include\r\nLIB=C:\\VS\\lib\r\nPath=C:\\VS\\bin\r\n',
+                  '',
+                );
+              }
+              return ProcessResult(21, 1, '', '');
+            },
+            processEnvStarter: (
+              exec,
+              args, {
+              workingDirectory,
+              runInShell = true,
+              environment,
+            }) async {
+              launchEnvs.add(environment);
+              final proc = _FakeProcess();
+              appProcesses.add(proc);
+              return proc;
+            },
+          );
+
+          final container = ProviderContainer(
+            overrides: [
+              androidDeviceRunnerServiceProvider
+                  .overrideWithValue(androidService),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          container.read(terminalProvider.notifier).setPanelHeight(320.0);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                home: Scaffold(
+                  body: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: AndroidDebugConsolePanel(
+                      projectPath: tempProj.path,
+                      onClose: () {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          final debugNotifier = container.read(androidDebugProvider.notifier);
+          await debugNotifier.launchProject(
+            tempProj.path,
+            device: const ConnectedAndroidDevice(
+              id: 'RXGL20BSBJX',
+              name: 'SM S938B',
+              targetPlatform: 'android-arm64',
+              sdk: 'Android 16',
+            ),
+          );
+
+          appProcesses.first.emitStdoutLine('[{"event":"app.start","params":{"appId":"1"}}]');
+          appProcesses.first.emitStdoutLine(
+            "Performing configure step for 'vulkan-shaders-gen'",
+          );
+          appProcesses.first.emitStdoutLine(
+            'host-toolchain.cmake -- Check for working C compiler: clang.exe',
+          );
+          appProcesses.first.emitStdoutLine(
+            'ld.lld: error: unable to find library -lkernel32',
+          );
+          appProcesses.first.emitStdoutLine('[{"event":"app.stop","params":{"appId":"1"}}]');
+          appProcesses.first.completeExit(1);
+          await tester.pump(const Duration(milliseconds: 60));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const ValueKey('android_fix_cmake_host_button')),
+            findsOneWidget,
+          );
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('android_fix_cmake_host_button')),
+          );
+          await tester.tap(
+            find.byKey(const ValueKey('android_fix_cmake_host_button')),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 60));
+
+          expect(cxxDir.existsSync(), isFalse);
+          final updatedCmake = cmakeFile.readAsStringSync();
+          expect(updatedCmake, contains('FLRD_WINDOWS_HOST_TOOLCHAIN_FIX'));
+          expect(updatedCmake, contains('HOST_C_COMPILER'));
+          expect(appProcesses.length, 2);
+          expect(launchEnvs.length, 2);
+          expect(launchEnvs[1]?['INCLUDE'], r'C:\VS\include');
+          expect(launchEnvs[1]?['LIB'], r'C:\VS\lib');
+
           await tester.pump(const Duration(seconds: 5));
         },
       );
