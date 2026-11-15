@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
+import '../../../ai/providers/ai_settings_provider.dart';
 import '../../models/connected_device.dart';
 import '../../models/terminal_session.dart';
 import '../../providers/android_debug_provider.dart';
@@ -1126,6 +1127,55 @@ class _AndroidDebugConsolePanelState
     );
   }
 
+  String _buildAiDiagnosticReport(
+    AndroidBuildDiagnostic diagnostic,
+    AndroidDebugState debugState,
+  ) {
+    final buffer = StringBuffer();
+    buffer.writeln('=== FLRD Android Diagnostic Report ===');
+    buffer.writeln('Título: ${diagnostic.title}');
+    buffer.writeln('Tipo: ${diagnostic.issueType.name}');
+    buffer.writeln('Runtime crash: ${diagnostic.isRuntimeCrash ? "sim" : "não"}');
+    if (diagnostic.affectedLocation != null &&
+        diagnostic.affectedLocation!.trim().isNotEmpty) {
+      buffer.writeln('Local afetado: ${diagnostic.affectedLocation}');
+    }
+    if (diagnostic.crashSummary != null &&
+        diagnostic.crashSummary!.trim().isNotEmpty) {
+      buffer.writeln('Resumo do erro: ${diagnostic.crashSummary}');
+    }
+    buffer.writeln();
+    buffer.writeln('Explicação:');
+    buffer.writeln(diagnostic.explanation);
+    if (diagnostic.steps.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('Passos recomendados:');
+      for (final step in diagnostic.steps) {
+        buffer.writeln('- $step');
+      }
+    }
+    final logLines = diagnostic.relevantLogLines.isNotEmpty
+        ? diagnostic.relevantLogLines
+        : debugState.logs
+            .skip(math.max(0, debugState.logs.length - 40))
+            .map((entry) => entry.message)
+            .toList(growable: false);
+    if (logLines.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('Logs relevantes:');
+      for (final line in logLines) {
+        buffer.writeln(line);
+      }
+    }
+    if (diagnostic.aiFixSuggestion != null &&
+        diagnostic.aiFixSuggestion!.trim().isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('Solução sugerida pela IA:');
+      buffer.writeln(diagnostic.aiFixSuggestion);
+    }
+    return buffer.toString().trimRight();
+  }
+
   Widget _buildDiagnosticAssistantCard({
     required BuildContext context,
     required AndroidBuildDiagnostic diagnostic,
@@ -1133,16 +1183,21 @@ class _AndroidDebugConsolePanelState
     required AndroidDebugNotifier debugNotifier,
     required double effectiveHeight,
   }) {
+    final hasAiFix = diagnostic.aiFixSuggestion != null &&
+        diagnostic.aiFixSuggestion!.trim().isNotEmpty;
+    final desiredCap = hasAiFix ? 240.0 : 165.0;
     final maxCardHeight =
-        math.max(36.0, math.min(136.0, (effectiveHeight - 82.0) * 0.65));
+        math.max(36.0, math.min(desiredCap, (effectiveHeight - 82.0) * 0.65));
+    final accentColor =
+        diagnostic.isRuntimeCrash ? AppColors.danger : AppColors.warning;
 
     return Container(
       key: const ValueKey('android_build_diagnostic_card'),
       decoration: BoxDecoration(
-        color: AppColors.warning.withValues(alpha: 0.08),
+        color: accentColor.withValues(alpha: 0.08),
         border: Border(
           bottom: BorderSide(
-            color: AppColors.warning.withValues(alpha: 0.35),
+            color: accentColor.withValues(alpha: 0.35),
           ),
         ),
       ),
@@ -1157,12 +1212,14 @@ class _AndroidDebugConsolePanelState
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 1),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
                     child: Icon(
-                      Icons.auto_fix_high_rounded,
+                      diagnostic.isRuntimeCrash
+                          ? Icons.bug_report_rounded
+                          : Icons.auto_fix_high_rounded,
                       size: 14,
-                      color: AppColors.warning,
+                      color: accentColor,
                     ),
                   ),
                   const SizedBox(width: 7),
@@ -1176,6 +1233,31 @@ class _AndroidDebugConsolePanelState
                       ),
                     ),
                   ),
+                  if (diagnostic.isRuntimeCrash) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      key: const ValueKey('android_runtime_crash_badge'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: AppColors.danger.withValues(alpha: 0.45),
+                        ),
+                      ),
+                      child: const Text(
+                        'Crash em Runtime',
+                        style: TextStyle(
+                          color: AppColors.danger,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
                   if (diagnostic.detectedJavaVersion != null ||
                       diagnostic.gradleVersion != null) ...[
                     const SizedBox(width: 6),
@@ -1222,6 +1304,63 @@ class _AndroidDebugConsolePanelState
                   ),
                 ],
               ),
+              if (diagnostic.affectedLocation != null &&
+                  diagnostic.affectedLocation!.trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Container(
+                  key: const ValueKey('android_diagnostic_location_badge'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: accentColor.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.my_location_rounded,
+                        size: 11,
+                        color: accentColor,
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          'Onde: ${diagnostic.affectedLocation!}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (diagnostic.crashSummary != null &&
+                  diagnostic.crashSummary!.trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  diagnostic.crashSummary!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: accentColor,
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
               const SizedBox(height: 5),
               Text(
                 diagnostic.explanation,
@@ -1239,10 +1378,10 @@ class _AndroidDebugConsolePanelState
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           '• ',
                           style: TextStyle(
-                            color: AppColors.warning,
+                            color: accentColor,
                             fontSize: 10.5,
                             fontWeight: FontWeight.w700,
                           ),
@@ -1435,6 +1574,130 @@ class _AndroidDebugConsolePanelState
                       ),
                     ),
                   ],
+                  if (diagnostic.canRescanAndRelaunch)
+                    ElevatedButton.icon(
+                      key: const ValueKey('android_rescan_and_run_button'),
+                      onPressed: (debugState.status == DeviceRunStatus.scanning ||
+                              debugState.status == DeviceRunStatus.launching ||
+                              debugState.isApplyingBuildFix)
+                          ? null
+                          : () async {
+                              final ok = await debugNotifier.rescanAndRelaunch(
+                                projectPath: widget.projectPath,
+                              );
+                              if (!context.mounted) return;
+                              if (ok) {
+                                AppToast.success(
+                                  context,
+                                  'Dispositivo re-detectado! Relançando app...',
+                                );
+                              } else {
+                                AppToast.error(
+                                  context,
+                                  'Nenhum dispositivo Android detectado no ADB.',
+                                );
+                              }
+                            },
+                      icon: Icon(
+                        debugState.status == DeviceRunStatus.scanning
+                            ? Icons.hourglass_top_rounded
+                            : Icons.usb_rounded,
+                        size: 13,
+                      ),
+                      label: Text(
+                        debugState.status == DeviceRunStatus.scanning
+                            ? 'Escaneando ADB...'
+                            : 'Re-detectar & Rodar',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ElevatedButton.icon(
+                    key: const ValueKey('android_ai_diagnose_button'),
+                    onPressed: diagnostic.isGeneratingAiFix
+                        ? null
+                        : () async {
+                            final apiKey = ref.read(aiSettingsProvider).apiKey;
+                            final suggestion = await debugNotifier
+                                .generateAiDiagnosisForCurrentDiagnostic(
+                              projectPath: widget.projectPath,
+                              apiKey: apiKey,
+                            );
+                            if (!context.mounted) return;
+                            if (suggestion != null &&
+                                suggestion.trim().isNotEmpty) {
+                              AppToast.success(
+                                context,
+                                'Diagnóstico e sugestão de correção gerados!',
+                              );
+                            }
+                          },
+                    icon: Icon(
+                      diagnostic.isGeneratingAiFix
+                          ? Icons.hourglass_top_rounded
+                          : Icons.auto_awesome_rounded,
+                      size: 13,
+                    ),
+                    label: Text(
+                      diagnostic.isGeneratingAiFix
+                          ? 'Analisando com IA...'
+                          : 'Gerar Solução com IA',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.secondary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey('android_copy_ai_report_button'),
+                    onPressed: () async {
+                      final report =
+                          _buildAiDiagnosticReport(diagnostic, debugState);
+                      await Clipboard.setData(ClipboardData(text: report));
+                      if (!context.mounted) return;
+                      AppToast.success(
+                        context,
+                        'Relatório completo copiado para colar na IA.',
+                      );
+                    },
+                    icon: const Icon(Icons.assignment_rounded, size: 12),
+                    label: const Text(
+                      'Copiar Relatório p/ IA',
+                      style: TextStyle(fontSize: 10.5),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
                   if (diagnostic.externalHelpUrl != null)
                     OutlinedButton.icon(
                       key: const ValueKey('android_open_fix_help_url_button'),
@@ -1466,6 +1729,106 @@ class _AndroidDebugConsolePanelState
                     ),
                 ],
               ),
+              if (diagnostic.aiFixError != null &&
+                  diagnostic.aiFixError!.trim().isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Falha na análise com IA: ${diagnostic.aiFixError!}',
+                  style: const TextStyle(
+                    color: AppColors.danger,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+              if (hasAiFix) ...[
+                const SizedBox(height: 8),
+                Container(
+                  key: const ValueKey('android_ai_fix_box'),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface.withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: AppColors.secondary.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.auto_awesome_rounded,
+                            size: 12,
+                            color: AppColors.secondary,
+                          ),
+                          const SizedBox(width: 5),
+                          const Expanded(
+                            child: Text(
+                              'Análise & Solução Sugerida (IA)',
+                              style: TextStyle(
+                                color: AppColors.secondary,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          InkWell(
+                            key: const ValueKey('android_copy_ai_fix_button'),
+                            onTap: () async {
+                              await Clipboard.setData(
+                                ClipboardData(text: diagnostic.aiFixSuggestion!),
+                              );
+                              if (!context.mounted) return;
+                              AppToast.success(
+                                context,
+                                'Solução da IA copiada!',
+                              );
+                            },
+                            borderRadius: BorderRadius.circular(4),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.copy_rounded,
+                                    size: 11,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Copiar Solução',
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      SelectableText(
+                        diagnostic.aiFixSuggestion!,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 10.8,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),

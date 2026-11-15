@@ -66,15 +66,8 @@ void main() {
       );
       expect(repaintBoundaryAboveInteractiveViewer, findsWidgets);
 
-      // 2. Verify Anchored Live Preview Pane is isolated in a RepaintBoundary
-      final previewFinder = find.byKey(const ValueKey('anchored_live_preview_pane'));
-      expect(previewFinder, findsOneWidget);
-
-      final repaintBoundaryAbovePreview = find.ancestor(
-        of: previewFinder,
-        matching: find.byType(RepaintBoundary),
-      );
-      expect(repaintBoundaryAbovePreview, findsWidgets);
+      // 2. Verify removed fake Live Preview Pane is absent
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsNothing);
 
       // 3. Verify Node Inspector is wrapped in a RepaintBoundary when a node is selected
       // Tap the first node card

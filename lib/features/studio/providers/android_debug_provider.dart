@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import '../../ai/services/gemini_ai_service.dart';
 import '../models/connected_device.dart';
 import '../services/android_device_runner_service.dart';
 
@@ -105,15 +107,20 @@ class AndroidDebugState {
 }
 
 /// Manages Android device discovery, live `flutter run --machine` debug sessions,
-/// and automatic debounced Hot Reload on file saves.
+/// automatic debounced Hot Reload on file saves, long-build progress heartbeats,
+/// and build/install/runtime crash diagnostics + AI root-cause analysis.
 class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
   final AndroidDeviceRunnerService _service;
+  final Duration _buildHeartbeatInterval;
+  final http.Client? _aiHttpClient;
 
   Process? _process;
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
   Timer? _reloadDebounceTimer;
   Timer? _exitDrainTimer;
+  Timer? _buildHeartbeatTimer;
+  Timer? _runtimeCrashDebounceTimer;
   int _nextRequestId = 1;
   final Map<int, String> _pendingRpcMethods = {};
   final List<String> _currentRunLines = [];
@@ -121,10 +128,20 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
   bool _hasActiveAppStarted = false;
   bool _evaluatedCurrentRunFailure = false;
   bool _isDiagnosingFailure = false;
+  bool _gradleTaskStarted = false;
+  bool _userRequestedStop = false;
+  DateTime? _gradleBuildStartedAt;
+  int _heartbeatTickCount = 0;
 
   static const int _maxLogEntries = 800;
 
-  AndroidDebugNotifier(this._service) : super(const AndroidDebugState());
+  AndroidDebugNotifier(
+    this._service, {
+    Duration buildHeartbeatInterval = const Duration(seconds: 20),
+    http.Client? aiHttpClient,
+  })  : _buildHeartbeatInterval = buildHeartbeatInterval,
+        _aiHttpClient = aiHttpClient,
+        super(const AndroidDebugState());
 
   void _appendLog(
     String rawMessage, {
@@ -155,6 +172,84 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     state = state.copyWith(logs: updated);
   }
 
+  static bool _looksLikeGradleOrNativeBuild(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains('gradle') ||
+        lower.contains('assemble') ||
+        lower.contains('cmake') ||
+        lower.contains('ninja') ||
+        lower.contains('building apk') ||
+        lower.contains('compiling');
+  }
+
+  static String _formatElapsedSeconds(int totalSeconds) {
+    if (totalSeconds < 60) return '${totalSeconds}s';
+    final minutes = totalSeconds ~/ 60;
+    final secs = totalSeconds % 60;
+    return secs == 0 ? '${minutes}m' : '${minutes}m ${secs}s';
+  }
+
+  void _startBuildHeartbeatIfNeeded() {
+    if (_gradleTaskStarted ||
+        !mounted ||
+        state.status != DeviceRunStatus.launching) {
+      return;
+    }
+    _gradleTaskStarted = true;
+    _gradleBuildStartedAt = DateTime.now();
+    _heartbeatTickCount = 0;
+    _buildHeartbeatTimer?.cancel();
+    _buildHeartbeatTimer = Timer.periodic(_buildHeartbeatInterval, (_) {
+      if (!mounted || state.status != DeviceRunStatus.launching) {
+        _stopBuildHeartbeat();
+        return;
+      }
+      _heartbeatTickCount++;
+      final wallSeconds = DateTime.now()
+          .difference(_gradleBuildStartedAt ?? DateTime.now())
+          .inSeconds;
+      final minTickSeconds =
+          _heartbeatTickCount * _buildHeartbeatInterval.inSeconds;
+      final elapsedSeconds =
+          wallSeconds > minTickSeconds ? wallSeconds : minTickSeconds;
+      final elapsedLabel = _formatElapsedSeconds(elapsedSeconds);
+      final msg =
+          'Compilação Gradle/C++/CMake em andamento ($elapsedLabel) — módulos nativos podem compilar em silêncio...';
+      state = state.copyWith(progressMessage: msg);
+      _appendLog('⏳ $msg', isSystem: true);
+    });
+  }
+
+  void _stopBuildHeartbeat() {
+    _buildHeartbeatTimer?.cancel();
+    _buildHeartbeatTimer = null;
+  }
+
+  static bool _lineIndicatesCrashOrFatalIssue(String line) {
+    final lower = line.toLowerCase();
+    return lower.contains('app failed to start') ||
+        lower.contains('lost connection to device') ||
+        lower.contains('failed to link shaders') ||
+        lower.contains('pipeline create failed') ||
+        lower.contains('vkcmdbindpipeline') ||
+        lower.contains('fatal signal ') ||
+        lower.contains('sigsegv') ||
+        lower.contains('sigabrt') ||
+        lower.contains('cause: null pointer dereference') ||
+        lower.contains('backtrace:') ||
+        lower.contains('outofmemoryerror') ||
+        lower.contains('std::bad_alloc') ||
+        lower.contains('outofdevicememory') ||
+        lower.contains('vk_error_out_of_device_memory') ||
+        lower.contains('vk_error_out_of_host_memory') ||
+        lower.contains('unhandled exception:') ||
+        lower.contains('exception caught by') ||
+        lower.contains('install_failed_') ||
+        lower.contains('adb.exe: device') ||
+        lower.contains('no devices/emulators found') ||
+        lower.contains('device offline');
+  }
+
   bool _hasFatalBuildFailureInCurrentRun() {
     final lower = _currentRunLines.join('\n').toLowerCase();
     return lower.contains('app failed to start') ||
@@ -176,17 +271,115 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         lower.contains('libcmt.lib') ||
         lower.contains('detecting c compiler abi info - failed') ||
         lower.contains('licenses not accepted') ||
-        lower.contains('cmdline-tools component is missing');
+        lower.contains('cmdline-tools component is missing') ||
+        lower.contains('adb.exe: device') ||
+        lower.contains('no devices/emulators found') ||
+        lower.contains('device offline') ||
+        lower.contains('install_failed_') ||
+        lower.contains('failed to link shaders') ||
+        lower.contains('pipeline create failed') ||
+        lower.contains('vkcmdbindpipeline') ||
+        lower.contains('fatal signal ') ||
+        lower.contains('sigsegv') ||
+        lower.contains('sigabrt') ||
+        lower.contains('cause: null pointer dereference') ||
+        lower.contains('backtrace:') ||
+        lower.contains('outofmemoryerror') ||
+        lower.contains('std::bad_alloc') ||
+        lower.contains('outofdevicememory') ||
+        lower.contains('vk_error_out_of_device_memory') ||
+        lower.contains('vk_error_out_of_host_memory') ||
+        lower.contains('unhandled exception:') ||
+        lower.contains('exception caught by') ||
+        lower.contains('lost connection to device');
+  }
+
+  void _scheduleRuntimeCrashEvaluation() {
+    if (!mounted || _userRequestedStop || _isDiagnosingFailure) return;
+    _runtimeCrashDebounceTimer?.cancel();
+    final gen = _launchGeneration;
+    _runtimeCrashDebounceTimer = Timer(const Duration(milliseconds: 45), () {
+      if (!mounted || gen != _launchGeneration || _userRequestedStop) return;
+      unawaited(
+        _evaluateBuildFailureDiagnostics(
+          generation: gen,
+          allowEnrichExisting: true,
+        ),
+      );
+    });
+  }
+
+  void _inspectStreamedLineForDiagnostics(String line) {
+    if (!mounted || _userRequestedStop) return;
+    final lower = line.toLowerCase();
+
+    if (!_hasActiveAppStarted &&
+        !_gradleTaskStarted &&
+        state.status == DeviceRunStatus.launching &&
+        _looksLikeGradleOrNativeBuild(line)) {
+      _startBuildHeartbeatIfNeeded();
+    }
+
+    if (!_hasActiveAppStarted && lower.contains('app failed to start')) {
+      _stopBuildHeartbeat();
+      if (state.status != DeviceRunStatus.error) {
+        state = state.copyWith(
+          status: DeviceRunStatus.error,
+          activeAppId: null,
+          progressMessage: null,
+          errorMessage: state.errorMessage ?? 'App failed to start',
+        );
+      }
+      unawaited(_evaluateBuildFailureDiagnostics(
+        generation: _launchGeneration,
+        forceErrorStatus: true,
+      ));
+      return;
+    }
+
+    if (lower.contains('lost connection to device')) {
+      _stopBuildHeartbeat();
+      _runtimeCrashDebounceTimer?.cancel();
+      _runtimeCrashDebounceTimer = null;
+      if (state.status != DeviceRunStatus.error) {
+        state = state.copyWith(
+          status: DeviceRunStatus.error,
+          activeAppId: null,
+          progressMessage: null,
+          errorMessage: state.buildDiagnostic?.title ??
+              state.errorMessage ??
+              'Conexão perdida com o dispositivo.',
+        );
+      }
+      unawaited(_evaluateBuildFailureDiagnostics(
+        generation: _launchGeneration,
+        forceErrorStatus: true,
+        allowEnrichExisting: true,
+      ));
+      return;
+    }
+
+    if (_lineIndicatesCrashOrFatalIssue(line)) {
+      _scheduleRuntimeCrashEvaluation();
+    }
   }
 
   Future<void> _evaluateBuildFailureDiagnostics({
     required int generation,
     String? projectPath,
+    bool forceErrorStatus = false,
+    bool allowEnrichExisting = false,
   }) async {
-    if (!mounted ||
-        generation != _launchGeneration ||
-        _evaluatedCurrentRunFailure ||
-        _isDiagnosingFailure) {
+    if (!mounted || generation != _launchGeneration || _isDiagnosingFailure) {
+      return;
+    }
+    if (_evaluatedCurrentRunFailure && !allowEnrichExisting) {
+      return;
+    }
+    if (_evaluatedCurrentRunFailure &&
+        allowEnrichExisting &&
+        (state.buildDiagnostic?.isGeneratingAiFix == true ||
+            state.buildDiagnostic?.aiFixSuggestion != null)) {
       return;
     }
 
@@ -200,25 +393,59 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       );
       if (!mounted || generation != _launchGeneration) return;
       if (diagnostic != null) {
+        final wasAlreadyEvaluated = _evaluatedCurrentRunFailure;
+        final previous = state.buildDiagnostic;
+        if (wasAlreadyEvaluated &&
+            previous != null &&
+            previous.issueType == diagnostic.issueType &&
+            previous.affectedLocation == diagnostic.affectedLocation &&
+            previous.relevantLogLines.length >=
+                diagnostic.relevantLogLines.length) {
+          return;
+        }
+
         _evaluatedCurrentRunFailure = true;
-        state = state.copyWith(
-          status: DeviceRunStatus.error,
-          progressMessage: null,
-          errorMessage: diagnostic.title,
-          buildDiagnostic: diagnostic,
-        );
-        _appendLog('💡 Diagnóstico automático: ${diagnostic.title}', isSystem: true);
-        _appendLog('ℹ️ ${diagnostic.explanation}', isSystem: true);
-        if (diagnostic.suggestedTerminalCommand != null) {
-          _appendLog(
-            '🛠️ Comando sugerido: ${diagnostic.suggestedTerminalCommand}',
-            isSystem: true,
+        final keepAliveForDartException = !forceErrorStatus &&
+            diagnostic.issueType == AndroidBuildIssueType.dartRuntimeException &&
+            _hasActiveAppStarted &&
+            _process != null &&
+            state.isActiveSession;
+
+        if (keepAliveForDartException) {
+          state = state.copyWith(
+            buildDiagnostic: diagnostic,
+            errorMessage: diagnostic.title,
           );
+        } else {
+          _stopBuildHeartbeat();
+          state = state.copyWith(
+            status: DeviceRunStatus.error,
+            progressMessage: null,
+            errorMessage: diagnostic.title,
+            buildDiagnostic: diagnostic,
+          );
+        }
+
+        if (!wasAlreadyEvaluated) {
+          _appendLog('💡 Diagnóstico automático: ${diagnostic.title}',
+              isSystem: true);
+          _appendLog('ℹ️ ${diagnostic.explanation}', isSystem: true);
+          if (diagnostic.affectedLocation != null &&
+              diagnostic.affectedLocation!.isNotEmpty) {
+            _appendLog('📍 Local: ${diagnostic.affectedLocation}',
+                isSystem: true);
+          }
+          if (diagnostic.suggestedTerminalCommand != null) {
+            _appendLog(
+              '🛠️ Comando sugerido: ${diagnostic.suggestedTerminalCommand}',
+              isSystem: true,
+            );
+          }
         }
       }
     } finally {
       _isDiagnosingFailure = false;
-      // Re-run once if additional failure lines arrived while inspecting JDKs.
+      // Re-run once if additional failure lines arrived while inspecting environment.
       if (mounted &&
           generation == _launchGeneration &&
           !_evaluatedCurrentRunFailure &&
@@ -228,6 +455,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           _evaluateBuildFailureDiagnostics(
             generation: generation,
             projectPath: projectPath,
+            forceErrorStatus: forceErrorStatus,
           ),
         );
       }
@@ -339,6 +567,10 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     _hasActiveAppStarted = false;
     _evaluatedCurrentRunFailure = false;
     _isDiagnosingFailure = false;
+    _gradleTaskStarted = false;
+    _userRequestedStop = false;
+    _gradleBuildStartedAt = null;
+    _heartbeatTickCount = 0;
     _currentRunLines.clear();
 
     final normalizedProjectPath = p.normalize(projectPath);
@@ -403,6 +635,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
             (line) {
               if (line.trim().isNotEmpty) {
                 _appendLog(line, isError: true);
+                _inspectStreamedLineForDiagnostics(line);
               }
             },
             onDone: () {
@@ -415,7 +648,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
 
       unawaited(proc.exitCode.then((code) async {
         // Allow buffered stdout/stderr chunks to flush through LineSplitter
-        // before tearing down subscriptions and classifying build failures.
+        // before tearing down subscriptions and classifying build/runtime failures.
         if (!stdoutDone.isCompleted || !stderrDone.isCompleted) {
           final drainCompleter = Completer<void>();
           _exitDrainTimer?.cancel();
@@ -436,14 +669,19 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         _cleanupSubscriptions();
         _process = null;
 
-        final failedLaunch =
-            code != 0 && (wasRunning || !_hasActiveAppStarted);
+        final hasCrashLogs = _hasFatalBuildFailureInCurrentRun();
+        final failedLaunchOrCrash = !_userRequestedStop &&
+            ((code != 0 &&
+                    (wasRunning || !_hasActiveAppStarted || hasCrashLogs)) ||
+                (hasCrashLogs && state.buildDiagnostic == null));
 
-        if (failedLaunch) {
-          _appendLog(
-            '❌ Processo encerrado com código $code. O terminal permanece aberto para diagnóstico.',
-            isError: true,
-          );
+        if (failedLaunchOrCrash) {
+          if (state.status != DeviceRunStatus.error || code != 0) {
+            _appendLog(
+              '❌ Processo encerrado com código $code. O terminal permanece aberto para diagnóstico.',
+              isError: true,
+            );
+          }
           state = state.copyWith(
             status: DeviceRunStatus.error,
             activeAppId: null,
@@ -452,11 +690,13 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
                 state.errorMessage ??
                 'Processo encerrado com código $code.',
           );
-          if (!_evaluatedCurrentRunFailure) {
+          if (!_evaluatedCurrentRunFailure || state.buildDiagnostic == null) {
             unawaited(
               _evaluateBuildFailureDiagnostics(
                 generation: runGeneration,
                 projectPath: normalizedProjectPath,
+                forceErrorStatus: true,
+                allowEnrichExisting: true,
               ),
             );
           }
@@ -478,6 +718,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       return true;
     } catch (e) {
       if (!mounted) return false;
+      _stopBuildHeartbeat();
       _appendLog('❌ Falha ao iniciar flutter run: $e', isError: true);
       state = state.copyWith(
         status: DeviceRunStatus.error,
@@ -493,18 +734,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     final parsed = AndroidDeviceRunnerService.parseDaemonMessageLine(line);
     if (parsed == null) {
       _appendLog(line);
-      if (!_hasActiveAppStarted &&
-          line.toLowerCase().contains('app failed to start')) {
-        if (state.status != DeviceRunStatus.error) {
-          state = state.copyWith(
-            status: DeviceRunStatus.error,
-            activeAppId: null,
-            progressMessage: null,
-            errorMessage: state.errorMessage ?? 'App failed to start',
-          );
-        }
-        unawaited(_evaluateBuildFailureDiagnostics(generation: _launchGeneration));
-      }
+      _inspectStreamedLineForDiagnostics(line);
       return;
     }
 
@@ -565,6 +795,9 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         if (!finished && message != null && message.isNotEmpty) {
           state = state.copyWith(progressMessage: message);
           _appendLog('⏳ $message', isSystem: true);
+          if (_looksLikeGradleOrNativeBuild(message)) {
+            _startBuildHeartbeatIfNeeded();
+          }
         } else if (finished && state.progressMessage != null) {
           state = state.copyWith(progressMessage: null);
         }
@@ -585,11 +818,13 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
 
       case 'app.started':
         _hasActiveAppStarted = true;
+        _stopBuildHeartbeat();
         state = state.copyWith(
           status: DeviceRunStatus.running,
           progressMessage: null,
-          errorMessage: null,
-          buildDiagnostic: null,
+          errorMessage: _evaluatedCurrentRunFailure ? state.errorMessage : null,
+          buildDiagnostic:
+              _evaluatedCurrentRunFailure ? state.buildDiagnostic : null,
         );
         _appendLog(
           '✅ App em execução em tempo real no ${state.selectedDevice?.name ?? "Android"}! Edições salvas serão aplicadas via Hot Reload.',
@@ -602,11 +837,23 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         final isErr = params['error'] == true;
         if (logText.isNotEmpty) {
           _appendLog(logText, isError: isErr);
+          _inspectStreamedLineForDiagnostics(logText);
         }
         break;
 
       case 'app.stop':
+        _stopBuildHeartbeat();
+        _runtimeCrashDebounceTimer?.cancel();
+        _runtimeCrashDebounceTimer = null;
         final stopErr = params['error']?.toString();
+        if (_userRequestedStop) {
+          state = state.copyWith(
+            status: DeviceRunStatus.idle,
+            activeAppId: null,
+            progressMessage: null,
+          );
+          break;
+        }
         if (stopErr != null && stopErr.isNotEmpty) {
           _appendLog(
             '❌ Sessão encerrada com erro: $stopErr (terminal mantido aberto).',
@@ -618,20 +865,32 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
             progressMessage: null,
             errorMessage: stopErr,
           );
-          unawaited(_evaluateBuildFailureDiagnostics(generation: _launchGeneration));
-        } else if (!_hasActiveAppStarted && _hasFatalBuildFailureInCurrentRun()) {
+          unawaited(_evaluateBuildFailureDiagnostics(
+            generation: _launchGeneration,
+            forceErrorStatus: true,
+            allowEnrichExisting: true,
+          ));
+        } else if (_hasFatalBuildFailureInCurrentRun()) {
           _appendLog(
-            '❌ Build falhou antes de iniciar no dispositivo. Terminal mantido aberto para diagnóstico.',
+            _hasActiveAppStarted
+                ? '❌ App encerrado inesperadamente após erro/crash em runtime. Terminal mantido aberto para diagnóstico.'
+                : '❌ Build/instalação falhou antes de iniciar no dispositivo. Terminal mantido aberto para diagnóstico.',
             isError: true,
           );
           state = state.copyWith(
             status: DeviceRunStatus.error,
             activeAppId: null,
             progressMessage: null,
-            errorMessage:
-                state.buildDiagnostic?.title ?? 'Falha ao iniciar app no dispositivo.',
+            errorMessage: state.buildDiagnostic?.title ??
+                (_hasActiveAppStarted
+                    ? 'App encerrado após falha em execução.'
+                    : 'Falha ao iniciar app no dispositivo.'),
           );
-          unawaited(_evaluateBuildFailureDiagnostics(generation: _launchGeneration));
+          unawaited(_evaluateBuildFailureDiagnostics(
+            generation: _launchGeneration,
+            forceErrorStatus: true,
+            allowEnrichExisting: true,
+          ));
         } else {
           _appendLog(
             '⏹️ App encerrado no dispositivo. Terminal mantido aberto.',
@@ -650,6 +909,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         final level = params['level']?.toString() ?? '';
         if (msg.isNotEmpty) {
           _appendLog(msg, isError: level == 'error');
+          _inspectStreamedLineForDiagnostics(msg);
         }
         break;
 
@@ -727,8 +987,12 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
 
   /// Stops the active Android debug session and terminates child processes cleanly.
   Future<void> stopSession({bool silent = false}) async {
+    _userRequestedStop = true;
     _reloadDebounceTimer?.cancel();
     _reloadDebounceTimer = null;
+    _stopBuildHeartbeat();
+    _runtimeCrashDebounceTimer?.cancel();
+    _runtimeCrashDebounceTimer = null;
 
     final proc = _process;
     final appId = state.activeAppId;
@@ -892,6 +1156,101 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     return launchProject(projectPath, device: state.selectedDevice);
   }
 
+  /// Re-scans connected ADB/Android devices and automatically relaunches the
+  /// active project when a device becomes ready again.
+  Future<bool> rescanAndRelaunch({String? projectPath}) async {
+    final effectiveProject = (projectPath ?? state.projectPath)?.trim();
+    final previousDeviceId = state.selectedDevice?.id;
+    _appendLog(
+      '🔄 Re-detectando dispositivos Android conectados via ADB...',
+      isSystem: true,
+    );
+    await scanDevices();
+    if (!mounted) return false;
+    if (state.devices.isEmpty) {
+      _appendLog(
+        '⚠️ Nenhum aparelho Android pronto detectado ainda. Verifique o cabo USB e tente novamente.',
+        isError: true,
+      );
+      return false;
+    }
+
+    final target = state.devices.firstWhere(
+      (d) => d.id == previousDeviceId,
+      orElse: () => state.selectedDevice ?? state.devices.first,
+    );
+    selectDevice(target);
+    if (effectiveProject == null || effectiveProject.isEmpty) {
+      return true;
+    }
+    return launchProject(effectiveProject, device: target);
+  }
+
+  /// Invokes [GeminiAiService.diagnoseAndSuggestAppFix] for the current
+  /// diagnostic card, scanning local project files when available.
+  Future<String?> generateAiDiagnosisForCurrentDiagnostic({
+    String? projectPath,
+    String? apiKey,
+    http.Client? httpClient,
+  }) async {
+    final diagnostic = state.buildDiagnostic;
+    if (diagnostic == null || diagnostic.isGeneratingAiFix) return null;
+
+    final generation = _launchGeneration;
+    final effectiveProjectPath = (projectPath ?? state.projectPath ?? '').trim();
+    final effectiveLogs = diagnostic.relevantLogLines.isNotEmpty
+        ? diagnostic.relevantLogLines
+        : (_currentRunLines.isNotEmpty
+            ? List<String>.from(_currentRunLines)
+            : state.logs.map((e) => e.message).toList());
+
+    state = state.copyWith(
+      buildDiagnostic: diagnostic.copyWith(
+        isGeneratingAiFix: true,
+        aiFixError: null,
+      ),
+    );
+
+    try {
+      final suggestion = await GeminiAiService.diagnoseAndSuggestAppFix(
+        projectPath: effectiveProjectPath,
+        issueTitle: diagnostic.title,
+        crashLogs: effectiveLogs,
+        affectedLocation: diagnostic.affectedLocation,
+        apiKey: apiKey,
+        httpClient: httpClient ?? _aiHttpClient,
+      );
+      if (!mounted || generation != _launchGeneration) return null;
+      final current = state.buildDiagnostic;
+      if (current == null) return null;
+
+      state = state.copyWith(
+        buildDiagnostic: current.copyWith(
+          isGeneratingAiFix: false,
+          aiFixSuggestion: suggestion,
+          aiFixError: null,
+        ),
+      );
+      _appendLog(
+        '🤖 Análise de IA concluída para: ${diagnostic.title}',
+        isSystem: true,
+      );
+      return suggestion;
+    } catch (e) {
+      if (!mounted || generation != _launchGeneration) return null;
+      final current = state.buildDiagnostic;
+      if (current != null) {
+        state = state.copyWith(
+          buildDiagnostic: current.copyWith(
+            isGeneratingAiFix: false,
+            aiFixError: 'Falha ao analisar erro com IA: $e',
+          ),
+        );
+      }
+      return null;
+    }
+  }
+
   void dismissBuildDiagnostic() {
     state = state.copyWith(buildDiagnostic: null);
   }
@@ -905,6 +1264,9 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
   }
 
   void _cleanupSubscriptions() {
+    _stopBuildHeartbeat();
+    _runtimeCrashDebounceTimer?.cancel();
+    _runtimeCrashDebounceTimer = null;
     _exitDrainTimer?.cancel();
     _exitDrainTimer = null;
     _stdoutSub?.cancel();
@@ -931,8 +1293,11 @@ final androidDeviceRunnerServiceProvider =
   return AndroidDeviceRunnerService();
 });
 
+final aiDiagnosticHttpClientProvider = Provider<http.Client?>((ref) => null);
+
 final androidDebugProvider =
     StateNotifierProvider<AndroidDebugNotifier, AndroidDebugState>((ref) {
   final service = ref.watch(androidDeviceRunnerServiceProvider);
-  return AndroidDebugNotifier(service);
+  final httpClient = ref.watch(aiDiagnosticHttpClientProvider);
+  return AndroidDebugNotifier(service, aiHttpClient: httpClient);
 });

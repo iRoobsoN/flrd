@@ -477,12 +477,13 @@ class AndroidDeviceRunnerService {
     return found;
   }
 
-  /// Classifies captured Flutter/Gradle/CMake build logs into an actionable
-  /// [AndroidBuildDiagnostic], or returns `null` if no known pattern matches.
+  /// Classifies captured Flutter/Gradle/CMake/ADB/Android runtime logs into an
+  /// actionable [AndroidBuildDiagnostic], or returns `null` if no known pattern matches.
   AndroidBuildDiagnostic? classifyBuildFailureLogs(
     List<String> logLines, {
     List<JavaJdkInfo> availableCompatibleJdks = const [],
     String? projectGradleVersion,
+    String? projectPackageName,
     String? detectedNinjaPath,
     String? detectedMsvcCompilerPath,
     bool hasMsvcLibs = false,
@@ -535,6 +536,10 @@ class AndroidDeviceRunnerService {
           compatibleJdk: preferredJdk,
           suggestedTerminalCommand:
               'flutter config --jdk-dir="${preferredJdk.path}"',
+          relevantLogLines: _extractRelevantLogWindow(
+            logLines,
+            RegExp(r'java|gradle|unsupported class file', caseSensitive: false),
+          ),
           steps: [
             'Encontrado JDK ${preferredJdk.version} (${preferredJdk.source}) em ${preferredJdk.path}.',
             'Clique em "Aplicar JDK ${preferredJdk.majorVersion} no Flutter e Rodar" para configurar `flutter config --jdk-dir` automaticamente.',
@@ -558,6 +563,10 @@ class AndroidDeviceRunnerService {
         gradleVersion: detectedGradle,
         suggestedTerminalCommand: installCmd,
         externalHelpUrl: 'https://adoptium.net/temurin/releases/?version=17',
+        relevantLogLines: _extractRelevantLogWindow(
+          logLines,
+          RegExp(r'java|gradle|unsupported class file', caseSensitive: false),
+        ),
         steps: [
           'Instale o Eclipse Temurin JDK 17 LTS pelo terminal (`$installCmd`) ou pelo botão de download.',
           'Depois de instalar, clique em "Detectar Celular" / "Rodar" ou configure `flutter config --jdk-dir="<caminho-jdk-17>"`.',
@@ -575,6 +584,11 @@ class AndroidDeviceRunnerService {
                 lower.contains('detecting c compiler abi info - failed')));
 
     if (isMsvcEnvMissing) {
+      final relevant = _extractRelevantLogWindow(
+        logLines,
+        RegExp(r'cmake_mt-notfound|lnk1181|lnk1104|kernel32\.lib|libcmt\.lib|cl\.exe',
+            caseSensitive: false),
+      );
       if (detectedMsvcCompilerPath != null && hasMsvcLibs) {
         return AndroidBuildDiagnostic(
           issueType: AndroidBuildIssueType.cmakeMsvcEnvironmentMissing,
@@ -586,6 +600,7 @@ class AndroidDeviceRunnerService {
               'Clique abaixo para encerrar o Gradle Daemon antigo, limpar o cache `.cxx` e relançar com o `vcvars64.bat` carregado.',
           detectedToolPath: detectedMsvcCompilerPath,
           canClearCxxCache: true,
+          relevantLogLines: relevant,
           steps: [
             'Script MSVC detectado: $detectedMsvcCompilerPath',
             'Clique em "Reiniciar Gradle Daemon, Limpar .cxx e Rodar" para aplicar INCLUDE, LIB e Windows SDK.',
@@ -606,6 +621,7 @@ class AndroidDeviceRunnerService {
         suggestedTerminalCommand: vsBuildToolsCmd,
         externalHelpUrl:
             'https://visualstudio.microsoft.com/visual-cpp-build-tools/',
+        relevantLogLines: relevant,
         steps: [
           'Instale ou repare o Visual Studio Build Tools com `--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`.',
           'Depois de instalar, limpe `android/app/.cxx` e rode `gradlew --stop` antes de relançar.',
@@ -626,6 +642,12 @@ class AndroidDeviceRunnerService {
             lower.contains('vulkan_glslc_executable-notfound');
 
     if (isCmakeHostCompilerMismatch) {
+      final relevant = _extractRelevantLogWindow(
+        logLines,
+        RegExp(
+            r'lkernel32|lmingw32|host-toolchain|host compiler|vulkan_glslc|vulkan-shaders-gen',
+            caseSensitive: false),
+      );
       if (detectedMsvcCompilerPath != null && hasAppCMakeLists) {
         return AndroidBuildDiagnostic(
           issueType: AndroidBuildIssueType.cmakeHostCompilerMismatch,
@@ -639,6 +661,7 @@ class AndroidDeviceRunnerService {
           detectedToolPath: detectedMsvcCompilerPath,
           canClearCxxCache: true,
           canFixCmakeHostToolchain: true,
+          relevantLogLines: relevant,
           steps: [
             'Compilador MSVC detectado em: $detectedMsvcCompilerPath',
             'Clique em "Aplicar Fix Host MSVC/Vulkan no CMake e Rodar" para configurar HOST_C_COMPILER / glslc e limpar android/app/.cxx.',
@@ -655,6 +678,7 @@ class AndroidDeviceRunnerService {
               'e falhou no link de kernel32, ou o cache .cxx ficou desatualizado. O MSVC foi encontrado no PC.',
           detectedToolPath: detectedMsvcCompilerPath,
           canClearCxxCache: true,
+          relevantLogLines: relevant,
           steps: [
             'Clique em "Limpar Cache .cxx e Rodar" para reconstruir com o ambiente Visual Studio C++ ativo.',
             'Se o erro persistir dentro de um plugin CMake próprio, defina HOST_C_COMPILER e HOST_CXX_COMPILER com o cl.exe antes de add_subdirectory().',
@@ -674,6 +698,7 @@ class AndroidDeviceRunnerService {
         suggestedTerminalCommand: vsBuildToolsCmd,
         externalHelpUrl:
             'https://visualstudio.microsoft.com/visual-cpp-build-tools/',
+        relevantLogLines: relevant,
         steps: [
           'Instale o "Desktop development with C++" (Visual Studio Build Tools) pelo botão ou terminal.',
           'Depois de instalar, limpe `android/app/.cxx` e execute novamente no FLRD.',
@@ -687,6 +712,10 @@ class AndroidDeviceRunnerService {
             lower.contains('cmake_make_program is not set');
 
     if (isNinjaMissing) {
+      final relevant = _extractRelevantLogWindow(
+        logLines,
+        RegExp(r'ninja|cmake_make_program', caseSensitive: false),
+      );
       if (detectedNinjaPath != null) {
         return AndroidBuildDiagnostic(
           issueType: AndroidBuildIssueType.cmakeBuildToolMissing,
@@ -697,6 +726,7 @@ class AndroidDeviceRunnerService {
               'Clique abaixo para limpar o cache .cxx e relançar já com o Ninja e o MSVC no ambiente.',
           detectedToolPath: detectedNinjaPath,
           canClearCxxCache: true,
+          relevantLogLines: relevant,
           steps: [
             'Ninja detectado em: $detectedNinjaPath',
             'Clique em "Limpar Cache .cxx e Rodar com Ninja" para atualizar automaticamente sem reiniciar o FLRD.',
@@ -714,6 +744,7 @@ class AndroidDeviceRunnerService {
             'que exigem a ferramenta "Ninja" disponível no PATH do sistema (CMAKE_MAKE_PROGRAM não definido).',
         suggestedTerminalCommand: ninjaCmd,
         externalHelpUrl: 'https://ninja-build.org/',
+        relevantLogLines: relevant,
         steps: [
           'Instale o Ninja pelo terminal (`$ninjaCmd`) usando o botão abaixo.',
           'Assim que terminar, clique em "Rodar" novamente — o FLRD recarrega o PATH do registro automaticamente.',
@@ -728,29 +759,736 @@ class AndroidDeviceRunnerService {
             lower.contains('failed to install the following android sdk packages');
 
     if (isSdkLicenseOrComponent) {
-      return const AndroidBuildDiagnostic(
+      return AndroidBuildDiagnostic(
         issueType: AndroidBuildIssueType.androidSdkLicenseOrComponentMissing,
         title: 'Licenças ou componentes do Android SDK pendentes',
         explanation:
             'O build falhou porque há licenças do Android SDK não aceitas ou o pacote `cmdline-tools` está ausente.',
         suggestedTerminalCommand: 'flutter doctor --android-licenses',
-        steps: [
+        relevantLogLines: _extractRelevantLogWindow(
+          logLines,
+          RegExp(r'licenses|cmdline-tools|android sdk packages',
+              caseSensitive: false),
+        ),
+        steps: const [
           'Execute `flutter doctor --android-licenses` no terminal interativo e confirme com `y`.',
           'Se faltar `cmdline-tools`, abra o Android Studio > SDK Manager > SDK Tools e marque "Android SDK Command-line Tools".',
         ],
       );
     }
 
+    // --- Runtime & Install/ADB diagnostics ---
+
+    final adrenoDiag = _classifyVulkanAdrenoPipelineCrash(logLines, joined, lower);
+    if (adrenoDiag != null) return adrenoDiag;
+
+    final oomDiag = _classifyAndroidOutOfMemory(logLines, joined, lower);
+    if (oomDiag != null) return oomDiag;
+
+    final nativeDiag = _classifyNativeCrashSigsegvOrSigabrt(logLines, joined, lower);
+    if (nativeDiag != null) return nativeDiag;
+
+    final installDiag = _classifyAndroidInstallFailed(logLines, joined);
+    if (installDiag != null) return installDiag;
+
+    final adbDisconnectDiag = _classifyAdbDeviceDisconnected(logLines, joined, lower);
+    if (adbDisconnectDiag != null) return adbDisconnectDiag;
+
+    final dartDiag = _classifyDartRuntimeException(
+      logLines,
+      joined,
+      lower,
+      projectPackageName: projectPackageName,
+    );
+    if (dartDiag != null) return dartDiag;
+
     return null;
   }
 
-  /// Inspects failed build logs together with locally installed JDKs, Ninja,
-  /// MSVC host compilers, and the target project's `gradle-wrapper.properties`.
+  static List<String> _extractRelevantLogWindow(
+    List<String> logLines,
+    RegExp anchorPattern, {
+    int contextBefore = 3,
+    int contextAfter = 14,
+    int maxLines = 45,
+  }) {
+    if (logLines.isEmpty) return const [];
+    final matchedIndices = <int>[];
+    for (var i = 0; i < logLines.length; i++) {
+      if (anchorPattern.hasMatch(logLines[i])) {
+        matchedIndices.add(i);
+      }
+    }
+    if (matchedIndices.isEmpty) {
+      final start =
+          logLines.length > maxLines ? logLines.length - maxLines : 0;
+      return logLines.sublist(start);
+    }
+    final first = matchedIndices.first;
+    final last = matchedIndices.last;
+    final start = (first - contextBefore).clamp(0, logLines.length - 1);
+    final end = (last + contextAfter + 1).clamp(start + 1, logLines.length);
+    final slice = logLines.sublist(start, end);
+    if (slice.length <= maxLines) return slice;
+    return slice.sublist(slice.length - maxLines);
+  }
+
+  static ({
+    String? signalLabel,
+    String? faultCause,
+    String? faultAddr,
+    String? primaryLib,
+    String? appLib,
+    String? primarySymbol,
+    String? appSymbol,
+    String? javaCaller,
+    String? stackChain,
+  }) _extractNativeCrashDetails(List<String> logLines) {
+    final joined = logLines.join('\n');
+
+    final signalMatch = RegExp(
+      r'Fatal signal\s+\d+\s*\((SIG[A-Z0-9]+)\)(?:,\s*code\s+\d+\s*\(([^)]+)\))?',
+      caseSensitive: false,
+    ).firstMatch(joined);
+    String? signalLabel = signalMatch?.group(1)?.toUpperCase();
+    final signalCode = signalMatch?.group(2)?.trim();
+    if (signalLabel == null) {
+      if (RegExp(r'\bSIGSEGV\b|SEGV_MAPERR|SEGV_ACCERR', caseSensitive: false)
+          .hasMatch(joined)) {
+        signalLabel = 'SIGSEGV';
+      } else if (RegExp(r'\bSIGABRT\b', caseSensitive: false).hasMatch(joined)) {
+        signalLabel = 'SIGABRT';
+      }
+    }
+
+    final addrMatch = RegExp(
+      r'fault addr\s+(0x[0-9a-f]+|---)',
+      caseSensitive: false,
+    ).firstMatch(joined);
+    final faultAddr = addrMatch?.group(1);
+
+    final causeMatch = RegExp(
+      r'Cause:\s*([^\r\n]+)',
+      caseSensitive: false,
+    ).firstMatch(joined);
+    final faultCause = causeMatch?.group(1)?.trim() ??
+        (signalCode != null && signalCode.isNotEmpty ? signalCode : null);
+
+    // Match Android tombstone backtrace frames or symbolic chains like `vkCmdBindPipeline <- libgguf_engine.so`
+    final frameRegex = RegExp(
+      r'#(\d{2})\s+pc\s+[0-9a-f]+\s+([^\s(]+)(?:\s+\(([^)\r\n]+)\))?',
+      caseSensitive: false,
+    );
+    String? primaryLib;
+    String? primarySymbol;
+    String? appLib;
+    String? appSymbol;
+    final extractedSymbols = <String>[];
+
+    for (final m in frameRegex.allMatches(joined)) {
+      final rawPath = m.group(2) ?? '';
+      final libName = rawPath.split(RegExp(r'[/\\]')).last;
+      var sym = m.group(3)?.trim();
+      if (sym != null && sym.isNotEmpty) {
+        final plusIdx = sym.lastIndexOf('+');
+        if (plusIdx > 0 && int.tryParse(sym.substring(plusIdx + 1)) != null) {
+          sym = sym.substring(0, plusIdx).trim();
+        }
+      }
+
+      if (primaryLib == null && libName.isNotEmpty) {
+        primaryLib = libName;
+        primarySymbol = sym;
+      }
+
+      final lowerPath = rawPath.toLowerCase();
+      final isSystemLib = lowerPath.startsWith('/system/') ||
+          lowerPath.startsWith('/apex/') ||
+          lowerPath.startsWith('/vendor/') ||
+          libName.toLowerCase() == 'libc.so';
+      if (!isSystemLib && libName.isNotEmpty) {
+        appLib ??= libName;
+        appSymbol ??= sym;
+      }
+
+      if (sym != null && sym.isNotEmpty && extractedSymbols.length < 5) {
+        extractedSymbols.add(sym);
+      } else if (libName.isNotEmpty && extractedSymbols.length < 5) {
+        extractedSymbols.add(libName);
+      }
+    }
+
+    // Also parse inline chain symbols if logs summarize `vkCmdBindPipeline <- libgguf_engine.so <- ...`
+    if (primaryLib == null) {
+      final soMatch = RegExp(r'\b([a-zA-Z0-9_.-]+\.so)\b').firstMatch(joined);
+      primaryLib = soMatch?.group(1);
+    }
+    if (primarySymbol == null &&
+        RegExp(r'\bvkCmdBindPipeline\b').hasMatch(joined)) {
+      primarySymbol = 'vkCmdBindPipeline';
+    }
+    if (appSymbol == null) {
+      final genMatch = RegExp(
+        r'\b(GGMLRunner::compute(?:<[^>]+>)?|UNetModel::compute|StableDiffusionGGML::sample|generate_image|Java_[a-zA-Z0-9_]+)\b',
+      ).firstMatch(joined);
+      appSymbol = genMatch?.group(1);
+    }
+
+    String? javaCaller;
+    final javaFrameMatch = RegExp(
+      r'(?:\bat\s+|<-+\s*)([a-zA-Z0-9_.$]+\.[a-zA-Z0-9_$]+(?:\([^)]*\))?)',
+    ).firstMatch(joined);
+    if (javaFrameMatch != null) {
+      javaCaller = javaFrameMatch.group(1)?.trim();
+    } else {
+      final methodMatch = RegExp(
+        r'\b([A-Z][a-zA-Z0-9_]+\.(?:processar[A-Za-z0-9_]*|native[A-Za-z0-9_]*|[a-z][a-zA-Z0-9_]*))\b',
+      ).firstMatch(joined);
+      if (methodMatch != null) {
+        final candidate = methodMatch.group(1)!;
+        if (!candidate.startsWith('AdrenoVK') && !candidate.endsWith('.so')) {
+          javaCaller = candidate;
+        }
+      }
+    }
+
+    final chainParts = <String>[
+      if (primarySymbol != null && primarySymbol.isNotEmpty) primarySymbol,
+      if (appLib != null && appLib.isNotEmpty)
+        appSymbol != null && appSymbol.isNotEmpty && appSymbol != primarySymbol
+            ? '$appLib ($appSymbol)'
+            : appLib
+      else if (primaryLib != null && primaryLib.isNotEmpty)
+        primaryLib,
+      if (javaCaller != null && javaCaller.isNotEmpty) javaCaller,
+    ];
+
+    return (
+      signalLabel: signalLabel,
+      faultCause: faultCause,
+      faultAddr: faultAddr,
+      primaryLib: primaryLib,
+      appLib: appLib,
+      primarySymbol: primarySymbol,
+      appSymbol: appSymbol,
+      javaCaller: javaCaller,
+      stackChain: chainParts.isNotEmpty ? chainParts.join(' <- ') : null,
+    );
+  }
+
+  AndroidBuildDiagnostic? _classifyVulkanAdrenoPipelineCrash(
+    List<String> logLines,
+    String joined,
+    String lower,
+  ) {
+    final hasAdrenoVk = lower.contains('adrenovk');
+    final hasShaderOrPipelineFail = lower.contains('failed to link shaders') ||
+        lower.contains('pipeline create failed');
+    final hasVulkanCallOrGgml = lower.contains('vkcmdbindpipeline') ||
+        lower.contains('ggml-vulkan') ||
+        lower.contains('ggml_vulkan') ||
+        lower.contains('ggml_vk_') ||
+        lower.contains('vulkan.adreno.so');
+    final hasCrashSignal = lower.contains('fatal signal') ||
+        lower.contains('sigsegv') ||
+        lower.contains('sigabrt') ||
+        lower.contains('segv_maperr');
+
+    final isMatch = (hasAdrenoVk && hasShaderOrPipelineFail) ||
+        (hasShaderOrPipelineFail && (hasVulkanCallOrGgml || hasCrashSignal)) ||
+        (lower.contains('vkcmdbindpipeline') &&
+            (hasCrashSignal || hasAdrenoVk || hasVulkanCallOrGgml));
+
+    if (!isMatch) return null;
+
+    final native = _extractNativeCrashDetails(logLines);
+    final relevant = _extractRelevantLogWindow(
+      logLines,
+      RegExp(
+        r'adrenovk|failed to link shaders|pipeline create failed|vkcmdbindpipeline|fatal signal|sigsegv|backtrace:|ggml',
+        caseSensitive: false,
+      ),
+    );
+
+    final signalDesc = [
+      if (native.signalLabel != null) native.signalLabel!,
+      if (native.faultCause != null) native.faultCause!,
+      if (native.faultAddr != null) 'fault addr ${native.faultAddr}',
+    ].join(' · ');
+
+    final summaryParts = <String>[
+      'AdrenoVK falhou ao vincular shader/pipeline (Pipeline create failed)',
+      if (signalDesc.isNotEmpty) signalDesc,
+      if (native.stackChain != null) native.stackChain!,
+    ];
+
+    return AndroidBuildDiagnostic(
+      issueType: AndroidBuildIssueType.vulkanAdrenoPipelineCrash,
+      isRuntimeCrash: true,
+      title:
+          'Crash Adreno Vulkan: falha ao compilar/vincular shader (${native.signalLabel ?? "Pipeline create failed"})',
+      explanation:
+          'O driver Vulkan Adreno (Snapdragon) falhou ao compilar/vincular um compute shader '
+          '("Failed to link shaders" / "Pipeline create failed") e retornou um handle de VkPipeline nulo/inválido, '
+          'causando queda nativa em `vkCmdBindPipeline` (comum em `ggml-vulkan` com `coopmat`/FP16, '
+          'resoluções altas ou incompatibilidade de pipeline em img2img).',
+      crashSummary: summaryParts.join(' — '),
+      affectedLocation: native.stackChain ??
+          native.appLib ??
+          native.primaryLib ??
+          'vkCmdBindPipeline / AdrenoVK',
+      relevantLogLines: relevant,
+      steps: [
+        if (native.stackChain != null)
+          'Stack nativo detectado: ${native.stackChain}.',
+        'Desative o Vulkan temporariamente (forçar execução em CPU / desabilitar backend Vulkan no img2img ou inferência) para estabilizar imediatamente.',
+        'Desabilite `GGML_VULKAN_COOPMAT` e `GGML_VULKAN_COOPMAT2` no CMakeLists.txt (`-DGGML_VULKAN_COOPMAT=OFF`) ou defina `GGML_VK_DISABLE_COOPMAT=1` e valide FP32 vs FP16.',
+        'Atualize o submódulo `ggml-vulkan` / `stable-diffusion.cpp` e valide se `VkPipeline` é diferente de `VK_NULL_HANDLE` antes de `vkCmdBindPipeline`.',
+        'Reduza a resolução / tensores (ex.: 512x512 no img2img, dimensões múltiplas de 64) e confira canais/formato de `init_image` e `mask`.',
+        'Clique em "Gerar Solução com IA" para analisar seus arquivos C++/CMake/Kotlin/Dart locais e obter o patch específico.',
+      ],
+    );
+  }
+
+  AndroidBuildDiagnostic? _classifyAndroidOutOfMemory(
+    List<String> logLines,
+    String joined,
+    String lower,
+  ) {
+    final isOom = lower.contains('outofmemoryerror') ||
+        lower.contains('std::bad_alloc') ||
+        lower.contains('outofdevicememory') ||
+        lower.contains('vk_error_out_of_device_memory') ||
+        lower.contains('vk_error_out_of_host_memory') ||
+        RegExp(r'\bout of (?:device |video |gpu )?memory\b',
+                caseSensitive: false)
+            .hasMatch(joined);
+
+    if (!isOom) return null;
+
+    final oomLine = logLines.firstWhere(
+      (l) => RegExp(
+        r'outofmemoryerror|std::bad_alloc|outofdevicememory|out of (?:device |video |gpu )?memory|vk_error_out_of',
+        caseSensitive: false,
+      ).hasMatch(l),
+      orElse: () => 'Memória insuficiente (OOM)',
+    );
+    final isGpuOrNative = lower.contains('std::bad_alloc') ||
+        lower.contains('outofdevicememory') ||
+        lower.contains('vk_error_out_of_device_memory') ||
+        lower.contains('video memory') ||
+        lower.contains('gpu memory');
+
+    final native = _extractNativeCrashDetails(logLines);
+    final dartLoc = _extractDartLocation(joined);
+    final location = native.stackChain ??
+        dartLoc ??
+        RegExp(r'\bat\s+([^\r\n]+)').firstMatch(joined)?.group(1)?.trim();
+
+    final relevant = _extractRelevantLogWindow(
+      logLines,
+      RegExp(
+        r'outofmemory|bad_alloc|outofdevicememory|vk_error_out_of|fatal signal',
+        caseSensitive: false,
+      ),
+    );
+
+    return AndroidBuildDiagnostic(
+      issueType: AndroidBuildIssueType.androidOutOfMemory,
+      isRuntimeCrash: true,
+      title: isGpuOrNative
+          ? 'Memória RAM / VRAM nativa esgotada (${lower.contains("bad_alloc") ? "std::bad_alloc" : "OutOfDeviceMemory"})'
+          : 'Memória JVM / RAM esgotada (OutOfMemoryError)',
+      explanation: isGpuOrNative
+          ? 'O aplicativo esgotou a RAM nativa ou a memória de GPU/Vulkan (VRAM compartilhada) do dispositivo ao alocar tensores, buffers ou modelos de IA.'
+          : 'O aplicativo excedeu o limite de heap da JVM ou memória disponível do Android ao alocar objetos, bitmaps ou buffers.',
+      crashSummary: oomLine.trim(),
+      affectedLocation: location,
+      relevantLogLines: relevant,
+      steps: const [
+        'Libere modelos, contextos nativos (`free`/`unload`) e `Bitmap.recycle()` antes de carregar uma nova inferência ou imagem.',
+        'Reduza resolução da imagem, `batch_size`, tamanho de contexto (`n_ctx`) ou use um modelo com quantização menor (ex.: Q4_K_M).',
+        'Evite manter duas instâncias de modelo/engine carregadas simultaneamente em memória (ex.: LLM + Stable Diffusion ao mesmo tempo).',
+        'Se for heap Java/Kotlin com imagens grandes, reduza o decode via `BitmapFactory.Options.inSampleSize` antes de enviar à UI/JNI.',
+      ],
+    );
+  }
+
+  AndroidBuildDiagnostic? _classifyNativeCrashSigsegvOrSigabrt(
+    List<String> logLines,
+    String joined,
+    String lower,
+  ) {
+    final hasFatalSignal = RegExp(
+      r'fatal signal\s+\d+\s*\(sig(?:segv|abrt|bus|ill|fpe)\)',
+      caseSensitive: false,
+    ).hasMatch(joined);
+    final hasNullCause = lower.contains('cause: null pointer dereference');
+    final hasBacktraceFrames = lower.contains('backtrace:') &&
+        RegExp(r'#\d{2}\s+pc\s+[0-9a-f]+', caseSensitive: false)
+            .hasMatch(joined);
+    final hasExplicitSignalAndCrash = (lower.contains('sigsegv') ||
+            lower.contains('sigabrt') ||
+            lower.contains('segv_maperr') ||
+            lower.contains('segv_accerr')) &&
+        (lower.contains('backtrace:') ||
+            lower.contains('fault addr') ||
+            lower.contains('fatal signal'));
+
+    if (!hasFatalSignal &&
+        !hasNullCause &&
+        !hasBacktraceFrames &&
+        !hasExplicitSignalAndCrash) {
+      return null;
+    }
+
+    final native = _extractNativeCrashDetails(logLines);
+    final sig = native.signalLabel ?? 'NATIVO';
+    final targetLib = native.appLib ?? native.primaryLib;
+    final relevant = _extractRelevantLogWindow(
+      logLines,
+      RegExp(
+        r'fatal signal|cause:|backtrace:|#\d{2}\s+pc|sigsegv|sigabrt',
+        caseSensitive: false,
+      ),
+    );
+
+    final summaryParts = <String>[
+      if (native.signalLabel != null) 'Fatal signal (${native.signalLabel})',
+      if (native.faultCause != null) native.faultCause!,
+      if (native.faultAddr != null) 'addr ${native.faultAddr}',
+      if (native.stackChain != null) native.stackChain!,
+    ];
+
+    return AndroidBuildDiagnostic(
+      issueType: AndroidBuildIssueType.nativeCrashSigsegvOrSigabrt,
+      isRuntimeCrash: true,
+      title: targetLib != null
+          ? 'Crash nativo ($sig) em $targetLib'
+          : 'Crash nativo C/C++ ($sig) no dispositivo',
+      explanation: sig == 'SIGABRT'
+          ? 'O código nativo C/C++ ou JNI abortou a execução (`SIGABRT` — `abort()`, `assert` falho ou exceção C++ não capturada antes de cruzar o JNI).'
+          : 'O código nativo C/C++ acessou um endereço de memória inválido (`SIGSEGV` / ponteiro nulo ou buffer já liberado).',
+      crashSummary: summaryParts.isNotEmpty
+          ? summaryParts.join(' · ')
+          : 'Falha nativa em runtime ($sig)',
+      affectedLocation: native.stackChain ?? targetLib ?? native.javaCaller,
+      relevantLogLines: relevant,
+      steps: [
+        if (native.stackChain != null)
+          'Cadeia de chamada: ${native.stackChain}.',
+        'Verifique ponteiros nulos, handles já liberados (`free`) e retorno de funções de inicialização antes de usar o objeto em C/C++.',
+        'Em chamadas JNI (Kotlin/Java -> C++), valide `GetStringUTFChars` / `GetByteArrayElements`, libere corretamente e cheque `env->ExceptionCheck()`.',
+        'Garanta sincronização (mutex/thread dedicada) se a biblioteca nativa não for thread-safe entre UI/background isolates.',
+        'Clique em "Gerar Solução com IA" para inspecionar os arquivos C++/Kotlin do projeto e sugerir correções.',
+      ],
+    );
+  }
+
+  AndroidBuildDiagnostic? _classifyAndroidInstallFailed(
+    List<String> logLines,
+    String joined,
+  ) {
+    final codeMatch =
+        RegExp(r'\b(INSTALL_FAILED_[A-Z0-9_]+)\b').firstMatch(joined);
+    if (codeMatch == null) return null;
+
+    final code = codeMatch.group(1)!;
+    final pkgMatch = RegExp(
+      r'(?:package|app)\s+([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+)',
+      caseSensitive: false,
+    ).firstMatch(joined);
+    final packageId = pkgMatch?.group(1);
+
+    final matchingLine = logLines.firstWhere(
+      (l) => l.contains(code),
+      orElse: () => code,
+    );
+    final relevant = _extractRelevantLogWindow(
+      logLines,
+      RegExp(r'INSTALL_FAILED_|adb(?:\.exe)?|Error launching', caseSensitive: false),
+    );
+
+    String explanation;
+    List<String> steps;
+    String? suggestedCmd;
+
+    switch (code) {
+      case 'INSTALL_FAILED_INSUFFICIENT_STORAGE':
+        explanation =
+            'O celular não possui espaço livre suficiente para instalar o APK (especialmente se o app empacota modelos/assets grandes).';
+        steps = const [
+          'Libere armazenamento interno no celular Android (exclua APKs antigos, cache ou vídeos).',
+          'Se o app tiver assets/modelos gigantes no APK, considere baixá-los no primeiro uso em vez de embutir tudo no APK.',
+        ];
+        suggestedCmd = 'adb shell df -h /data';
+        break;
+      case 'INSTALL_FAILED_UPDATE_INCOMPATIBLE':
+      case 'INSTALL_FAILED_VERSION_DOWNGRADE':
+      case 'INSTALL_FAILED_UID_CHANGED':
+        explanation = code == 'INSTALL_FAILED_VERSION_DOWNGRADE'
+            ? 'Já existe uma versão com `versionCode` maior instalada no dispositivo.'
+            : 'Já existe uma instalação com assinatura diferente (ex.: Release/Play Store vs Debug) no dispositivo.';
+        steps = [
+          if (packageId != null)
+            'Desinstale a versão anterior no dispositivo com `adb uninstall $packageId`.'
+          else
+            'Desinstale o app manualmente no celular (ou via `adb uninstall <seu.pacote>`) e rode novamente.',
+          'Em seguida, clique em Rodar novamente no FLRD.',
+        ];
+        suggestedCmd =
+            packageId != null ? 'adb uninstall $packageId' : 'adb devices -l';
+        break;
+      case 'INSTALL_FAILED_NO_MATCHING_ABIS':
+        explanation =
+            'O APK compilado não contém bibliotecas nativas (.so) compatíveis com a arquitetura CPU do aparelho (ex.: arm64-v8a vs x86_64).';
+        steps = const [
+          'Verifique `abiFilters` em `android/app/build.gradle` (inclua `arm64-v8a` para aparelhos modernos ou `x86_64` para emulador).',
+          'Rode `flutter clean` e recompile para o dispositivo conectado.',
+        ];
+        suggestedCmd = 'flutter clean';
+        break;
+      case 'INSTALL_FAILED_USER_RESTRICTED':
+        explanation =
+            'O sistema do celular bloqueou a instalação do APK via ADB (comum em Xiaomi MIUI/HyperOS e alguns aparelhos corporativos).';
+        steps = const [
+          'Em Opções do desenvolvedor no celular, ative "Instalar via USB" e desative temporariamente restrições de segurança de depuração.',
+          'Mantenha a tela do celular desbloqueada durante a instalação para confirmar o prompt se aparecer.',
+        ];
+        break;
+      case 'INSTALL_FAILED_OLDER_SDK':
+        explanation =
+            'A versão do Android no celular é inferior ao `minSdk` exigido pelo projeto ou por um plugin.';
+        steps = const [
+          'Verifique `minSdk` em `android/app/build.gradle` e compare com a versão do Android do dispositivo conectado.',
+        ];
+        break;
+      default:
+        explanation =
+            'O `adb install` recusou a instalação do APK no aparelho com o código `$code`.';
+        steps = [
+          'Código retornado pelo Android PackageManager: `$code`.',
+          if (packageId != null)
+            'Tente desinstalar a versão anterior (`adb uninstall $packageId`) e rodar `flutter clean`.'
+          else
+            'Tente desinstalar a versão anterior do app no celular e rodar `flutter clean`.',
+        ];
+        suggestedCmd =
+            packageId != null ? 'adb uninstall $packageId' : 'flutter clean';
+        break;
+    }
+
+    return AndroidBuildDiagnostic(
+      issueType: AndroidBuildIssueType.androidInstallFailed,
+      isRuntimeCrash: false,
+      title: 'Falha ao instalar APK no Android ($code)',
+      explanation: explanation,
+      crashSummary: matchingLine.trim(),
+      affectedLocation: packageId != null ? '$code ($packageId)' : code,
+      suggestedTerminalCommand: suggestedCmd,
+      relevantLogLines: relevant,
+      steps: steps,
+    );
+  }
+
+  AndroidBuildDiagnostic? _classifyAdbDeviceDisconnected(
+    List<String> logLines,
+    String joined,
+    String lower,
+  ) {
+    final isDisconnected = RegExp(
+          r'adb(?:\.exe)?\s*:[^\n]*device\s+[^\n]*\bnot\s+found\b',
+          caseSensitive: false,
+        ).hasMatch(joined) ||
+        RegExp(
+          r'\berror:\s*device\s+[^\n]*\bnot\s+found\b',
+          caseSensitive: false,
+        ).hasMatch(joined) ||
+        lower.contains('no devices/emulators found') ||
+        lower.contains('adb.exe: device offline') ||
+        lower.contains('error: device offline') ||
+        RegExp(
+          r'failed to install[^\n]*device\s+[^\n]*(not found|offline|disconnected)',
+          caseSensitive: false,
+        ).hasMatch(joined);
+
+    if (!isDisconnected) return null;
+
+    final serialMatch = RegExp(
+      r"device\s+'([^']+)'\s+not\s+found|device\s+([^\s:']+)\s+not\s+found",
+      caseSensitive: false,
+    ).firstMatch(joined);
+    final serial = serialMatch?.group(1) ?? serialMatch?.group(2);
+    final matchingLine = logLines.firstWhere(
+      (l) => RegExp(
+        r'not found|no devices/emulators|device offline',
+        caseSensitive: false,
+      ).hasMatch(l),
+      orElse: () => 'Dispositivo ADB não encontrado',
+    );
+    final relevant = _extractRelevantLogWindow(
+      logLines,
+      RegExp(r'adb|not found|offline|no devices', caseSensitive: false),
+    );
+
+    return AndroidBuildDiagnostic(
+      issueType: AndroidBuildIssueType.adbDeviceDisconnected,
+      isRuntimeCrash: false,
+      title: serial != null
+          ? 'Dispositivo Android ($serial) desconectado durante o ADB'
+          : 'Aparelho Android desconectado / não encontrado pelo ADB',
+      explanation:
+          'A conexão ADB com o dispositivo foi perdida durante a instalação ou execução '
+          '(cabo USB frouxo/instável, suspensão da tela ou porta USB do PC em economia de energia, '
+          'ou troca automática de modo USB ao reconectar).',
+      crashSummary: matchingLine.trim(),
+      affectedLocation: serial != null ? 'ADB device: $serial' : 'ADB / USB',
+      suggestedTerminalCommand: 'adb devices -l',
+      relevantLogLines: relevant,
+      steps: const [
+        'Reconecte o cabo USB em uma porta direta da placa-mãe (evite hubs USB) e desbloqueie a tela do aparelho.',
+        'Confirme se a Depuração USB segue ativa e se o modo USB está em "Transferência de arquivos" (MTP).',
+        'Clique em "Re-detectar & Rodar" abaixo para reescanear o dispositivo e relançar imediatamente.',
+      ],
+    );
+  }
+
+  static String? _extractDartLocation(
+    String joined, {
+    String? projectPackageName,
+  }) {
+    const frameworkPrefixes = <String>{
+      'flutter',
+      'flutter_test',
+      'flutter_riverpod',
+      'riverpod',
+      'provider',
+      'go_router',
+      'http',
+    };
+
+    final pkgFrames = RegExp(
+      r'package:([a-zA-Z0-9_]+)/([^\s):]+\.dart:\d+(?::\d+)?)',
+    ).allMatches(joined);
+
+    String? firstNonFramework;
+    for (final m in pkgFrames) {
+      final pkg = m.group(1)!;
+      final rel = m.group(2)!;
+      if (projectPackageName != null &&
+          projectPackageName.isNotEmpty &&
+          pkg == projectPackageName) {
+        return 'lib/$rel';
+      }
+      if (!frameworkPrefixes.contains(pkg)) {
+        firstNonFramework ??= 'lib/$rel';
+      }
+    }
+    if (firstNonFramework != null) return firstNonFramework;
+
+    final directLib = RegExp(
+      r'(?:file:///[^\s)]*/)?(lib/[^\s):]+\.dart:\d+(?::\d+)?)',
+    ).firstMatch(joined);
+    if (directLib != null) return directLib.group(1);
+
+    final anyDart = RegExp(
+      r'([^\s(:]+\.dart:\d+(?::\d+)?)',
+    ).firstMatch(joined);
+    return anyDart?.group(1);
+  }
+
+  AndroidBuildDiagnostic? _classifyDartRuntimeException(
+    List<String> logLines,
+    String joined,
+    String lower, {
+    String? projectPackageName,
+  }) {
+    final hasUnhandled = lower.contains('unhandled exception:');
+    final hasCaughtBanner =
+        joined.contains('══╡ EXCEPTION CAUGHT BY') ||
+        lower.contains('exception caught by');
+
+    if (!hasUnhandled && !hasCaughtBanner) return null;
+
+    String? exceptionSummary;
+    final unhandledIdx = logLines.indexWhere(
+      (l) => l.toLowerCase().contains('unhandled exception:'),
+    );
+    if (unhandledIdx != -1) {
+      final raw = logLines[unhandledIdx];
+      final idx = raw.toLowerCase().indexOf('unhandled exception:');
+      exceptionSummary = raw.substring(idx).trim();
+    } else {
+      final bannerIdx = logLines.indexWhere(
+        (l) =>
+            l.contains('══╡ EXCEPTION CAUGHT BY') ||
+            l.toLowerCase().contains('exception caught by'),
+      );
+      if (bannerIdx != -1) {
+        for (var i = bannerIdx + 1;
+            i < logLines.length && i <= bannerIdx + 4;
+            i++) {
+          final candidate = logLines[i].trim();
+          if (candidate.isNotEmpty && !candidate.startsWith('═')) {
+            exceptionSummary = candidate;
+            break;
+          }
+        }
+        exceptionSummary ??= logLines[bannerIdx].trim();
+      }
+    }
+
+    final location = _extractDartLocation(
+      joined,
+      projectPackageName: projectPackageName,
+    );
+    final relevant = _extractRelevantLogWindow(
+      logLines,
+      RegExp(
+        r'unhandled exception:|exception caught by|package:|lib/[^\s]+\.dart',
+        caseSensitive: false,
+      ),
+    );
+
+    return AndroidBuildDiagnostic(
+      issueType: AndroidBuildIssueType.dartRuntimeException,
+      isRuntimeCrash: true,
+      title: 'Exceção Dart em runtime${location != null ? " ($location)" : ""}',
+      explanation:
+          'O código Flutter/Dart lançou uma exceção não tratada durante a execução no dispositivo'
+          '${location != null ? " em `$location`" : ""}. '
+          'Revise o stack trace capturado ou clique em "Gerar Solução com IA" para receber uma correção direcionada ao arquivo.',
+      crashSummary: exceptionSummary,
+      affectedLocation: location,
+      relevantLogLines: relevant,
+      steps: [
+        if (exceptionSummary != null) 'Erro capturado: $exceptionSummary',
+        if (location != null) 'Local no código Dart: $location',
+        'Trate valores nulos, índices de lista ou falhas assíncronas (`try/catch`, checagem de `mounted`) no ponto indicado.',
+        'Clique em "Gerar Solução com IA" para inspecionar o arquivo Dart local e gerar o patch sugerido.',
+      ],
+    );
+  }
+
+  /// Extracts `name:` from `pubspec.yaml` when available so `package:<name>/...`
+  /// frames resolve cleanly to `lib/...`.
+  static String? extractPubspecPackageName(String? pubspecContent) {
+    if (pubspecContent == null || pubspecContent.isEmpty) return null;
+    final match = RegExp(
+      r'^\s*name\s*:\s*([a-zA-Z0-9_]+)',
+      multiLine: true,
+    ).firstMatch(pubspecContent);
+    return match?.group(1)?.trim();
+  }
+
+  /// Inspects failed build, install, or runtime logs together with locally
+  /// installed JDKs, Ninja, MSVC host compilers, and project files.
   Future<AndroidBuildDiagnostic?> diagnoseBuildFailure(
     List<String> logLines, {
     String? projectPath,
   }) async {
     String? projectGradleVersion;
+    String? projectPackageName;
     var hasAppCMakeLists = false;
     if (projectPath != null && projectPath.trim().isNotEmpty) {
       final cleanProj = projectPath.trim();
@@ -761,6 +1499,10 @@ class AndroidDeviceRunnerService {
       projectGradleVersion =
           extractGradleWrapperVersion(_readFileSync(wrapperPath));
 
+      final pubspecPath = _joinOsPath(cleanProj, 'pubspec.yaml');
+      projectPackageName =
+          extractPubspecPackageName(_readFileSync(pubspecPath));
+
       final appCMakePath = _appCMakeListsPath(cleanProj);
       hasAppCMakeLists = _fileExists(appCMakePath);
     }
@@ -768,6 +1510,7 @@ class AndroidDeviceRunnerService {
     final initial = classifyBuildFailureLogs(
       logLines,
       projectGradleVersion: projectGradleVersion,
+      projectPackageName: projectPackageName,
       hasAppCMakeLists: hasAppCMakeLists,
     );
     if (initial == null) return null;
@@ -778,6 +1521,7 @@ class AndroidDeviceRunnerService {
         logLines,
         availableCompatibleJdks: jdks,
         projectGradleVersion: projectGradleVersion,
+        projectPackageName: projectPackageName,
         hasAppCMakeLists: hasAppCMakeLists,
       );
     }
@@ -787,6 +1531,7 @@ class AndroidDeviceRunnerService {
       return classifyBuildFailureLogs(
         logLines,
         projectGradleVersion: projectGradleVersion,
+        projectPackageName: projectPackageName,
         detectedNinjaPath: ninjas.isNotEmpty ? ninjas.first : null,
         hasAppCMakeLists: hasAppCMakeLists,
       );
@@ -801,6 +1546,7 @@ class AndroidDeviceRunnerService {
       return classifyBuildFailureLogs(
         logLines,
         projectGradleVersion: projectGradleVersion,
+        projectPackageName: projectPackageName,
         detectedMsvcCompilerPath: vcvarsPath,
         hasMsvcLibs: hasLibs,
         hasAppCMakeLists: hasAppCMakeLists,
@@ -812,6 +1558,7 @@ class AndroidDeviceRunnerService {
       return classifyBuildFailureLogs(
         logLines,
         projectGradleVersion: projectGradleVersion,
+        projectPackageName: projectPackageName,
         detectedMsvcCompilerPath: clPath,
         hasAppCMakeLists: hasAppCMakeLists,
       );

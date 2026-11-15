@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/studio/models/terminal_session.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
-import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/providers/android_debug_provider.dart';
 import 'package:flrd/features/studio/providers/terminal_provider.dart';
 import 'package:flrd/features/studio/services/android_device_runner_service.dart';
@@ -390,6 +389,9 @@ void main() {
         // 2. Scan and launch on Galaxy S25 Ultra -> opens persistent terminal.
         await tester.tap(find.byKey(const ValueKey('android_scan_devices_button')));
         await tester.pumpAndSettle();
+        // Allow the 3s AppToast SnackBar to expire so it does not cover bottom controls.
+        await tester.pump(const Duration(seconds: 4));
+        await tester.pumpAndSettle();
 
         await tester.tap(find.byKey(const ValueKey('android_launch_button')));
         await tester.pumpAndSettle();
@@ -413,8 +415,8 @@ void main() {
         debugProcesses.first.finishWithExitCode(0);
         await tester.pumpAndSettle();
 
-        // Simulator is restored on stop/disconnect, AND terminal stays visible!
-        expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+        // Fake simulator remains absent on stop/disconnect, AND terminal stays visible!
+        expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsNothing);
         expect(
           find.byKey(const ValueKey('android_debug_console_panel')),
           findsOneWidget,

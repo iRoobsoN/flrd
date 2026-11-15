@@ -2,13 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flrd/features/ai/providers/ai_settings_provider.dart';
+import 'package:flrd/features/ai/services/gemini_ai_service.dart';
 import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/studio/models/connected_device.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/models/terminal_session.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
 import 'package:flrd/features/studio/presentation/widgets/android_debug_controls.dart';
-import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/embedded_code_viewer.dart';
 import 'package:flrd/features/studio/providers/android_debug_provider.dart';
 import 'package:flrd/features/studio/providers/terminal_provider.dart';
@@ -16,8 +17,10 @@ import 'package:flrd/features/studio/services/android_device_runner_service.dart
 import 'package:flrd/features/studio/services/terminal_shell_service.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 class _FakeIOSink implements IOSink {
@@ -458,7 +461,7 @@ Some Flutter CLI preamble log
     });
 
     testWidgets(
-      'launching on connected Android device hides internal simulator and stopping restores it',
+      'scanning, launching, hot reloading, toggling console and stopping work directly on AppStudioScreen without internal simulator',
       (tester) async {
         tester.view.physicalSize = const Size(1440, 900);
         tester.view.devicePixelRatio = 1.0;
@@ -526,10 +529,9 @@ Some Flutter CLI preamble log
         );
         await tester.pumpAndSettle();
 
-        // Initially: simulator visible on right, Android USB scan button visible.
+        // No fake simulator pane exists; Android USB scan button is immediately available.
         expect(find.byKey(const ValueKey('anchored_live_preview_pane')),
-            findsOneWidget);
-        expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+            findsNothing);
         expect(find.byKey(const ValueKey('android_scan_devices_button')),
             findsOneWidget);
 
@@ -542,17 +544,13 @@ Some Flutter CLI preamble log
             findsOneWidget);
         expect(find.byKey(const ValueKey('android_launch_button')),
             findsOneWidget);
-        // Simulator stays visible until user actually launches on device
         expect(find.byKey(const ValueKey('anchored_live_preview_pane')),
-            findsOneWidget);
+            findsNothing);
 
-        // Launch app on Pixel 8 -> internal simulator MUST be hidden automatically
+        // Launch app on Pixel 8 -> Android debug console opens automatically
         await tester.tap(find.byKey(const ValueKey('android_launch_button')));
         await tester.pumpAndSettle();
 
-        expect(find.byKey(const ValueKey('anchored_live_preview_pane')),
-            findsNothing);
-        expect(find.byType(DeviceScreenEmulator), findsNothing);
         expect(find.byKey(const ValueKey('android_running_badge')),
             findsOneWidget);
         expect(find.byKey(const ValueKey('android_debug_console_panel')),
@@ -590,14 +588,15 @@ Some Flutter CLI preamble log
         expect(find.byKey(const ValueKey('android_debug_console_panel')),
             findsOneWidget);
 
-        // Stop session -> simulator MUST be restored automatically
+        // Stop session -> persistent console remains accessible and launch button returns
         await tester.tap(find.byKey(const ValueKey('android_stop_button')));
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();
 
         expect(find.byKey(const ValueKey('anchored_live_preview_pane')),
+            findsNothing);
+        expect(find.byKey(const ValueKey('android_debug_console_panel')),
             findsOneWidget);
-        expect(find.byType(DeviceScreenEmulator), findsOneWidget);
         expect(find.byKey(const ValueKey('android_launch_button')),
             findsOneWidget);
       },
@@ -2126,4 +2125,766 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
       );
     });
   });
+
+  group('Runtime Crash & Install Failure Classification', () {
+    test(
+      'classifies AdrenoVK shader/pipeline SIGSEGV crash ahead of generic SIGSEGV and extracts native + Java frame',
+      () async {
+        final service = AndroidDeviceRunnerService();
+        final logs = <String>[
+          'I/flutter (12345): Running inference on image...',
+          'E/AdrenoVK-0(12345): Failed to link shaders.',
+          'E/ggml-vulkan(12345): Pipeline create failed for shader mul_mat_f16',
+          'F/libc    (12345): Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0',
+          '      #00 pc 00000000001a2c34  /data/app/~~abc==/com.snapia-1/lib/arm64/libgguf_engine.so (generate_image+124)',
+          '      #01 pc 0000000000084110  /vendor/lib64/hw/vulkan.adreno.so (vkCmdBindPipeline+64)',
+          '      at com.snapia.MainActivity.processarGGUF(MainActivity.java:88)',
+        ];
+
+        final diag = await service.diagnoseBuildFailure(logs);
+        expect(diag, isNotNull);
+        expect(diag!.issueType, AndroidBuildIssueType.vulkanAdrenoPipelineCrash);
+        expect(diag.isRuntimeCrash, isTrue);
+        expect(diag.title, contains('Vulkan'));
+        expect(diag.explanation.toLowerCase(), anyOf(contains('adreno'), contains('shader'), contains('pipeline')));
+        expect(
+          diag.affectedLocation,
+          anyOf(
+            contains('libgguf_engine.so'),
+            contains('generate_image'),
+            contains('vkCmdBindPipeline'),
+            contains('MainActivity'),
+          ),
+        );
+        expect(diag.crashSummary, isNotNull);
+        expect(
+          diag.steps.join(' '),
+          anyOf(
+            contains('GGML_VULKAN_COOPMAT'),
+            contains('CPU'),
+            contains('Vulkan'),
+          ),
+        );
+        expect(diag.relevantLogLines, isNotEmpty);
+      },
+    );
+
+    test(
+      'classifies adb device not found and enables Re-detectar & Rodar action',
+      () async {
+        final service = AndroidDeviceRunnerService();
+        final diag1 = await service.diagnoseBuildFailure(const [
+          "adb.exe: device 'RXGL20BSBJX' not found",
+          'Error: ADB exited with exit code 1',
+        ]);
+        expect(diag1, isNotNull);
+        expect(diag1!.issueType, AndroidBuildIssueType.adbDeviceDisconnected);
+        expect(diag1.canRescanAndRelaunch, isTrue);
+
+        final diag2 = await service.diagnoseBuildFailure(const [
+          'adb: error: no devices/emulators found',
+        ]);
+        expect(diag2, isNotNull);
+        expect(diag2!.issueType, AndroidBuildIssueType.adbDeviceDisconnected);
+        expect(diag2.canRescanAndRelaunch, isTrue);
+      },
+    );
+
+    test(
+      'classifies INSTALL_FAILED_* errors with concrete ADB explanation',
+      () async {
+        final service = AndroidDeviceRunnerService();
+        final diag = await service.diagnoseBuildFailure(const [
+          'Installing build\\app\\outputs\\flutter-apk\\app-debug.apk...',
+          'adb: failed to install app-debug.apk: Failure [INSTALL_FAILED_VERSION_DOWNGRADE]',
+          'Error launching application on SM S938B.',
+        ]);
+        expect(diag, isNotNull);
+        expect(diag!.issueType, AndroidBuildIssueType.androidInstallFailed);
+        expect(diag.crashSummary, contains('INSTALL_FAILED_VERSION_DOWNGRADE'));
+      },
+    );
+
+    test(
+      'classifies OutOfMemoryError / std::bad_alloc / OutOfDeviceMemory before SIGABRT',
+      () async {
+        final service = AndroidDeviceRunnerService();
+        final javaOom = await service.diagnoseBuildFailure(const [
+          'E/AndroidRuntime(999): java.lang.OutOfMemoryError: Failed to allocate a 67108876 byte allocation',
+          'F/libc    (999): Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE)',
+        ]);
+        expect(javaOom, isNotNull);
+        expect(javaOom!.issueType, AndroidBuildIssueType.androidOutOfMemory);
+        expect(javaOom.isRuntimeCrash, isTrue);
+
+        final cppOom = await service.diagnoseBuildFailure(const [
+          'terminating with uncaught exception of type std::bad_alloc: std::bad_alloc',
+          'Error: vk::OutOfDeviceMemoryError in allocator',
+        ]);
+        expect(cppOom, isNotNull);
+        expect(cppOom!.issueType, AndroidBuildIssueType.androidOutOfMemory);
+      },
+    );
+
+    test(
+      'classifies native SIGSEGV / SIGABRT crashes with null pointer and .so backtrace',
+      () async {
+        final service = AndroidDeviceRunnerService();
+        final diag = await service.diagnoseBuildFailure(const [
+          'F/libc    (4510): Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0',
+          'F/DEBUG   (4599): Cause: null pointer dereference',
+          'F/DEBUG   (4599): backtrace:',
+          'F/DEBUG   (4599):       #00 pc 0000000000041230  /data/app/~~xyz/lib/arm64/libimage_ops.so (apply_filter+48)',
+        ]);
+        expect(diag, isNotNull);
+        expect(diag!.issueType, AndroidBuildIssueType.nativeCrashSigsegvOrSigabrt);
+        expect(diag.isRuntimeCrash, isTrue);
+        expect(diag.affectedLocation, contains('libimage_ops.so'));
+        expect(diag.crashSummary, contains('SIGSEGV'));
+      },
+    );
+
+    test(
+      'classifies Dart Unhandled Exception and Flutter EXCEPTION CAUGHT BY with lib/*.dart line',
+      () async {
+        final service = AndroidDeviceRunnerService();
+        final diag = await service.diagnoseBuildFailure(const [
+          'E/flutter (2222): [ERROR:flutter/runtime/dart_vm_initializer.cc(41)] Unhandled Exception: Bad state: No element',
+          'E/flutter (2222): #0      InferenceService.run (package:snapia/services/inference_service.dart:142:9)',
+          'E/flutter (2222): #1      HomeScreen._generate (package:snapia/screens/home_screen.dart:85:5)',
+        ]);
+        expect(diag, isNotNull);
+        expect(diag!.issueType, AndroidBuildIssueType.dartRuntimeException);
+        expect(diag.isRuntimeCrash, isTrue);
+        expect(
+          diag.affectedLocation,
+          anyOf(
+            contains('inference_service.dart:142'),
+            contains('package:snapia/services/inference_service.dart'),
+          ),
+        );
+
+        final widgetEx = await service.diagnoseBuildFailure(const [
+          '══╡ EXCEPTION CAUGHT BY WIDGETS LIBRARY ╞═══════════════════════════════════════════════════════════',
+          'The following RangeError was thrown building PreviewCard:',
+          '#0      PreviewCard.build (lib/widgets/preview_card.dart:51:12)',
+        ]);
+        expect(widgetEx, isNotNull);
+        expect(widgetEx!.issueType, AndroidBuildIssueType.dartRuntimeException);
+        expect(widgetEx.affectedLocation, contains('preview_card.dart:51'));
+      },
+    );
+  });
+
+  group('AndroidDebugNotifier Runtime Crash, Heartbeat & Rescan', () {
+    test(
+      'detects AdrenoVK + vkCmdBindPipeline SIGSEGV after app.started and attaches diagnostic card',
+      () async {
+        final tempProj = Directory.systemTemp.createTempSync('flrd_rt_vk_');
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: snapia\n');
+        final proc = _FakeProcess();
+        addTearDown(() async {
+          await proc.disposeStreams();
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+
+        final service = AndroidDeviceRunnerService(
+          processStarter: (exe, args, {workingDirectory, runInShell = true}) async =>
+              proc,
+        );
+        final notifier = AndroidDebugNotifier(service);
+        addTearDown(notifier.dispose);
+
+        await notifier.launchProject(
+          tempProj.path,
+          device: const ConnectedAndroidDevice(
+            id: 'RXGL20BSBJX',
+            name: 'SM S938B',
+            targetPlatform: 'android-arm64',
+            sdk: 'Android 16',
+          ),
+        );
+
+        proc.emitStdoutLine('[{"event":"app.start","params":{"appId":"1"}}]');
+        proc.emitStdoutLine('[{"event":"app.started","params":{"appId":"1"}}]');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(notifier.state.status, DeviceRunStatus.running);
+
+        proc.emitStdoutLine('E/AdrenoVK-0: Failed to link shaders.');
+        proc.emitStdoutLine('E/ggml-vulkan: Pipeline create failed');
+        proc.emitStdoutLine(
+            'F/libc: Fatal signal 11 (SIGSEGV), code 1, fault addr 0x0');
+        proc.emitStdoutLine(
+            '      #00 pc 00001a2c /data/local/tmp/libgguf_engine.so (generate_image+124)');
+        proc.emitStdoutLine(
+            '      #01 pc 00008410 /vendor/lib64/vulkan.adreno.so (vkCmdBindPipeline+64)');
+        proc.emitStdoutLine('Lost connection to device.');
+        proc.completeExit(1);
+
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+
+        expect(notifier.state.status, DeviceRunStatus.error);
+        expect(notifier.state.buildDiagnostic, isNotNull);
+        expect(
+          notifier.state.buildDiagnostic!.issueType,
+          AndroidBuildIssueType.vulkanAdrenoPipelineCrash,
+        );
+        expect(notifier.state.buildDiagnostic!.isRuntimeCrash, isTrue);
+      },
+    );
+
+    test(
+      'detects live Dart Unhandled Exception via app.log while app keeps running',
+      () async {
+        final tempProj = Directory.systemTemp.createTempSync('flrd_rt_dart_');
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: test_app\n');
+        final proc = _FakeProcess();
+        addTearDown(() async {
+          await proc.disposeStreams();
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+
+        final service = AndroidDeviceRunnerService(
+          processStarter: (exe, args, {workingDirectory, runInShell = true}) async =>
+              proc,
+        );
+        final notifier = AndroidDebugNotifier(service);
+        addTearDown(notifier.dispose);
+
+        await notifier.launchProject(
+          tempProj.path,
+          device: const ConnectedAndroidDevice(
+            id: 'PIX8001',
+            name: 'Pixel 8',
+            targetPlatform: 'android-arm64',
+            sdk: 'Android 14',
+          ),
+        );
+
+        proc.emitStdoutLine('[{"event":"app.start","params":{"appId":"1"}}]');
+        proc.emitStdoutLine('[{"event":"app.started","params":{"appId":"1"}}]');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(notifier.state.status, DeviceRunStatus.running);
+
+        proc.emitStdoutLine(
+          jsonEncode([
+            {
+              'event': 'app.log',
+              'params': {
+                'error': true,
+                'log':
+                    'Unhandled Exception: StateError: Bad state\n#0 MainCtrl.go (package:test_app/main.dart:77:5)',
+              },
+            }
+          ]),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+
+        expect(notifier.state.status, DeviceRunStatus.running);
+        expect(notifier.state.buildDiagnostic, isNotNull);
+        expect(
+          notifier.state.buildDiagnostic!.issueType,
+          AndroidBuildIssueType.dartRuntimeException,
+        );
+        expect(
+          notifier.state.buildDiagnostic!.affectedLocation,
+          contains('main.dart:77'),
+        );
+      },
+    );
+
+    test(
+      'emits periodic heartbeat logs during long Gradle/CMake build, stops on app.started, and never classifies user Stop as crash',
+      () async {
+        final tempProj = Directory.systemTemp.createTempSync('flrd_hb_');
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: native_app\n');
+        final proc = _FakeProcess();
+        addTearDown(() async {
+          await proc.disposeStreams();
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+
+        final service = AndroidDeviceRunnerService(
+          processRunner: (exe, args, {workingDirectory, runInShell = true}) async {
+            if (exe == 'taskkill') {
+              proc.kill();
+            }
+            return ProcessResult(1, 0, '', '');
+          },
+          processStarter: (exe, args, {workingDirectory, runInShell = true}) async =>
+              proc,
+        );
+        final notifier = AndroidDebugNotifier(
+          service,
+          buildHeartbeatInterval: const Duration(milliseconds: 45),
+        );
+        addTearDown(notifier.dispose);
+
+        await notifier.launchProject(
+          tempProj.path,
+          device: const ConnectedAndroidDevice(
+            id: 'PIX8001',
+            name: 'Pixel 8',
+            targetPlatform: 'android-arm64',
+            sdk: 'Android 14',
+          ),
+        );
+
+        proc.emitStdoutLine(
+          '[{"event":"app.progress","params":{"message":"Running Gradle task \'assembleDebug\'..."}}]',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 130));
+
+        expect(
+          notifier.state.logs.any(
+            (e) =>
+                e.message.contains('Compilação Gradle/C++/CMake em andamento'),
+          ),
+          isTrue,
+        );
+
+        final countBeforeStarted = notifier.state.logs
+            .where((e) => e.message.contains('Compilação Gradle/C++/CMake'))
+            .length;
+
+        proc.emitStdoutLine('[{"event":"app.start","params":{"appId":"1"}}]');
+        proc.emitStdoutLine('[{"event":"app.started","params":{"appId":"1"}}]');
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+
+        final countAfterStarted = notifier.state.logs
+            .where((e) => e.message.contains('Compilação Gradle/C++/CMake'))
+            .length;
+        expect(countAfterStarted, equals(countBeforeStarted));
+
+        // User-requested stop must NOT produce runtime crash diagnostic even with non-zero exit
+        await notifier.stopSession();
+        proc.completeExit(1);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(notifier.state.status, DeviceRunStatus.idle);
+        expect(notifier.state.buildDiagnostic, isNull);
+      },
+    );
+  });
+
+  group('GeminiAiService.diagnoseAndSuggestAppFix', () {
+    test(
+      'scans referenced local project files and calls Gemini API when apiKey and httpClient are provided',
+      () async {
+        final tempProj = Directory.systemTemp.createTempSync('flrd_ai_diag_');
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: snapia\n');
+        Directory(p.join(tempProj.path, 'lib')).createSync(recursive: true);
+        File(p.join(tempProj.path, 'lib', 'main.dart')).writeAsStringSync(
+          'void main() { /* run snapia */ }\n',
+        );
+        final cppDir =
+            Directory(p.join(tempProj.path, 'android', 'app', 'src', 'main', 'cpp'))
+              ..createSync(recursive: true);
+        File(p.join(cppDir.path, 'CMakeLists.txt')).writeAsStringSync(
+          'add_definitions(-DGGML_USE_VULKAN)\n',
+        );
+        File(p.join(cppDir.path, 'gguf_engine.cpp')).writeAsStringSync(
+          'void generate_image() { /* vkCmdBindPipeline */ }\n',
+        );
+        addTearDown(() {
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+
+        Uri? capturedUri;
+        String? capturedBody;
+        final fakeClient = _FakeAiHttpClient((request) async {
+          capturedUri = request.url;
+          capturedBody = request.body;
+          return http.Response(
+            jsonEncode({
+              'candidates': [
+                {
+                  'content': {
+                    'parts': [
+                      {
+                        'text':
+                            '1. **Causa Raiz Exata**: AdrenoVK falhou ao linkar shader FP16.\n2. Desative GGML_VULKAN_COOPMAT.',
+                      }
+                    ]
+                  }
+                }
+              ]
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        });
+
+        final suggestion = await GeminiAiService.diagnoseAndSuggestAppFix(
+          projectPath: tempProj.path,
+          issueTitle: 'Crash Vulkan/Adreno ao criar pipeline ou linkar shaders',
+          affectedLocation: 'libgguf_engine.so (generate_image+124)',
+          crashLogs: const [
+            'E/AdrenoVK-0: Failed to link shaders.',
+            'E/ggml-vulkan: Pipeline create failed',
+            'Fatal signal 11 (SIGSEGV)',
+          ],
+          apiKey: 'fake-gemini-key',
+          httpClient: fakeClient,
+        );
+
+        expect(capturedUri, isNotNull);
+        expect(capturedUri.toString(),
+            contains('generativelanguage.googleapis.com'));
+        expect(capturedUri.toString(), contains('gemini-1.5-flash'));
+        expect(capturedBody, contains('CMakeLists.txt'));
+        expect(capturedBody, contains('GGML_USE_VULKAN'));
+        expect(capturedBody, contains('Failed to link shaders'));
+        expect(suggestion, contains('Causa Raiz Exata'));
+        expect(suggestion, contains('GGML_VULKAN_COOPMAT'));
+      },
+    );
+
+    test(
+      'returns structured Portuguese offline engineering fallback without API key or on HTTP error',
+      () async {
+        final offline = await GeminiAiService.diagnoseAndSuggestAppFix(
+          projectPath: '',
+          issueTitle: 'Crash Vulkan/Adreno ao criar pipeline ou linkar shaders',
+          affectedLocation: 'vkCmdBindPipeline',
+          crashLogs: const [
+            'AdrenoVK-0: Failed to link shaders.',
+            'Fatal signal 11 (SIGSEGV)',
+          ],
+          apiKey: null,
+        );
+
+        expect(offline, contains('Causa Raiz'));
+        expect(offline.toLowerCase(), contains('vulkan'));
+        expect(
+          offline,
+          anyOf(contains('GGML_VULKAN_COOPMAT'), contains('CPU')),
+        );
+
+        final failingClient = _FakeAiHttpClient((_) async {
+          return http.Response('Internal Server Error', 500);
+        });
+        final httpFallback = await GeminiAiService.diagnoseAndSuggestAppFix(
+          projectPath: '',
+          issueTitle: 'Memória / VRAM Esgotada (OutOfMemoryError)',
+          crashLogs: const ['java.lang.OutOfMemoryError: Failed to allocate'],
+          apiKey: 'fake-key',
+          httpClient: failingClient,
+        );
+        expect(httpFallback, contains('Causa Raiz'));
+        expect(httpFallback.toLowerCase(), anyOf(contains('memória'), contains('vram')));
+      },
+    );
+  });
+
+  group('AndroidDebugConsolePanel Runtime Crash & AI Fix UI', () {
+    testWidgets(
+      'displays Vulkan runtime crash card, runs 1-click AI diagnosis and copies solution & report',
+      (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        String? copiedClipboardText;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final args = call.arguments as Map?;
+            copiedClipboardText = args?['text'] as String?;
+          }
+          return null;
+        });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(SystemChannels.platform, null);
+        });
+
+        final tempProj = Directory.systemTemp.createTempSync('flrd_panel_ai_');
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: snapia\n');
+        final proc = _FakeProcess();
+        addTearDown(() async {
+          await proc.disposeStreams();
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+
+        final service = AndroidDeviceRunnerService(
+          processStarter: (exe, args, {workingDirectory, runInShell = true}) async =>
+              proc,
+        );
+        final fakeClient = _FakeAiHttpClient((_) async {
+          return http.Response(
+            jsonEncode({
+              'candidates': [
+                {
+                  'content': {
+                    'parts': [
+                      {
+                        'text':
+                            'Solução IA: Desabilite GGML_VULKAN_COOPMAT no CMakeLists.txt e reduza a resolução para 512x512.',
+                      }
+                    ]
+                  }
+                }
+              ]
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        });
+
+        final container = ProviderContainer(
+          overrides: [
+            androidDeviceRunnerServiceProvider.overrideWithValue(service),
+            aiDiagnosticHttpClientProvider.overrideWithValue(fakeClient),
+            aiSettingsProvider.overrideWith(
+              (ref) => AiSettingsNotifier(
+                const AiSettingsState(apiKey: 'fake-gemini-key'),
+              ),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              home: Scaffold(
+                body: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: AndroidDebugConsolePanel(
+                    projectPath: tempProj.path,
+                    onClose: () {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final notifier = container.read(androidDebugProvider.notifier);
+        await notifier.launchProject(
+          tempProj.path,
+          device: const ConnectedAndroidDevice(
+            id: 'RXGL20BSBJX',
+            name: 'SM S938B',
+            targetPlatform: 'android-arm64',
+            sdk: 'Android 16',
+          ),
+        );
+
+        proc.emitStdoutLine('[{"event":"app.start","params":{"appId":"1"}}]');
+        proc.emitStdoutLine('[{"event":"app.started","params":{"appId":"1"}}]');
+        await tester.pump();
+
+        proc.emitStdoutLine('E/AdrenoVK-0: Failed to link shaders.');
+        proc.emitStdoutLine('E/ggml-vulkan: Pipeline create failed');
+        proc.emitStdoutLine(
+            'F/libc: Fatal signal 11 (SIGSEGV), code 1, fault addr 0x0');
+        proc.emitStdoutLine(
+            '      #00 pc 00001a2c /data/app/libgguf_engine.so (generate_image+124)');
+        proc.emitStdoutLine(
+            '      #01 pc 00008410 /vendor/lib64/vulkan.adreno.so (vkCmdBindPipeline+64)');
+        proc.emitStdoutLine('Lost connection to device.');
+        proc.completeExit(1);
+
+        await tester.pump(const Duration(milliseconds: 120));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('android_runtime_crash_badge')),
+            findsOneWidget);
+        expect(find.byKey(const ValueKey('android_ai_diagnose_button')),
+            findsOneWidget);
+        expect(find.byKey(const ValueKey('android_copy_ai_report_button')),
+            findsOneWidget);
+
+        // Trigger AI diagnosis button
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('android_ai_diagnose_button')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('android_ai_diagnose_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('android_ai_fix_box')), findsOneWidget);
+        expect(
+          find.textContaining('Desabilite GGML_VULKAN_COOPMAT'),
+          findsOneWidget,
+        );
+
+        // Copy AI fix
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('android_copy_ai_fix_button')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('android_copy_ai_fix_button')),
+        );
+        await tester.pump();
+        expect(copiedClipboardText, contains('Desabilite GGML_VULKAN_COOPMAT'));
+
+        // Copy full AI report
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('android_copy_ai_report_button')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('android_copy_ai_report_button')),
+        );
+        await tester.pump();
+        expect(
+          copiedClipboardText,
+          contains('=== FLRD Android Diagnostic Report ==='),
+        );
+        expect(copiedClipboardText, contains('Failed to link shaders'));
+
+        await tester.pump(const Duration(seconds: 5));
+      },
+    );
+
+    testWidgets(
+      'displays Re-detectar & Rodar button on adb disconnect and relaunches when device reconnects',
+      (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final tempProj = Directory.systemTemp.createTempSync('flrd_adb_rescan_');
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: snapia\n');
+        final procs = <_FakeProcess>[];
+        var deviceConnectedOnScan = false;
+        addTearDown(() async {
+          for (final proc in procs) {
+            await proc.disposeStreams();
+          }
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+
+        final service = AndroidDeviceRunnerService(
+          processRunner: (exe, args, {workingDirectory, runInShell = true}) async {
+            if (exe == 'flutter' &&
+                args.isNotEmpty &&
+                args.first == 'devices') {
+              if (!deviceConnectedOnScan) {
+                return ProcessResult(1, 0, '[]', '');
+              }
+              return ProcessResult(
+                1,
+                0,
+                jsonEncode([
+                  {
+                    'name': 'SM S938B',
+                    'id': 'RXGL20BSBJX',
+                    'isSupported': true,
+                    'targetPlatform': 'android-arm64',
+                    'emulator': false,
+                    'sdk': 'Android 16',
+                  },
+                ]),
+                '',
+              );
+            }
+            return ProcessResult(2, 0, '', '');
+          },
+          processStarter: (exe, args, {workingDirectory, runInShell = true}) async {
+            final proc = _FakeProcess();
+            procs.add(proc);
+            return proc;
+          },
+        );
+
+        final container = ProviderContainer(
+          overrides: [
+            androidDeviceRunnerServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              home: Scaffold(
+                body: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: AndroidDebugConsolePanel(
+                    projectPath: tempProj.path,
+                    onClose: () {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final notifier = container.read(androidDebugProvider.notifier);
+        await notifier.launchProject(
+          tempProj.path,
+          device: const ConnectedAndroidDevice(
+            id: 'RXGL20BSBJX',
+            name: 'SM S938B',
+            targetPlatform: 'android-arm64',
+            sdk: 'Android 16',
+          ),
+        );
+
+        procs.first.emitStdoutLine("adb.exe: device 'RXGL20BSBJX' not found");
+        procs.first.emitStdoutLine('Error: ADB exited with exit code 1');
+        procs.first.completeExit(1);
+
+        await tester.pump(const Duration(milliseconds: 120));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('android_rescan_and_run_button')),
+            findsOneWidget);
+
+        // User replugs USB cable and taps Re-detectar & Rodar
+        deviceConnectedOnScan = true;
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('android_rescan_and_run_button')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('android_rescan_and_run_button')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 60));
+
+        expect(procs.length, 2);
+
+        await tester.pump(const Duration(seconds: 5));
+      },
+    );
+  });
+}
+
+class _FakeAiHttpClient extends http.BaseClient {
+  final Future<http.Response> Function(http.Request request) _handler;
+
+  _FakeAiHttpClient(this._handler);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final req = request as http.Request;
+    final response = await _handler(req);
+    return http.StreamedResponse(
+      Stream<List<int>>.fromIterable([response.bodyBytes]),
+      response.statusCode,
+      headers: response.headers,
+      request: request,
+    );
+  }
 }

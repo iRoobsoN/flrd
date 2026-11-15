@@ -8,7 +8,6 @@ import 'package:flrd/features/studio/domain/screen_material.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
 import 'package:flrd/features/studio/presentation/widgets/ai_screen_generator_dialog.dart';
-import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/screen_materials_builder.dart';
 import 'package:flrd/features/studio/providers/studio_provider.dart';
 import 'package:flrd/features/ai/providers/ai_settings_provider.dart';
@@ -974,8 +973,8 @@ class DashboardScreen extends StatelessWidget {
     });
   });
 
-  group('ScreenMaterialsBuilder Live Preview Integration Tests', () {
-    testWidgets('choosing a widget variation updates code and reflects in DeviceScreenEmulator Live Preview', (tester) async {
+  group('ScreenMaterialsBuilder Live Code Integration Tests', () {
+    testWidgets('choosing a widget variation updates live source code via onCodeChanged', (tester) async {
       tester.view.physicalSize = const Size(1280, 1000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -988,30 +987,17 @@ class DashboardScreen extends StatelessWidget {
           home: Scaffold(
             body: StatefulBuilder(
               builder: (context, setState) {
-                return Row(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: ScreenMaterialsBuilder(
-                          node: testNode,
-                          project: dummyProject,
-                          currentCode: liveCode,
-                          onCodeChanged: (newCode) {
-                            setState(() {
-                              liveCode = newCode;
-                            });
-                          },
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: DeviceScreenEmulator(
-                        node: testNode,
-                        project: dummyProject,
-                        sourceCode: liveCode,
-                      ),
-                    ),
-                  ],
+                return SingleChildScrollView(
+                  child: ScreenMaterialsBuilder(
+                    node: testNode,
+                    project: dummyProject,
+                    currentCode: liveCode,
+                    onCodeChanged: (newCode) {
+                      setState(() {
+                        liveCode = newCode;
+                      });
+                    },
+                  ),
                 );
               },
             ),
@@ -1036,12 +1022,9 @@ class DashboardScreen extends StatelessWidget {
       await tester.tap(chooseBtn);
       await tester.pumpAndSettle();
 
-      // Verify code updated with Curves.bounceOut and Live Preview reflects updated sourceCode
+      // Verify code updated with Curves.bounceOut
       expect(liveCode, contains('Curves.bounceOut'));
       expect(find.byType(SnackBar), findsOneWidget);
-
-      final emulator = tester.widget<DeviceScreenEmulator>(find.byType(DeviceScreenEmulator));
-      expect(emulator.sourceCode, contains('Curves.bounceOut'));
       expect(tester.takeException(), isNull);
     });
   });

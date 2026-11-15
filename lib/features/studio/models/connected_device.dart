@@ -192,17 +192,27 @@ class JavaJdkInfo {
   bool get isLtsCompatible => majorVersion >= 17 && majorVersion <= 21;
 }
 
-/// Known build-time environment errors detected from Flutter/Gradle/CMake logs.
+const Object _diagnosticUnset = Object();
+
+/// Known build-time, install-time, and runtime errors detected from
+/// Flutter/Gradle/CMake/ADB/Android logs.
 enum AndroidBuildIssueType {
   javaGradleIncompatibility,
   cmakeBuildToolMissing,
   cmakeHostCompilerMismatch,
   cmakeMsvcEnvironmentMissing,
   androidSdkLicenseOrComponentMissing,
+  adbDeviceDisconnected,
+  androidInstallFailed,
+  vulkanAdrenoPipelineCrash,
+  nativeCrashSigsegvOrSigabrt,
+  androidOutOfMemory,
+  dartRuntimeException,
 }
 
-/// Structured, user-friendly explanation and 1-click remediation for Android
-/// build failures captured during live device launch.
+/// Structured, user-friendly explanation, crash context, and 1-click / AI
+/// remediation for Android build, install, and runtime failures captured
+/// during live device sessions.
 class AndroidBuildDiagnostic {
   final AndroidBuildIssueType issueType;
   final String title;
@@ -216,6 +226,13 @@ class AndroidBuildDiagnostic {
   final String? suggestedTerminalCommand;
   final String? externalHelpUrl;
   final List<String> steps;
+  final bool isRuntimeCrash;
+  final String? crashSummary;
+  final String? affectedLocation;
+  final String? aiFixSuggestion;
+  final bool isGeneratingAiFix;
+  final String? aiFixError;
+  final List<String> relevantLogLines;
 
   const AndroidBuildDiagnostic({
     required this.issueType,
@@ -230,6 +247,13 @@ class AndroidBuildDiagnostic {
     this.suggestedTerminalCommand,
     this.externalHelpUrl,
     this.steps = const [],
+    this.isRuntimeCrash = false,
+    this.crashSummary,
+    this.affectedLocation,
+    this.aiFixSuggestion,
+    this.isGeneratingAiFix = false,
+    this.aiFixError,
+    this.relevantLogLines = const [],
   });
 
   bool get canAutoApplyJdk =>
@@ -241,6 +265,75 @@ class AndroidBuildDiagnostic {
           issueType == AndroidBuildIssueType.cmakeHostCompilerMismatch ||
           issueType == AndroidBuildIssueType.cmakeMsvcEnvironmentMissing) &&
       (canClearCxxCache || canFixCmakeHostToolchain);
+
+  bool get canRescanAndRelaunch =>
+      issueType == AndroidBuildIssueType.adbDeviceDisconnected;
+
+  AndroidBuildDiagnostic copyWith({
+    AndroidBuildIssueType? issueType,
+    String? title,
+    String? explanation,
+    Object? detectedJavaVersion = _diagnosticUnset,
+    Object? gradleVersion = _diagnosticUnset,
+    Object? compatibleJdk = _diagnosticUnset,
+    Object? detectedToolPath = _diagnosticUnset,
+    bool? canClearCxxCache,
+    bool? canFixCmakeHostToolchain,
+    Object? suggestedTerminalCommand = _diagnosticUnset,
+    Object? externalHelpUrl = _diagnosticUnset,
+    List<String>? steps,
+    bool? isRuntimeCrash,
+    Object? crashSummary = _diagnosticUnset,
+    Object? affectedLocation = _diagnosticUnset,
+    Object? aiFixSuggestion = _diagnosticUnset,
+    bool? isGeneratingAiFix,
+    Object? aiFixError = _diagnosticUnset,
+    List<String>? relevantLogLines,
+  }) {
+    return AndroidBuildDiagnostic(
+      issueType: issueType ?? this.issueType,
+      title: title ?? this.title,
+      explanation: explanation ?? this.explanation,
+      detectedJavaVersion: identical(detectedJavaVersion, _diagnosticUnset)
+          ? this.detectedJavaVersion
+          : detectedJavaVersion as String?,
+      gradleVersion: identical(gradleVersion, _diagnosticUnset)
+          ? this.gradleVersion
+          : gradleVersion as String?,
+      compatibleJdk: identical(compatibleJdk, _diagnosticUnset)
+          ? this.compatibleJdk
+          : compatibleJdk as JavaJdkInfo?,
+      detectedToolPath: identical(detectedToolPath, _diagnosticUnset)
+          ? this.detectedToolPath
+          : detectedToolPath as String?,
+      canClearCxxCache: canClearCxxCache ?? this.canClearCxxCache,
+      canFixCmakeHostToolchain:
+          canFixCmakeHostToolchain ?? this.canFixCmakeHostToolchain,
+      suggestedTerminalCommand:
+          identical(suggestedTerminalCommand, _diagnosticUnset)
+              ? this.suggestedTerminalCommand
+              : suggestedTerminalCommand as String?,
+      externalHelpUrl: identical(externalHelpUrl, _diagnosticUnset)
+          ? this.externalHelpUrl
+          : externalHelpUrl as String?,
+      steps: steps ?? this.steps,
+      isRuntimeCrash: isRuntimeCrash ?? this.isRuntimeCrash,
+      crashSummary: identical(crashSummary, _diagnosticUnset)
+          ? this.crashSummary
+          : crashSummary as String?,
+      affectedLocation: identical(affectedLocation, _diagnosticUnset)
+          ? this.affectedLocation
+          : affectedLocation as String?,
+      aiFixSuggestion: identical(aiFixSuggestion, _diagnosticUnset)
+          ? this.aiFixSuggestion
+          : aiFixSuggestion as String?,
+      isGeneratingAiFix: isGeneratingAiFix ?? this.isGeneratingAiFix,
+      aiFixError: identical(aiFixError, _diagnosticUnset)
+          ? this.aiFixError
+          : aiFixError as String?,
+      relevantLogLines: relevantLogLines ?? this.relevantLogLines,
+    );
+  }
 }
 
 /// Represents a physical or emulated Android device reported by Flutter CLI.

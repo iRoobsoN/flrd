@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,37 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
-import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/embedded_code_viewer.dart';
 import 'package:flrd/features/studio/providers/studio_provider.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
-  Widget buildTestableWidget(
-    WidgetTester tester,
-    Widget child, {
-    Size size = const Size(1400, 950),
-  }) {
-    tester.view.physicalSize = Size(size.width, size.height);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    return MaterialApp(
-      theme: ThemeData.dark(),
-      home: Scaffold(
-        body: Center(
-          child: SizedBox(
-            width: size.width,
-            height: size.height,
-            child: child,
-          ),
-        ),
-      ),
-    );
-  }
 
   const sampleRouteNode = RouteNode(
     id: 'checkout_node',
@@ -59,42 +33,6 @@ void main() {
     lastModified: DateTime.now(),
     routeCount: 1,
   );
-
-  const initialCodeV1 = '''
-import 'package:flutter/material.dart';
-
-class CheckoutScreen extends StatelessWidget {
-  const CheckoutScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Color(0xFF0F172A),
-      appBar: AppBar(
-        title: const Text('Order Checkout V1'),
-        backgroundColor: Color(0xFF1E293B),
-      ),
-      body: Center(
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Color(0xFF1E293B),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.shopping_bag_rounded, size: 40),
-              SizedBox(height: 12),
-              Text('Review your items before paying.'),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-''';
 
   const updatedCodeV2 = '''
 import 'package:flutter/material.dart';
@@ -136,136 +74,7 @@ class CheckoutScreen extends StatelessWidget {
 }
 ''';
 
-  group('1. Dynamic Code Parsing in DeviceScreenEmulator', () {
-    testWidgets(
-        'Renders exact AppBar title and container body text matching Dart code in live sync mode',
-        (tester) async {
-      await tester.pumpWidget(
-        buildTestableWidget(
-          tester,
-          const DeviceScreenEmulator(
-            node: sampleRouteNode,
-            sourceCode: initialCodeV1,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // 1. Matches exact AppBar title from code
-      expect(find.text('Order Checkout V1'), findsOneWidget);
-
-      // 2. Matches exact body text from code
-      expect(find.text('Review your items before paying.'), findsOneWidget);
-
-      // 3. Matches icon parsed from code
-      expect(find.byIcon(Icons.shopping_bag_rounded), findsWidgets);
-
-      // 4. Pure Reality: Archetype mock toggle pill is removed and Screenshot button is present
-      expect(find.text('⚡ Code Live Sync'), findsNothing);
-      expect(find.text('🎨 Archetype Mock'), findsNothing);
-      expect(find.text('📸 Screenshot'), findsOneWidget);
-
-      // 5. Does NOT show archetype fallback mock text
-      expect(find.text('FLRD Studio'), findsNothing);
-      expect(find.text('Payment Gateway Simulation'), findsNothing);
-    });
-
-    testWidgets(
-        'Asserts pure Code Live Sync reality and the new [📸 Screenshot] capture button',
-        (tester) async {
-      await tester.pumpWidget(
-        buildTestableWidget(
-          tester,
-          const DeviceScreenEmulator(
-            node: sampleRouteNode,
-            sourceCode: initialCodeV1,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // 1. Pure Code Live Sync reality: renders code directly without mock toggle
-      expect(find.text('Order Checkout V1'), findsOneWidget);
-      expect(find.text('Review your items before paying.'), findsOneWidget);
-      expect(find.text('🎨 Archetype Mock'), findsNothing);
-      expect(find.text('⚡ Code Live Sync'), findsNothing);
-
-      // 2. Toolbar contains [📸 Screenshot] button with screenshot_button key
-      final screenshotBtn = find.byKey(const Key('screenshot_button'));
-      expect(screenshotBtn, findsOneWidget);
-      expect(find.text('📸 Screenshot'), findsOneWidget);
-
-      // 3. Tapping [📸 Screenshot] triggers capture and saves PNG to screenshots directory
-      await tester.tap(screenshotBtn);
-      await tester.pump();
-      await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-      });
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      expect(find.textContaining('📸 Screenshot salvo em: screenshots/'), findsOneWidget);
-
-      // Clean up test file
-      final screenshotsDir = Directory('${Directory.current.path}/screenshots');
-      if (screenshotsDir.existsSync()) {
-        final files = screenshotsDir
-            .listSync()
-            .whereType<File>()
-            .where((f) => f.path.contains('checkout'))
-            .toList();
-        for (final f in files) {
-          try {
-            f.deleteSync();
-          } catch (_) {}
-        }
-      }
-    });
-  });
-
-  group('2. Live Code Update Reaction', () {
-    testWidgets(
-        'DeviceScreenEmulator immediately invalidates cache and updates rendered screen on sourceCode change',
-        (tester) async {
-      // 1. Initial render with V1 code
-      await tester.pumpWidget(
-        buildTestableWidget(
-          tester,
-          const DeviceScreenEmulator(
-            node: sampleRouteNode,
-            sourceCode: initialCodeV1,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Order Checkout V1'), findsOneWidget);
-      expect(find.text('Review your items before paying.'), findsOneWidget);
-      expect(find.text('Order Checkout V2 - VIP Express'), findsNothing);
-      expect(find.text('VIP 1-Click Instant Payment'), findsNothing);
-
-      // 2. Re-pump widget with V2 code (simulating editor live change)
-      await tester.pumpWidget(
-        buildTestableWidget(
-          tester,
-          const DeviceScreenEmulator(
-            node: sampleRouteNode,
-            sourceCode: updatedCodeV2,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // 3. New AppBar title and body text render immediately
-      expect(find.text('Order Checkout V1'), findsNothing);
-      expect(find.text('Review your items before paying.'), findsNothing);
-
-      expect(find.text('Order Checkout V2 - VIP Express'), findsOneWidget);
-      expect(find.text('VIP 1-Click Instant Payment'), findsOneWidget);
-      expect(find.text('Pay \$149.00 Now'), findsOneWidget);
-      expect(find.byIcon(Icons.star_rounded), findsWidgets);
-    });
-
+  group('1. Live Code Update Reaction', () {
     testWidgets(
         'EmbeddedCodeViewer fires onCodeChanged on initialization and text editing',
         (tester) async {
@@ -292,7 +101,10 @@ class CheckoutScreen extends StatelessWidget {
       expect(callbackCount, greaterThanOrEqualTo(1));
       expect(emittedCode, isNotNull);
       expect(emittedCode!.contains('Order Checkout'), isTrue);
-      expect(emittedCode!.contains('class OrderCheckoutScreen extends StatelessWidget'), isTrue);
+      expect(
+        emittedCode!.contains('class OrderCheckoutScreen extends StatelessWidget'),
+        isTrue,
+      );
 
       // 2. Editing text via TextField in EmbeddedCodeViewer fires callback again
       final codeFieldFinder = find.byType(TextField);
@@ -306,9 +118,9 @@ class CheckoutScreen extends StatelessWidget {
     });
   });
 
-  group('3. _showLivePreview Side-by-Side Toggle in AppStudioScreen', () {
+  group('2. Fake Live Preview Removal in AppStudioScreen', () {
     testWidgets(
-        'Toggling _showLivePreview button hides and restores DeviceScreenEmulator next to EmbeddedCodeViewer',
+        'AppStudioScreen omits fake live preview pane and toggle buttons while keeping EmbeddedCodeViewer active',
         (tester) async {
       tester.view.physicalSize = const Size(1600, 1000);
       tester.view.devicePixelRatio = 1.0;
@@ -318,7 +130,6 @@ class CheckoutScreen extends StatelessWidget {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      // Pre-select checkout_node
       container.read(studioProvider.notifier).setNodes([sampleRouteNode]);
       container.read(studioProvider.notifier).selectNode(sampleRouteNode.id);
 
@@ -333,59 +144,26 @@ class CheckoutScreen extends StatelessWidget {
       );
       await tester.pumpAndSettle();
 
-      // 1. Switch inspector tab to View Dart Code (💻)
+      // Switch inspector tab to View Dart Code (💻)
       final codeTabFinder = find.textContaining('💻');
       expect(codeTabFinder, findsOneWidget);
       await tester.tap(codeTabFinder);
       await tester.pumpAndSettle();
 
-      // 2. Both EmbeddedCodeViewer and DeviceScreenEmulator are present:
-      // EmbeddedCodeViewer in inspector, DeviceScreenEmulator anchored in right pane (NOT nested inside code viewer)
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('anchored_live_preview_pane')),
-          matching: find.byType(DeviceScreenEmulator),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byType(EmbeddedCodeViewer),
-          matching: find.byType(DeviceScreenEmulator),
-        ),
-        findsNothing,
-      );
-
-      // 3. Header toggle button is visible with 'Hide Preview' (since _showLivePreview defaults to true)
-      final togglePreviewBtn = find.byKey(const ValueKey('toggle_live_preview_button')).first;
-      expect(togglePreviewBtn, findsOneWidget);
-      expect(find.text('Hide Preview'), findsWidgets);
-
-      // 4. Tap toggle button to hide live preview
-      await tester.tap(togglePreviewBtn);
-      await tester.pumpAndSettle();
-
-      // 5. Emulator is now hidden, EmbeddedCodeViewer remains full width
-      expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsNothing);
-      expect(find.text('📱 Live Preview'), findsWidgets);
-
-      // 6. Tap toggle button again to restore live preview
-      await tester.tap(togglePreviewBtn);
-      await tester.pumpAndSettle();
-
-      // 7. DeviceScreenEmulator is restored side-by-side
-      expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
-      expect(find.text('Hide Preview'), findsWidgets);
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsNothing);
+      expect(find.byKey(const ValueKey('toggle_live_preview_button')), findsNothing);
+      expect(find.byKey(const ValueKey('inspector_toggle_preview_button')), findsNothing);
+      expect(find.text('Hide Preview'), findsNothing);
+      expect(find.text('📱 Live Preview'), findsNothing);
+      expect(find.text('Live Screen Preview'), findsNothing);
+      expect(tester.takeException(), isNull);
     });
   });
 
-  group('4. _isDiagramCollapsed Full-Width Expansion in AppStudioScreen', () {
+  group('3. _isDiagramCollapsed Full-Width Expansion in AppStudioScreen', () {
     testWidgets(
-        'Collapsing diagram hides flowchart canvas and gives 100% width to Code + Live Preview side-by-side',
+        'Collapsing diagram hides flowchart canvas and gives 100% width to Inspector/Code',
         (tester) async {
       tester.view.physicalSize = const Size(1600, 1000);
       tester.view.devicePixelRatio = 1.0;
@@ -417,7 +195,8 @@ class CheckoutScreen extends StatelessWidget {
       await tester.pumpAndSettle();
 
       // Canvas collapse button in toolbar
-      final toggleDiagramBtn = find.byKey(const ValueKey('toggle_diagram_collapse_button'));
+      final toggleDiagramBtn =
+          find.byKey(const ValueKey('toggle_diagram_collapse_button'));
       expect(toggleDiagramBtn, findsOneWidget);
       expect(find.text('◀ Collapse Diagram'), findsOneWidget);
 
@@ -436,9 +215,8 @@ class CheckoutScreen extends StatelessWidget {
           find.byKey(const ValueKey('inspector_show_diagram_button'));
       expect(inspectorShowDiagramBtn, findsOneWidget);
 
-      // Both EmbeddedCodeViewer and DeviceScreenEmulator remain visible side-by-side
+      // EmbeddedCodeViewer remains visible cleanly
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
 
       // 4. Restore the diagram by clicking "▶ Show Diagram" in the toolbar
       await tester.tap(toggleDiagramBtn);
@@ -448,6 +226,7 @@ class CheckoutScreen extends StatelessWidget {
       expect(find.byType(InteractiveViewer), findsOneWidget);
       expect(find.text('◀ Collapse Diagram'), findsOneWidget);
       expect(find.byKey(const ValueKey('inspector_show_diagram_button')), findsNothing);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets(
@@ -484,18 +263,17 @@ class CheckoutScreen extends StatelessWidget {
       await tester.tap(floatingCollapseBtn);
       await tester.pumpAndSettle();
 
-      // Canvas collapses and inspector opens in Code tab with side-by-side view
+      // Canvas collapses and inspector opens in Code tab
       expect(find.byType(InteractiveViewer), findsNothing);
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 
-  group('5. Responsive Side-by-Side Split & Zero RenderFlex Overflows', () {
+  group('4. Responsive Full-Width Inspector & Zero RenderFlex Overflows', () {
     testWidgets(
-        'Renders horizontal Row split on wide viewport and vertical Column split on narrow viewport (< 580px)',
+        'Renders code inspector and collapses diagram to 100% width with zero RenderFlex overflow',
         (tester) async {
-      // Wide screen: Row layout
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -521,33 +299,15 @@ class CheckoutScreen extends StatelessWidget {
       await tester.tap(find.textContaining('💻'));
       await tester.pumpAndSettle();
 
-      // EmbeddedCodeViewer in inspector and DeviceScreenEmulator anchored in right pane (NOT nested in code viewer)
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('anchored_live_preview_pane')),
-          matching: find.byType(DeviceScreenEmulator),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byType(EmbeddedCodeViewer),
-          matching: find.byType(DeviceScreenEmulator),
-        ),
-        findsNothing,
-      );
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsNothing);
 
-      // In wide view, CodeViewer and Emulator are laid out side-by-side (Row)
-      final codeViewerTopLeft = tester.getTopLeft(find.byType(EmbeddedCodeViewer));
-      final emulatorTopLeft = tester.getTopLeft(find.byType(DeviceScreenEmulator));
-      expect(emulatorTopLeft.dx, greaterThan(codeViewerTopLeft.dx));
-
-      // Collapse diagram to 100% width: verify still side-by-side with zero overflow
+      // Collapse diagram to 100% width: verify zero overflow
       await tester.tap(find.byKey(const ValueKey('toggle_diagram_collapse_button')));
       await tester.pumpAndSettle();
 
+      final box = tester.renderObject<RenderBox>(find.byType(EmbeddedCodeViewer));
+      expect(box.size.width, greaterThan(1000.0));
       expect(tester.takeException(), isNull);
     });
   });

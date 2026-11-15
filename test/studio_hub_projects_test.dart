@@ -11,7 +11,6 @@ import 'package:flrd/features/projects/providers/projects_provider.dart';
 import 'package:flrd/features/projects/services/project_analyzer_service.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
-import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/embedded_code_viewer.dart';
 import 'package:flrd/features/studio/presentation/widgets/route_node_card.dart';
 import 'package:flrd/features/studio/providers/studio_provider.dart';
@@ -356,7 +355,7 @@ dependencies:
       expect(find.text('Routes Flowchart'), findsOneWidget);
     });
 
-    testWidgets('AppStudioScreen inspector switcher displays 2 tabs and renders DeviceScreenEmulator in anchored preview pane',
+    testWidgets('AppStudioScreen inspector switcher displays 2 tabs and hides removed fake preview pane',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 900);
       tester.view.devicePixelRatio = 1.0;
@@ -364,9 +363,9 @@ dependencies:
       addTearDown(tester.view.resetDevicePixelRatio);
 
       final project = RegisteredProject(
-        id: 'emulator_test_proj',
-        name: 'Emulator Test App',
-        orgId: 'com.emulator.test',
+        id: 'inspector_test_proj',
+        name: 'Inspector Test App',
+        orgId: 'com.inspector.test',
         path: tempDir.path,
         preset: PresetType.saas,
         navigationStyle: NavigationStyle.tabs,
@@ -399,27 +398,77 @@ dependencies:
       // Initially on tab 0 (Details)
       expect(find.text('GoRouter Route Path'), findsOneWidget);
 
-      // Verify DeviceScreenEmulator is rendered in anchored live preview pane
-      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('anchored_live_preview_pane')),
-          matching: find.byType(DeviceScreenEmulator),
-        ),
-        findsOneWidget,
-      );
+      // Verify fake live preview pane and toggle buttons are removed
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsNothing);
+      expect(find.byKey(const ValueKey('toggle_live_preview_button')), findsNothing);
+      expect(find.text('Live Screen Preview'), findsNothing);
 
       // Switch to tab 1 (Code)
       await tester.tap(find.text('💻 Code'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byType(EmbeddedCodeViewer), findsOneWidget);
-      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsOneWidget);
-      expect(find.byType(DeviceScreenEmulator), findsOneWidget);
+      expect(find.byKey(const ValueKey('anchored_live_preview_pane')), findsNothing);
+      expect(find.byKey(const ValueKey('inspector_toggle_preview_button')), findsNothing);
 
       // Verify no RenderFlex overflow
       final err = tester.takeException();
       expect(err, isNull);
+    });
+
+    testWidgets('Switching selected route node updates inspector details cleanly',
+        (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final project = RegisteredProject(
+        id: 'node_switch_test_project',
+        name: 'Node Switcher Test App',
+        orgId: 'com.switcher.node',
+        path: tempDir.path,
+        preset: PresetType.cleanLite,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: const {},
+        lastModified: DateTime.now(),
+        routeCount: 4,
+      );
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final studioNotifier = container.read(studioProvider.notifier);
+
+      studioNotifier.selectNode('profile');
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: AppStudioScreen(project: project),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('ProfileScreen'), findsWidgets);
+      expect(find.text('/profile'), findsWidgets);
+
+      studioNotifier.selectNode('login');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('LoginScreen'), findsWidgets);
+      expect(find.text('/auth/login'), findsWidgets);
+
+      studioNotifier.selectNode('explore');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('ExploreScreen'), findsWidgets);
+      expect(find.text('/explore'), findsWidgets);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('AppStudioScreen inspector panel widens to 500px on desktop when in code mode',
@@ -457,11 +506,10 @@ dependencies:
       await tester.pump(const Duration(milliseconds: 100));
 
       // When tab 0 is active, sidebar width is 440px
-      // Look for the sidebar Container (excluding anchored_live_preview_pane)
+      // Look for the sidebar Container
       final sidebarFinder = find.byWidgetPredicate(
         (widget) =>
             widget is Container &&
-            widget.key != const ValueKey('anchored_live_preview_pane') &&
             widget.decoration is BoxDecoration &&
             (widget.decoration as BoxDecoration).border is Border &&
             ((widget.decoration as BoxDecoration).border as Border).top == BorderSide.none &&

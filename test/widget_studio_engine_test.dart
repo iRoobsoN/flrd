@@ -11,7 +11,6 @@ import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/studio/domain/screen_material.dart';
 import 'package:flrd/features/studio/domain/widget_variation.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
-import 'package:flrd/features/studio/presentation/widgets/device_screen_emulator.dart';
 import 'package:flrd/features/studio/presentation/widgets/screen_materials_builder.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 
@@ -597,7 +596,7 @@ class DashboardScreen extends StatelessWidget {
       expect(find.text('🟢 Gemini 1.5 Flash Ativo'), findsOneWidget);
     });
 
-    testWidgets('choosing widget variation correctly inserts into code and updates DeviceScreenEmulator Live Preview', (tester) async {
+    testWidgets('choosing widget variation correctly inserts into code via onCodeChanged', (tester) async {
       tester.view.physicalSize = const Size(1280, 1000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -610,26 +609,13 @@ class DashboardScreen extends StatelessWidget {
           home: Scaffold(
             body: StatefulBuilder(
               builder: (context, setState) {
-                return Row(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: ScreenMaterialsBuilder(
-                          node: testNode,
-                          project: testProject,
-                          currentCode: liveCode,
-                          onCodeChanged: (newCode) => setState(() => liveCode = newCode),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: DeviceScreenEmulator(
-                        node: testNode,
-                        project: testProject,
-                        sourceCode: liveCode,
-                      ),
-                    ),
-                  ],
+                return SingleChildScrollView(
+                  child: ScreenMaterialsBuilder(
+                    node: testNode,
+                    project: testProject,
+                    currentCode: liveCode,
+                    onCodeChanged: (newCode) => setState(() => liveCode = newCode),
+                  ),
                 );
               },
             ),
@@ -660,10 +646,6 @@ class DashboardScreen extends StatelessWidget {
       // Code contains Curves.bounceOut
       expect(liveCode, contains('Curves.bounceOut'));
       expect(find.byType(SnackBar), findsOneWidget);
-
-      // Live Preview emulator receives updated code
-      final emulator = tester.widget<DeviceScreenEmulator>(find.byType(DeviceScreenEmulator));
-      expect(emulator.sourceCode, contains('Curves.bounceOut'));
       expect(tester.takeException(), isNull);
     });
   });

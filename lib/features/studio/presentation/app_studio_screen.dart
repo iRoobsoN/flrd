@@ -18,7 +18,6 @@ import '../providers/studio_provider.dart';
 import '../providers/terminal_provider.dart';
 import 'widgets/ai_screen_generator_dialog.dart';
 import 'widgets/android_debug_controls.dart';
-import 'widgets/device_screen_emulator.dart';
 import 'widgets/embedded_code_viewer.dart';
 import 'widgets/route_connector_painter.dart';
 import 'widgets/route_node_card.dart';
@@ -77,10 +76,8 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   int _inspectorTabIndex = 0; // 0: Route Details, 1: View Dart Code
   bool _isDraggingNode = false;
   bool _isRescanningRoutes = false;
-  bool _showLivePreview = true;
   bool _isDiagramCollapsed = false;
   bool _showAndroidConsole = false;
-  bool _simulatorAutoHiddenByAndroid = false;
   String? _currentCode;
   String? _lastSelectedNodeId;
 
@@ -148,12 +145,6 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
       }
       if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
         ref.read(androidDebugProvider.notifier).scanDevices();
-      }
-      if (ref.read(androidDebugProvider).isActiveSession && _showLivePreview) {
-        setState(() {
-          _showLivePreview = false;
-          _simulatorAutoHiddenByAndroid = true;
-        });
       }
     });
   }
@@ -314,19 +305,10 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
         ref.read(terminalProvider.notifier).setProjectDirectory(widget.project.path);
         ref.read(terminalProvider.notifier).focusDebugTab();
         setState(() {
-          if (_showLivePreview) {
-            _showLivePreview = false;
-            _simulatorAutoHiddenByAndroid = true;
-          }
           _showAndroidConsole = true;
         });
       } else if (wasActive && !isNowActive) {
         setState(() {
-          if (next.status != DeviceRunStatus.error &&
-              _simulatorAutoHiddenByAndroid) {
-            _showLivePreview = true;
-            _simulatorAutoHiddenByAndroid = false;
-          }
           // Persistent VS Code-style terminal: keep panel visible after stop/failure/disconnect.
           _showAndroidConsole = true;
         });
@@ -530,7 +512,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                     ),
                     const SizedBox(width: 4),
 
-                    // Toggle Diagram Collapse Button (Full width expansion for Code + Phone)
+                    // Toggle Diagram Collapse Button (Full width expansion for Inspector / Code)
                     OutlinedButton.icon(
                       key: const ValueKey('toggle_diagram_collapse_button'),
                       style: OutlinedButton.styleFrom(
@@ -579,58 +561,6 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                         style: TextStyle(
                           color: _isDiagramCollapsed
                               ? AppColors.primary
-                              : AppColors.textPrimary,
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-
-                    // Toggle Live Preview Button (1-click right dock emulator toggle)
-                    OutlinedButton.icon(
-                      key: const ValueKey('toggle_live_preview_button'),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                          color: _showLivePreview
-                              ? AppColors.secondary
-                              : AppColors.border,
-                        ),
-                        backgroundColor: _showLivePreview
-                            ? AppColors.secondary.withOpacity(0.12)
-                            : AppColors.surface,
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 5,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _showLivePreview = !_showLivePreview;
-                          _simulatorAutoHiddenByAndroid = false;
-                        });
-                      },
-                      icon: Icon(
-                        _showLivePreview
-                            ? Icons.smartphone_rounded
-                            : Icons.smartphone_outlined,
-                        size: 12,
-                        color: _showLivePreview
-                            ? AppColors.secondary
-                            : AppColors.textSecondary,
-                      ),
-                      label: Text(
-                        _showLivePreview
-                            ? 'Hide Preview'
-                            : '📱 Live Preview',
-                        style: TextStyle(
-                          color: _showLivePreview
-                              ? AppColors.secondary
                               : AppColors.textPrimary,
                           fontSize: 9.5,
                           fontWeight: FontWeight.w600,
@@ -862,9 +792,6 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final isViewingCode = _inspectorTabIndex == 1;
-        final double previewWidth = constraints.maxWidth < 900
-            ? (constraints.maxWidth * 0.4).clamp(320.0, 420.0)
-            : 420.0;
 
         final double sidebarWidth;
         if (selectedNode == null) {
@@ -872,23 +799,23 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
         } else if (_isDiagramCollapsed) {
           sidebarWidth = constraints.maxWidth;
         } else {
-          final maxInspectorWidth = (constraints.maxWidth -
-                  (_showLivePreview ? previewWidth : 0.0) -
-                  280.0)
-              .clamp(300.0, constraints.maxWidth);
+          final maxInspectorWidth = constraints.maxWidth >= 300.0
+              ? (constraints.maxWidth - 280.0)
+                  .clamp(300.0, constraints.maxWidth)
+              : constraints.maxWidth;
           final double defaultSidebarWidth = isViewingCode ? 500.0 : 440.0;
-          sidebarWidth = defaultSidebarWidth.clamp(280.0, maxInspectorWidth);
+          sidebarWidth = defaultSidebarWidth.clamp(
+            constraints.maxWidth >= 280.0 ? 280.0 : constraints.maxWidth,
+            maxInspectorWidth,
+          );
         }
 
         final canvasWidth = selectedNode != null
             ? (_isDiagramCollapsed
                 ? 0.0
-                : (constraints.maxWidth -
-                        sidebarWidth -
-                        (_showLivePreview ? previewWidth : 0.0))
+                : (constraints.maxWidth - sidebarWidth)
                     .clamp(0.0, constraints.maxWidth))
-            : (constraints.maxWidth - (_showLivePreview ? previewWidth : 0.0))
-                .clamp(0.0, constraints.maxWidth);
+            : constraints.maxWidth.clamp(0.0, constraints.maxWidth);
         final isNarrowCanvas = canvasWidth < 480;
         final safeCanvasWidth =
             canvasWidth.isFinite && canvasWidth > 0 ? canvasWidth : 1200.0;
@@ -1097,16 +1024,6 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                         child: _buildNodeInspector(selectedNode, notifier),
                       ),
                     ),
-
-            // Dedicated Right-Anchored Live Preview Pane (when _showLivePreview is true)
-            if (_showLivePreview)
-              RepaintBoundary(
-                child: _buildAnchoredLivePreviewPane(
-                  studio: studio,
-                  node: selectedNode ?? studio.nodes.firstOrNull,
-                  width: previewWidth,
-                ),
-              ),
           ],
         );
       },
@@ -1153,41 +1070,6 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                     ),
                   ),
                 ),
-                if (_inspectorTabIndex == 1) ...[
-                  OutlinedButton.icon(
-                    key: const ValueKey('inspector_toggle_preview_button'),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(
-                        color: _showLivePreview ? AppColors.secondary : AppColors.border,
-                      ),
-                      backgroundColor: _showLivePreview
-                          ? AppColors.secondary.withOpacity(0.12)
-                          : AppColors.surface,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    onPressed: () => setState(() {
-                      _showLivePreview = !_showLivePreview;
-                      _simulatorAutoHiddenByAndroid = false;
-                    }),
-                    icon: Icon(
-                      _showLivePreview ? Icons.smartphone_rounded : Icons.smartphone_outlined,
-                      size: 13,
-                      color: _showLivePreview ? AppColors.secondary : AppColors.textSecondary,
-                    ),
-                    label: Text(
-                      _showLivePreview ? 'Hide Preview' : '📱 Live Preview',
-                      style: TextStyle(
-                        color: _showLivePreview ? AppColors.secondary : AppColors.textPrimary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                ],
                 if (_isDiagramCollapsed) ...[
                   OutlinedButton.icon(
                     key: const ValueKey('inspector_show_diagram_button'),
@@ -1498,153 +1380,6 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildAnchoredLivePreviewPane({
-    required StudioState studio,
-    required RouteNode? node,
-    double width = 420.0,
-  }) {
-    final activeNode = node ?? studio.nodes.firstOrNull;
-
-    return RepaintBoundary(
-      child: Container(
-        key: const ValueKey('anchored_live_preview_pane'),
-        width: width,
-        decoration: const BoxDecoration(
-          color: AppColors.backgroundSecondary,
-          border: Border(
-            left: BorderSide(color: AppColors.borderSubtle),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-          // Elegant Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: const BoxDecoration(
-              color: AppColors.surface,
-              border: Border(
-                bottom: BorderSide(color: AppColors.borderSubtle),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    color: AppColors.secondary.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Icon(
-                    Icons.smartphone_rounded,
-                    color: AppColors.secondary,
-                    size: 15,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Flexible(
-                        child: Text(
-                          'Live Screen Preview',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      if (activeNode != null) ...[
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.surfaceCard,
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: AppColors.borderSubtle),
-                            ),
-                            child: Text(
-                              activeNode.path,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                color: AppColors.secondary,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 4),
-                if (activeNode != null)
-                  IconButton(
-                    tooltip: 'Expand Preview Modal',
-                    icon: const Icon(Icons.open_in_full_rounded, size: 14),
-                    color: AppColors.textMuted,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                    onPressed: () => DeviceScreenEmulator.showModal(
-                      context,
-                      node: activeNode,
-                      project: widget.project,
-                      sourceCode: _currentCode,
-                    ),
-                  ),
-                IconButton(
-                  key: const ValueKey('close_live_preview_pane_button'),
-                  tooltip: 'Hide Preview',
-                  icon: const Icon(Icons.close_rounded, size: 16),
-                  color: AppColors.textMuted,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                  onPressed: () {
-                    setState(() {
-                      _showLivePreview = false;
-                      _simulatorAutoHiddenByAndroid = false;
-                    });
-                  },
-                ),
-              ],
-            ),
-          ),
-
-          // Body: DeviceScreenEmulator filling 100% of remaining vertical height
-          Expanded(
-            child: activeNode != null
-                ? DeviceScreenEmulator(
-                    sourceCode: _currentCode,
-                    node: activeNode,
-                    project: widget.project,
-                    onToggleExpand: () => DeviceScreenEmulator.showModal(
-                      context,
-                      node: activeNode,
-                      project: widget.project,
-                      sourceCode: _currentCode,
-                    ),
-                  )
-                : const Center(
-                    child: Text(
-                      'No route selected',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    ),
     );
   }
 

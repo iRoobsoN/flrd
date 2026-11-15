@@ -2983,4 +2983,511 @@ class _${className}State extends State<$className> {
       return word[0].toUpperCase() + word.substring(1);
     }).join();
   }
+
+  /// Analyzes an Android build, install, or runtime crash together with relevant
+  /// local project files (Dart, C++/JNI, CMakeLists, Kotlin) and returns a
+  /// structured root-cause explanation and concrete fix in Portuguese.
+  ///
+  /// Uses Gemini 1.5 Flash when [apiKey] is provided; otherwise (or on network
+  /// error) falls back to [synthesizeAppFixDiagnosis].
+  static Future<String> diagnoseAndSuggestAppFix({
+    required String projectPath,
+    required String issueTitle,
+    required List<String> crashLogs,
+    String? affectedLocation,
+    String? apiKey,
+    http.Client? httpClient,
+  }) async {
+    final projectContext = _collectDiagnosticProjectSnippets(
+      projectPath,
+      crashLogs: crashLogs,
+      affectedLocation: affectedLocation,
+    );
+
+    final cappedLogs = _formatCappedCrashLogs(crashLogs);
+
+    final hasApiKey = apiKey != null &&
+        apiKey.trim().isNotEmpty &&
+        apiKey.trim() != 'null' &&
+        apiKey.trim() != 'undefined';
+
+    if (hasApiKey) {
+      final client = httpClient ?? http.Client();
+      try {
+        final uri = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}',
+        );
+
+        const systemPrompt =
+            'Você é um engenheiro sênior especialista em Flutter, Android NDK (C++/JNI), '
+            'Vulkan/Adreno GPU, Gradle/CMake e depuração mobile. '
+            'Analise os logs de erro/crash e os trechos reais dos arquivos do projeto enviados pelo usuário. '
+            'Responda EXCLUSIVAMENTE em Português (PT-BR), de forma objetiva e técnica, contendo:\n'
+            '1. **Causa Raiz Exata** (apontando arquivo, símbolo ou configuração específica)\n'
+            '2. **Por que o erro ocorreu**\n'
+            '3. **Correção Recomendada (Passo a Passo + Trecho de Código/Config)**\n'
+            '4. **Validação rápida**';
+
+        final locationInfo = (affectedLocation != null &&
+                affectedLocation.trim().isNotEmpty)
+            ? '\nLocal / Stack detectado: ${affectedLocation.trim()}'
+            : '';
+
+        final filesSection = projectContext.formattedContext.isNotEmpty
+            ? '\n\nArquivos locais relevantes do projeto:\n${projectContext.formattedContext}'
+            : '\n\n(Nenhum arquivo local adicional encontrado no caminho informado.)';
+
+        final userPrompt =
+            'Título do Diagnóstico: $issueTitle$locationInfo\n\n'
+            'Logs capturados:\n```\n$cappedLogs\n```$filesSection';
+
+        final requestPayload = {
+          'contents': [
+            {
+              'role': 'user',
+              'parts': [
+                {'text': userPrompt}
+              ]
+            }
+          ],
+          'system_instruction': {
+            'parts': [
+              {'text': systemPrompt}
+            ]
+          }
+        };
+
+        final response = await client
+            .post(
+              uri,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(requestPayload),
+            )
+            .timeout(const Duration(seconds: 20));
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic> &&
+              decoded['candidates'] is List &&
+              (decoded['candidates'] as List).isNotEmpty) {
+            final candidate = (decoded['candidates'] as List).first;
+            if (candidate is Map<String, dynamic> &&
+                candidate['content'] is Map<String, dynamic>) {
+              final content = candidate['content'] as Map<String, dynamic>;
+              if (content['parts'] is List &&
+                  (content['parts'] as List).isNotEmpty) {
+                final part = (content['parts'] as List).first;
+                if (part is Map<String, dynamic> && part['text'] is String) {
+                  final text = (part['text'] as String).trim();
+                  if (text.isNotEmpty) {
+                    return text;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Fall back cleanly to structured offline engineering diagnosis
+      } finally {
+        if (httpClient == null) {
+          client.close();
+        }
+      }
+    }
+
+    return synthesizeAppFixDiagnosis(
+      issueTitle: issueTitle,
+      crashLogs: crashLogs,
+      affectedLocation: affectedLocation,
+      inspectedFiles: projectContext.inspectedFiles,
+      fileSnippets: projectContext.snippetsByPath,
+    );
+  }
+
+  /// Generates a thorough offline engineering diagnosis and fix guide in
+  /// Portuguese when no Gemini API key is configured or when offline.
+  static String synthesizeAppFixDiagnosis({
+    required String issueTitle,
+    required List<String> crashLogs,
+    String? affectedLocation,
+    List<String> inspectedFiles = const [],
+    Map<String, String> fileSnippets = const {},
+  }) {
+    final joined = crashLogs.join('\n');
+    final lower = '$issueTitle\n$joined\n${affectedLocation ?? ''}'.toLowerCase();
+    final filesNote = inspectedFiles.isNotEmpty
+        ? inspectedFiles.map((f) => '`$f`').join(', ')
+        : 'nenhum arquivo fonte local lido';
+
+    final buffer = StringBuffer()
+      ..writeln('### 🛠️ Diagnóstico de Engenharia (Análise Local)')
+      ..writeln('**Erro:** $issueTitle');
+    if (affectedLocation != null && affectedLocation.trim().isNotEmpty) {
+      buffer.writeln('**Local / Stack:** `${affectedLocation.trim()}`');
+    }
+    buffer.writeln('**Arquivos inspecionados:** $filesNote');
+    buffer.writeln();
+
+    final isVulkanAdreno = (lower.contains('adrenovk') ||
+            lower.contains('failed to link shaders') ||
+            lower.contains('pipeline create failed') ||
+            lower.contains('vkcmdbindpipeline') ||
+            lower.contains('ggml-vulkan')) &&
+        (lower.contains('pipeline') ||
+            lower.contains('shader') ||
+            lower.contains('vkcmdbindpipeline') ||
+            lower.contains('adrenovk'));
+
+    if (isVulkanAdreno) {
+      final cmakeEntry = fileSnippets.entries.where(
+        (e) => e.key.toLowerCase().endsWith('cmakelists.txt'),
+      );
+      final hasCoopmatMention = cmakeEntry.any(
+        (e) => e.value.toLowerCase().contains('coopmat'),
+      );
+      final hasVulkanFlag = cmakeEntry.any(
+        (e) => e.value.toLowerCase().contains('vulkan'),
+      );
+
+      buffer
+        ..writeln('**1. Causa Raiz Provável:**')
+        ..writeln(
+          'O compilador de shaders do driver **Adreno Vulkan** falhou ao linkar um compute shader '
+          '(`Failed to link shaders` / `Pipeline create failed`). Quando isso ocorre em `ggml-vulkan`, '
+          'o handle `VkPipeline` retornado fica nulo/inválido e a chamada seguinte a `vkCmdBindPipeline` '
+          'causa `SIGSEGV` (`SEGV_MAPERR` no endereço `0x8`). Em GPUs Snapdragon Adreno 7xx/8xx, '
+          'o gatilho mais comum é o uso de **Cooperative Matrix (`GGML_VULKAN_COOPMAT`) / FP16** '
+          'ou pipelines de convolução/atenção em resoluções altas (especialmente `img2img` / UNet).',
+        )
+        ..writeln()
+        ..writeln('**2. Correções Recomendadas:**')
+        ..writeln(
+          '• **Desativar Cooperative Matrix (COOPMAT) no CMake / Runtime:**'
+          '${hasVulkanFlag ? " (detectado uso de Vulkan no `CMakeLists.txt`)" : ""}'
+          '${hasCoopmatMention ? " — ajuste a flag existente:" : ""}',
+        )
+        ..writeln('```cmake')
+        ..writeln('set(GGML_VULKAN_COOPMAT OFF CACHE BOOL "" FORCE)')
+        ..writeln('set(GGML_VULKAN_COOPMAT2 OFF CACHE BOOL "" FORCE)')
+        ..writeln('```')
+        ..writeln(
+          '• **Fallback seguro para CPU em `img2img` / geração pesada:** '
+          'Antes de inicializar a engine nativa (ou ao detectar falha no pipeline Vulkan), '
+          'defina `setenv("GGML_VK_DISABLE_COOPMAT", "1", 1);` ou inicialize com `n_gpu_layers = 0` / CPU fallback.',
+        )
+        ..writeln(
+          '• **Proteger ponteiro e validar dimensões:** Reduza a resolução para `512x512` (múltiplos de 64), '
+          'valide que `init_image` e `mask` têm exatamente 3 canais RGB contíguos e verifique `VkPipeline != VK_NULL_HANDLE` antes de `vkCmdBindPipeline`.',
+        );
+      return buffer.toString().trimRight();
+    }
+
+    if (lower.contains('outofmemoryerror') ||
+        lower.contains('std::bad_alloc') ||
+        lower.contains('outofdevicememory') ||
+        lower.contains('vk_error_out_of_device_memory') ||
+        lower.contains('out of device memory')) {
+      buffer
+        ..writeln('**1. Causa Raiz Provável:**')
+        ..writeln(
+          'O processo esgotou a memória disponível — seja RAM nativa / VRAM compartilhada do Vulkan '
+          '(`std::bad_alloc` / `OutOfDeviceMemory`) ao alocar tensores/modelos de IA, ou heap da JVM (`OutOfMemoryError`) com bitmaps grandes.',
+        )
+        ..writeln()
+        ..writeln('**2. Correções Recomendadas:**')
+        ..writeln('• **Libere recursos antes de nova alocação:** Descarregue o contexto/modelo anterior (`free`/`release`) antes de carregar outro modelo ou rodar `img2img`.')
+        ..writeln('• **Reduza o consumo de memória:** Diminua resolução (`512x512`), `batch_size = 1`, `n_ctx` menor ou use quantização `Q4_K_M`/`Q4_0`.')
+        ..writeln('• **Bitmaps no Android (Kotlin/Java):** Use `BitmapFactory.Options().inSampleSize` para redimensionar antes de enviar buffers via JNI e chame `bitmap.recycle()`.');
+      return buffer.toString().trimRight();
+    }
+
+    if (lower.contains('fatal signal') ||
+        lower.contains('sigsegv') ||
+        lower.contains('sigabrt') ||
+        lower.contains('null pointer dereference') ||
+        lower.contains('backtrace:')) {
+      buffer
+        ..writeln('**1. Causa Raiz Provável:**')
+        ..writeln(
+          lower.contains('sigabrt')
+              ? 'Um módulo nativo C/C++ chamou `abort()` (`SIGABRT`) devido a `assert` falho, `GGML_ABORT` ou exceção C++ não tratada antes da fronteira JNI.'
+              : 'O código nativo C/C++ tentou ler/escrever memória inválida (`SIGSEGV` — ponteiro nulo, objeto já liberado ou acesso fora dos limites do buffer).',
+        )
+        ..writeln()
+        ..writeln('**2. Correções Recomendadas:**')
+        ..writeln('• **Cheque retornos nulos em C++/JNI:** Nunca desreferencie contexto/modelo/pipeline sem validar `if (ctx == nullptr) return ...;`.')
+        ..writeln('• **Proteja fronteira JNI:** Valide `GetStringUTFChars` / `GetByteArrayElements`, verifique `env->ExceptionCheck()` e capture `std::exception` em `try/catch` antes de retornar ao Kotlin.')
+        ..writeln('• **Sincronização de Threads:** Garanta que apenas uma chamada nativa use o mesmo contexto por vez (`std::mutex`) e nunca libere memória enquanto uma worker thread ainda a utiliza.');
+      return buffer.toString().trimRight();
+    }
+
+    if (lower.contains('install_failed_')) {
+      final codeMatch = RegExp(r'INSTALL_FAILED_[A-Z0-9_]+').firstMatch(joined);
+      final code = codeMatch?.group(0) ?? 'INSTALL_FAILED';
+      buffer
+        ..writeln('**1. Causa Raiz:**')
+        ..writeln('O gerenciador de pacotes do Android rejeitou a instalação do APK com `$code`.')
+        ..writeln()
+        ..writeln('**2. Correções Recomendadas:**')
+        ..writeln('• Para `VERSION_DOWNGRADE` ou `UPDATE_INCOMPATIBLE`: execute `adb uninstall <seu.applicationId>` e relance.')
+        ..writeln('• Para `INSUFFICIENT_STORAGE`: libere espaço no aparelho e evite embutir modelos gigantes dentro de `assets/` do APK.')
+        ..writeln('• Para `NO_MATCHING_ABIS`: confira `ndk { abiFilters "arm64-v8a" }` no `android/app/build.gradle`.');
+      return buffer.toString().trimRight();
+    }
+
+    if (lower.contains('not found') && lower.contains('adb') ||
+        lower.contains('no devices/emulators found') ||
+        lower.contains('device offline')) {
+      buffer
+        ..writeln('**1. Causa Raiz:**')
+        ..writeln('A sessão ADB perdeu comunicação com o dispositivo físico ou emulador durante o deploy/execução.')
+        ..writeln()
+        ..writeln('**2. Correções Recomendadas:**')
+        ..writeln('• Troque para uma porta USB direta (sem hub), verifique o cabo e desbloqueie a tela do celular.')
+        ..writeln('• Confirme modo USB **Transferência de arquivos (MTP)** e **Depuração USB** ativa.')
+        ..writeln('• Clique em **"Re-detectar & Rodar"** para atualizar o serial ADB e relançar.');
+      return buffer.toString().trimRight();
+    }
+
+    if (lower.contains('unhandled exception') ||
+        lower.contains('exception caught by')) {
+      final dartSnippet = fileSnippets.entries.firstWhere(
+        (e) => e.key.toLowerCase().endsWith('.dart'),
+        orElse: () => const MapEntry('', ''),
+      );
+      buffer
+        ..writeln('**1. Causa Raiz Provável:**')
+        ..writeln(
+          'Uma exceção Dart não tratada interrompeu o fluxo ou a renderização do widget'
+          '${affectedLocation != null ? " em `$affectedLocation`" : ""}.',
+        )
+        ..writeln()
+        ..writeln('**2. Correções Recomendadas:**')
+        ..writeln('• Verifique uso de operador `!` em valores possivelmente nulos, acesso a índices vazios (`RangeError`) ou `setState` após `dispose` (`if (!mounted) return;`).')
+        ..writeln('• Envolva chamadas assíncronas externas (I/O, canais nativos `MethodChannel`, HTTP) em blocos `try { ... } catch (e) { ... }` com feedback seguro na UI.');
+      if (dartSnippet.key.isNotEmpty) {
+        final previewLines = dartSnippet.value.split('\n').take(18).join('\n');
+        buffer
+          ..writeln()
+          ..writeln('**Trecho inspecionado em `${dartSnippet.key}`:**')
+          ..writeln('```dart')
+          ..writeln(previewLines)
+          ..writeln('```');
+      }
+      return buffer.toString().trimRight();
+    }
+
+    buffer
+      ..writeln('**1. Causa Raiz:**')
+      ..writeln('Falha detectada durante o ciclo de build/execução Android: `$issueTitle`.')
+      ..writeln()
+      ..writeln('**2. Passos Recomendados:**')
+      ..writeln('• Revise as últimas linhas do console e valide o ambiente (JDK 17, Android SDK, CMake/Ninja/MSVC).')
+      ..writeln('• Execute `flutter clean` se caches antigos de Gradle/CMake estiverem persistindo.')
+      ..writeln('• Configure uma chave Gemini em Configurações/IA para análise contextual profunda na nuvem.');
+    return buffer.toString().trimRight();
+  }
+
+  static String _formatCappedCrashLogs(List<String> crashLogs) {
+    if (crashLogs.isEmpty) return '(sem logs capturados)';
+    final tail = crashLogs.length > 65
+        ? crashLogs.sublist(crashLogs.length - 65)
+        : crashLogs;
+    var text = tail.join('\n');
+    if (text.length > 5000) {
+      text = text.substring(text.length - 5000);
+    }
+    return text;
+  }
+
+  static ({
+    String formattedContext,
+    List<String> inspectedFiles,
+    Map<String, String> snippetsByPath,
+  }) _collectDiagnosticProjectSnippets(
+    String projectPath, {
+    required List<String> crashLogs,
+    String? affectedLocation,
+  }) {
+    final cleanRoot = projectPath.trim();
+    if (cleanRoot.isEmpty) {
+      return (
+        formattedContext: '',
+        inspectedFiles: const [],
+        snippetsByPath: const {},
+      );
+    }
+
+    final rootDir = Directory(cleanRoot);
+    if (!rootDir.existsSync()) {
+      return (
+        formattedContext: '',
+        inspectedFiles: const [],
+        snippetsByPath: const {},
+      );
+    }
+
+    const maxFiles = 6;
+    const maxPerFileChars = 2600;
+    const maxTotalChars = 11000;
+
+    final combinedText = '${affectedLocation ?? ''}\n${crashLogs.join('\n')}';
+    final candidateRelPaths = <({String relPath, int? targetLine})>[];
+    final seenPaths = <String>{};
+
+    void addCandidate(String relPath, {int? targetLine}) {
+      final norm = relPath.replaceAll('\\', '/').trim();
+      if (norm.isEmpty) return;
+      final key = norm.toLowerCase();
+      if (seenPaths.add(key)) {
+        candidateRelPaths.add((relPath: norm, targetLine: targetLine));
+      }
+    }
+
+    // 1. Referenced Dart `lib/.../*.dart[:line]` paths
+    for (final m in RegExp(r'(lib/[a-zA-Z0-9_./-]+\.dart)(?::(\d+))?')
+        .allMatches(combinedText)) {
+      addCandidate(m.group(1)!, targetLine: int.tryParse(m.group(2) ?? ''));
+    }
+
+    // 2. Referenced `package:<pkg>/<rel>.dart[:line]` paths
+    for (final m in RegExp(
+      r'package:([a-zA-Z0-9_]+)/([a-zA-Z0-9_./-]+\.dart)(?::(\d+))?',
+    ).allMatches(combinedText)) {
+      final candidate = 'lib/${m.group(2)!}';
+      if (File(p.join(cleanRoot, candidate)).existsSync()) {
+        addCandidate(candidate, targetLine: int.tryParse(m.group(3) ?? ''));
+      }
+    }
+
+    // 3. CMake & native C/C++/Kotlin files if native/build/Vulkan errors exist
+    final lowerCombined = combinedText.toLowerCase();
+    final isNativeOrBuild = lowerCombined.contains('adrenovk') ||
+        lowerCombined.contains('vulkan') ||
+        lowerCombined.contains('fatal signal') ||
+        lowerCombined.contains('sigsegv') ||
+        lowerCombined.contains('sigabrt') ||
+        lowerCombined.contains('cmake') ||
+        lowerCombined.contains('.so') ||
+        lowerCombined.contains('jni') ||
+        lowerCombined.contains('bad_alloc') ||
+        lowerCombined.contains('outofdevicememory');
+
+    if (isNativeOrBuild) {
+      addCandidate('android/app/src/main/cpp/CMakeLists.txt');
+      final cppDir = Directory(
+        p.join(cleanRoot, 'android', 'app', 'src', 'main', 'cpp'),
+      );
+      if (cppDir.existsSync()) {
+        try {
+          final cppFiles = cppDir
+              .listSync(followLinks: false)
+              .whereType<File>()
+              .where((f) {
+            final lowerName = p.basename(f.path).toLowerCase();
+            return lowerName.endsWith('.cpp') ||
+                lowerName.endsWith('.cc') ||
+                lowerName.endsWith('.c') ||
+                lowerName.endsWith('.h') ||
+                lowerName.endsWith('.hpp');
+          }).toList()
+            ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+          for (final file in cppFiles.take(3)) {
+            addCandidate(p.relative(file.path, from: cleanRoot));
+          }
+        } catch (_) {}
+      }
+
+      // Check MainActivity.kt / MainActivity.java
+      for (final langDir in const ['kotlin', 'java']) {
+        final srcDir = Directory(
+          p.join(cleanRoot, 'android', 'app', 'src', 'main', langDir),
+        );
+        if (!srcDir.existsSync()) continue;
+        try {
+          for (final entity in srcDir.listSync(recursive: true, followLinks: false)) {
+            if (entity is File) {
+              final name = p.basename(entity.path);
+              if (name == 'MainActivity.kt' ||
+                  name == 'MainActivity.java' ||
+                  combinedText.contains(p.basenameWithoutExtension(name))) {
+                addCandidate(p.relative(entity.path, from: cleanRoot));
+                break;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 4. Standard Flutter entrypoints
+    addCandidate('lib/main.dart');
+    addCandidate('lib/ai_service.dart');
+    addCandidate('lib/screens.dart');
+    addCandidate('pubspec.yaml');
+
+    final inspected = <String>[];
+    final snippetsByPath = <String, String>{};
+    final contextBuffer = StringBuffer();
+    var totalChars = 0;
+
+    for (final candidate in candidateRelPaths) {
+      if (inspected.length >= maxFiles || totalChars >= maxTotalChars) break;
+      final file = File(p.join(cleanRoot, candidate.relPath));
+      if (!file.existsSync()) continue;
+      try {
+        final len = file.lengthSync();
+        if (len > 256 * 1024) continue; // Skip huge generated files safely
+        final raw = file.readAsStringSync();
+        if (raw.trim().isEmpty) continue;
+
+        final snippet = _sliceFileSnippet(
+          raw,
+          targetLine: candidate.targetLine,
+          maxChars: maxPerFileChars,
+        );
+        if (totalChars + snippet.length > maxTotalChars && inspected.isNotEmpty) {
+          break;
+        }
+        inspected.add(candidate.relPath);
+        snippetsByPath[candidate.relPath] = snippet;
+        contextBuffer
+          ..writeln('--- ${candidate.relPath} ---')
+          ..writeln(snippet)
+          ..writeln();
+        totalChars += snippet.length;
+      } catch (_) {}
+    }
+
+    return (
+      formattedContext: contextBuffer.toString().trimRight(),
+      inspectedFiles: inspected,
+      snippetsByPath: snippetsByPath,
+    );
+  }
+
+  static String _sliceFileSnippet(
+    String content, {
+    int? targetLine,
+    required int maxChars,
+  }) {
+    final lines = content.split(RegExp(r'\r?\n'));
+    if (targetLine != null && targetLine > 0 && lines.length > 45) {
+      final start = (targetLine - 20).clamp(0, lines.length - 1);
+      final end = (targetLine + 25).clamp(start + 1, lines.length);
+      final numbered = <String>[];
+      for (var i = start; i < end; i++) {
+        final marker = (i + 1 == targetLine) ? '>>' : '  ';
+        numbered.add('$marker ${i + 1}: ${lines[i]}');
+      }
+      final joined = numbered.join('\n');
+      return joined.length <= maxChars
+          ? joined
+          : joined.substring(0, maxChars);
+    }
+
+    if (content.length <= maxChars) return content;
+    return '${content.substring(0, maxChars)}\n... [truncado]';
+  }
 }
