@@ -14,6 +14,7 @@ import 'package:flrd/features/studio/presentation/widgets/embedded_code_viewer.d
 import 'package:flrd/features/studio/providers/android_debug_provider.dart';
 import 'package:flrd/features/studio/providers/terminal_provider.dart';
 import 'package:flrd/features/studio/services/android_device_runner_service.dart';
+import 'package:flrd/features/studio/services/diagnostic_code_fix_service.dart';
 import 'package:flrd/features/studio/services/terminal_shell_service.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
 import 'package:flutter/material.dart';
@@ -2536,7 +2537,7 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
         expect(capturedUri, isNotNull);
         expect(capturedUri.toString(),
             contains('generativelanguage.googleapis.com'));
-        expect(capturedUri.toString(), contains('gemini-1.5-flash'));
+        expect(capturedUri.toString(), contains('gemini-2.5-pro'));
         expect(capturedBody, contains('CMakeLists.txt'));
         expect(capturedBody, contains('GGML_USE_VULKAN'));
         expect(capturedBody, contains('Failed to link shaders'));
@@ -2719,8 +2720,15 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
 
         expect(find.byKey(const ValueKey('android_ai_fix_box')), findsOneWidget);
         expect(
-          find.textContaining('Desabilite GGML_VULKAN_COOPMAT'),
+          find.descendant(
+            of: find.byKey(const ValueKey('android_ai_fix_box')),
+            matching: find.textContaining('Desabilite GGML_VULKAN_COOPMAT'),
+          ),
           findsOneWidget,
+        );
+        expect(
+          find.textContaining('Desabilite GGML_VULKAN_COOPMAT'),
+          findsNWidgets(2),
         );
 
         // Copy AI fix
@@ -2864,6 +2872,510 @@ PIX8001                device product:shiba model:Pixel_8 device:shiba transport
         await tester.pump(const Duration(milliseconds: 60));
 
         expect(procs.length, 2);
+
+        await tester.pump(const Duration(seconds: 5));
+      },
+    );
+  });
+
+  group('DiagnosticCodeFixService & Safe Multi-File Patching', () {
+    test(
+      'inspects nested C++ submodules & CMakeCache, detects Adreno/Vulkan/JNI issues, applies patches with backup + .cxx cleanup, and reverts',
+      () async {
+        final tempProj = Directory.systemTemp.createTempSync('flrd_code_fix_');
+        addTearDown(() {
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('name: snapia_test\n');
+
+        final vkFile = File(p.join(
+          tempProj.path,
+          'android',
+          'app',
+          'src',
+          'main',
+          'cpp',
+          'stable-diffusion.cpp',
+          'ggml',
+          'src',
+          'ggml-vulkan',
+          'ggml-vulkan.cpp',
+        ))
+          ..createSync(recursive: true);
+        const originalVk = '''
+static void ggml_vk_load_shaders(vk_backend_ctx* ctx) {
+    c.wait();
+}
+
+static bool ggml_vk_khr_cooperative_matrix_support(uint32_t vk_vendor_id) {
+    switch (vk_vendor_id) {
+    case VK_VENDOR_ID_AMD:
+        return false;
+    default:
+        return true;
+    }
+}
+''';
+        vkFile.writeAsStringSync(originalVk);
+
+        final cmakeFile = File(
+          p.join(tempProj.path, 'android', 'app', 'src', 'main', 'cpp', 'CMakeLists.txt'),
+        )..createSync(recursive: true);
+        const originalCmake = '''
+cmake_minimum_required(VERSION 3.22.1)
+add_library(sd_jni SHARED sd_jni.cpp)
+set(GGML_VULKAN_COOPMAT ON)
+''';
+        cmakeFile.writeAsStringSync(originalCmake);
+
+        final cxxCacheFile = File(
+          p.join(tempProj.path, 'android', 'app', '.cxx', 'Debug', 'arm64-v8a', 'CMakeCache.txt'),
+        )..createSync(recursive: true);
+        cxxCacheFile.writeAsStringSync('GGML_VULKAN_COOPMAT:BOOL=ON\n');
+
+        final jniFile = File(
+          p.join(tempProj.path, 'android', 'app', 'src', 'main', 'cpp', 'sd_jni.cpp'),
+        )..createSync(recursive: true);
+        const originalJni = '''
+sd_ctx_params_t params;
+params.wtype = SD_TYPE_Q8_0;
+params.vae_decode_only = true;
+new_sd_ctx(&params);
+sd_image_t* results = generate_image(ctx, &gen);
+if (results) {
+  save_image(results[0]);
+}
+''';
+        jniFile.writeAsStringSync(originalJni);
+
+        // Windows CRLF Kotlin file to verify CRLF-preserving patch match
+        final mainActivityFile = File(
+          p.join(
+            tempProj.path,
+            'android',
+            'app',
+            'src',
+            'main',
+            'kotlin',
+            'com',
+            'example',
+            'MainActivity.kt',
+          ),
+        )..createSync(recursive: true);
+        const originalKt =
+            'class MainActivity {\r\n'
+            '  fun callNative() {\r\n'
+            '    val out = nativeGenerateImage(\r\n'
+            '      prompt,\r\n'
+            '      width,\r\n'
+            '      height\r\n'
+            '    )\r\n'
+            '  }\r\n'
+            '}\r\n';
+        mainActivityFile.writeAsStringSync(originalKt);
+
+        final ctx = DiagnosticCodeFixService.collectDiagnosticContext(
+          tempProj.path,
+          crashLogs: const [
+            'E/AdrenoVK-0: Failed to link shaders.',
+            'Fatal signal 11 (SIGSEGV)',
+          ],
+        );
+        expect(
+          ctx.inspectedFiles.any((f) => f.endsWith('ggml-vulkan.cpp')),
+          isTrue,
+        );
+        expect(
+          ctx.formattedContext,
+          contains('GGML_VULKAN_COOPMAT:BOOL=ON'),
+        );
+
+        final analysis = DiagnosticCodeFixService.analyzeProjectLocally(
+          projectPath: tempProj.path,
+          issueTitle: 'Crash Vulkan/Adreno ao criar pipeline ou linkar shaders',
+          crashLogs: const [
+            'E/AdrenoVK-0: Failed to link shaders.',
+            'Fatal signal 11 (SIGSEGV)',
+          ],
+        );
+
+        expect(analysis.patches, isNotEmpty);
+        expect(
+          analysis.patches.any((patch) => patch.relativePath.endsWith('ggml-vulkan.cpp')),
+          isTrue,
+        );
+
+        // Also validate LF Gemini patch against CRLF Kotlin file
+        final validKtPatches = DiagnosticCodeFixService.filterValidPatches(
+          projectPath: tempProj.path,
+          patches: const [
+            DiagnosticFilePatch(
+              relativePath:
+                  'android/app/src/main/kotlin/com/example/MainActivity.kt',
+              description: 'Passar initBytes para nativeGenerateImage',
+              searchText: '    val out = nativeGenerateImage(\n      prompt,',
+              replaceText:
+                  '    val out = nativeGenerateImage(\n      initBytes,\n      prompt,',
+            ),
+          ],
+        );
+        expect(validKtPatches, hasLength(1));
+
+        final allToApply = <DiagnosticFilePatch>[
+          ...analysis.patches,
+          ...validKtPatches,
+        ];
+        final applyResult = await DiagnosticCodeFixService.applyPatches(
+          projectPath: tempProj.path,
+          patches: allToApply,
+        );
+
+        expect(applyResult.isSuccess, isTrue);
+        expect(applyResult.backupDir, isNotNull);
+        expect(Directory(applyResult.backupDir!).existsSync(), isTrue);
+        expect(applyResult.clearedCxxCache, isTrue);
+        expect(
+          Directory(p.join(tempProj.path, 'android', 'app', '.cxx')).existsSync(),
+          isFalse,
+        );
+        expect(vkFile.readAsStringSync(), isNot(originalVk));
+        expect(vkFile.readAsStringSync(), contains('VK_VENDOR_ID_QUALCOMM'));
+        expect(mainActivityFile.readAsStringSync(), contains('initBytes,\r\n'));
+
+        final restored = await DiagnosticCodeFixService.revertBackup(
+          projectPath: tempProj.path,
+          backupDir: applyResult.backupDir!,
+        );
+        expect(restored, isNotEmpty);
+        expect(vkFile.readAsStringSync(), originalVk);
+        expect(mainActivityFile.readAsStringSync(), originalKt);
+      },
+    );
+
+    test(
+      'GeminiAiService.analyzeAndBuildAppFix cascades models on 404 and extracts verified JSON patches',
+      () async {
+        final tempProj = Directory.systemTemp.createTempSync('flrd_ai_cascade_');
+        addTearDown(() {
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+        final cmake = File(p.join(tempProj.path, 'android', 'app', 'CMakeLists.txt'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('set(GGML_VULKAN_COOPMAT ON)\n');
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: test_ai\n');
+
+        final requestedModels = <String>[];
+        final cascadeClient = _FakeAiHttpClient((req) async {
+          requestedModels.add(req.url.path);
+          if (req.url.path.contains('gemini-2.5-pro')) {
+            return http.Response('Model unavailable', 404);
+          }
+          return http.Response(
+            jsonEncode({
+              'candidates': [
+                {
+                  'content': {
+                    'parts': [
+                      {
+                        'text': '''
+### Causa Raiz Exata
+Coopmat ativo em GPU Adreno causando SIGSEGV.
+
+```json
+{
+  "patches": [
+    {
+      "relativePath": "android/app/CMakeLists.txt",
+      "description": "Desabilitar GGML_VULKAN_COOPMAT no CMake",
+      "searchText": "set(GGML_VULKAN_COOPMAT ON)",
+      "replaceText": "set(GGML_VULKAN_COOPMAT OFF)"
+    }
+  ]
+}
+```
+''',
+                      }
+                    ]
+                  }
+                }
+              ]
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        });
+
+        final analysis = await GeminiAiService.analyzeAndBuildAppFix(
+          projectPath: tempProj.path,
+          issueTitle: 'Crash Vulkan/Adreno',
+          crashLogs: const ['Fatal signal 11 (SIGSEGV)'],
+          apiKey: 'fake-key',
+          httpClient: cascadeClient,
+        );
+
+        expect(requestedModels.length, greaterThanOrEqualTo(2));
+        expect(requestedModels.first, contains('gemini-2.5-pro'));
+        expect(requestedModels[1], contains('gemini-2.5-flash'));
+        expect(analysis.explanationMarkdown, contains('Causa Raiz Exata'));
+        expect(analysis.patches, isNotEmpty);
+        expect(
+          analysis.patches.any(
+            (patch) =>
+                patch.relativePath == 'android/app/CMakeLists.txt' &&
+                patch.replaceText.contains('OFF'),
+          ),
+          isTrue,
+        );
+        expect(cmake.existsSync(), isTrue);
+      },
+    );
+  });
+
+  group('Terminal Inline Resolution & Patch Preview Dialog UI', () {
+    testWidgets(
+      'prints inline terminal resolution lines, opens patch preview dialog, applies fixes and reverts backup',
+      (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final tempProj = Directory.systemTemp.createTempSync('flrd_ui_patch_');
+        addTearDown(() {
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: snapia_ui\n');
+        final vkFile = File(p.join(
+          tempProj.path,
+          'android',
+          'app',
+          'src',
+          'main',
+          'cpp',
+          'sd',
+          'ggml-vulkan.cpp',
+        ))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('''
+void ggml_vk_load_shaders() {
+    for (auto &c : compiles) {
+        c.wait();
+    }
+}
+''');
+
+        final proc = _FakeProcess();
+        addTearDown(() async {
+          await proc.disposeStreams();
+        });
+
+        final service = AndroidDeviceRunnerService(
+          processStarter: (exe, args, {workingDirectory, runInShell = true}) async =>
+              proc,
+        );
+
+        final container = ProviderContainer(
+          overrides: [
+            androidDeviceRunnerServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              home: Scaffold(
+                body: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: AndroidDebugConsolePanel(
+                    projectPath: tempProj.path,
+                    onClose: () {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final notifier = container.read(androidDebugProvider.notifier);
+        await notifier.launchProject(
+          tempProj.path,
+          device: const ConnectedAndroidDevice(
+            id: 'RXGL20BSBJX',
+            name: 'SM S938B',
+            targetPlatform: 'android-arm64',
+            sdk: 'Android 16',
+          ),
+        );
+
+        proc.emitStdoutLine('E/AdrenoVK-0: Failed to link shaders.');
+        proc.emitStdoutLine('Fatal signal 11 (SIGSEGV), code 1');
+        proc.completeExit(1);
+
+        await tester.pump(const Duration(milliseconds: 150));
+        await tester.pumpAndSettle();
+
+        final debugState = container.read(androidDebugProvider);
+        expect(
+          debugState.logs.any((l) => l.isResolution && l.message.contains('SUGESTÃO DE RESOLUÇÃO')),
+          isTrue,
+        );
+        expect(
+          find.byKey(const ValueKey('android_apply_patches_button')),
+          findsOneWidget,
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('android_apply_patches_button')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('android_apply_patches_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('android_patch_preview_dialog')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('confirm_apply_patches_button')),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey('confirm_apply_patches_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(vkFile.readAsStringSync(), contains('c.get();'));
+        expect(
+          find.byKey(const ValueKey('android_applied_fix_badge')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('android_revert_patches_button')),
+          findsOneWidget,
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('android_revert_patches_button')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('android_revert_patches_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(vkFile.readAsStringSync(), contains('c.wait();'));
+        await tester.pump(const Duration(seconds: 5));
+      },
+    );
+
+    testWidgets(
+      'detects failure inside interactive shell tab, prints inline resolution lines, and renders diagnostic fix card on shell tab',
+      (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final tempProj = Directory.systemTemp.createTempSync('flrd_shell_diag_');
+        addTearDown(() {
+          if (tempProj.existsSync()) tempProj.deleteSync(recursive: true);
+        });
+        File(p.join(tempProj.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: shell_diag\n');
+        File(p.join(
+          tempProj.path,
+          'android',
+          'app',
+          'src',
+          'main',
+          'cpp',
+          'ggml-vulkan.cpp',
+        ))
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            'void ggml_vk_load_shaders() {\n    for (auto &c : compiles) {\n        c.wait();\n    }\n}\n',
+          );
+
+        final fakeShellProc = _FakeProcess();
+        addTearDown(() async {
+          await fakeShellProc.disposeStreams();
+        });
+
+        final container = ProviderContainer(
+          overrides: [
+            terminalShellServiceProvider.overrideWithValue(
+              TerminalShellService(
+                processStarter: (exe, args, {workingDirectory, runInShell = false}) async =>
+                    fakeShellProc,
+              ),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              home: Scaffold(
+                body: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: AndroidDebugConsolePanel(
+                    projectPath: tempProj.path,
+                    onClose: () {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final terminalNotifier = container.read(terminalProvider.notifier);
+        final shellTabId = await terminalNotifier.createShellTerminal(
+          workingDirectory: tempProj.path,
+          activate: true,
+        );
+        await tester.pump();
+
+        await terminalNotifier.sendCommand(shellTabId, 'flutter run');
+        fakeShellProc.emitStdoutLine('E/AdrenoVK-0: Failed to link shaders.');
+        fakeShellProc.emitStdoutLine('Fatal signal 11 (SIGSEGV)');
+
+        // Wait past debounce timer in TerminalNotifier (700ms)
+        await tester.pump(const Duration(milliseconds: 900));
+        await tester.pumpAndSettle();
+
+        final tab = container
+            .read(terminalProvider)
+            .tabs
+            .firstWhere((t) => t.id == shellTabId);
+        expect(tab.diagnostic, isNotNull);
+        expect(
+          tab.lines.any((l) => l.isResolution && l.text.contains('SUGESTÃO DE RESOLUÇÃO')),
+          isTrue,
+        );
+        expect(
+          find.byKey(const ValueKey('android_build_diagnostic_card')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('android_apply_patches_button')),
+          findsOneWidget,
+        );
 
         await tester.pump(const Duration(seconds: 5));
       },

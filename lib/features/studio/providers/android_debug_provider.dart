@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../../ai/services/gemini_ai_service.dart';
 import '../models/connected_device.dart';
 import '../services/android_device_runner_service.dart';
+import '../services/diagnostic_code_fix_service.dart';
 
 /// Sentinel marker to allow explicitly setting nullable fields in copyWith.
 const Object _unset = Object();
@@ -147,14 +148,19 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     String rawMessage, {
     bool isError = false,
     bool isSystem = false,
+    bool isResolution = false,
   }) {
     if (!mounted) return;
     final clean = rawMessage.trimRight();
     if (clean.isEmpty) return;
 
-    _currentRunLines.add(clean);
-    if (_currentRunLines.length > _maxLogEntries) {
-      _currentRunLines.removeRange(0, _currentRunLines.length - _maxLogEntries);
+    // Exclude FLRD's own resolution blocks from raw run log classification so
+    // re-running log diagnostics never re-triggers on diagnostic prose.
+    if (!isResolution) {
+      _currentRunLines.add(clean);
+      if (_currentRunLines.length > _maxLogEntries) {
+        _currentRunLines.removeRange(0, _currentRunLines.length - _maxLogEntries);
+      }
     }
 
     final updated = List<DeviceLogEntry>.from(state.logs)
@@ -164,12 +170,26 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           message: clean,
           isError: isError,
           isSystem: isSystem,
+          isResolution: isResolution,
         ),
       );
     if (updated.length > _maxLogEntries) {
       updated.removeRange(0, updated.length - _maxLogEntries);
     }
     state = state.copyWith(logs: updated);
+  }
+
+  void _appendResolutionBlock(
+    AndroidBuildDiagnostic diagnostic, {
+    String? aiSummary,
+  }) {
+    final lines = DiagnosticCodeFixService.formatTerminalResolutionLines(
+      diagnostic,
+      aiSummary: aiSummary,
+    );
+    for (final line in lines) {
+      _appendLog(line, isSystem: true, isResolution: true);
+    }
   }
 
   static bool _looksLikeGradleOrNativeBuild(String text) {
@@ -387,12 +407,18 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     final snapshot = List<String>.from(_currentRunLines);
     final lineCountAtStart = snapshot.length;
     try {
-      final diagnostic = await _service.diagnoseBuildFailure(
+      final effectiveProj = projectPath ?? state.projectPath;
+      final baseDiagnostic = await _service.diagnoseBuildFailure(
         snapshot,
-        projectPath: projectPath ?? state.projectPath,
+        projectPath: effectiveProj,
       );
       if (!mounted || generation != _launchGeneration) return;
-      if (diagnostic != null) {
+      if (baseDiagnostic != null) {
+        final diagnostic = DiagnosticCodeFixService.enrichDiagnosticWithLocalAnalysis(
+          baseDiagnostic,
+          projectPath: effectiveProj,
+          crashLogs: snapshot,
+        );
         final wasAlreadyEvaluated = _evaluatedCurrentRunFailure;
         final previous = state.buildDiagnostic;
         if (wasAlreadyEvaluated &&
@@ -427,20 +453,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         }
 
         if (!wasAlreadyEvaluated) {
-          _appendLog('💡 Diagnóstico automático: ${diagnostic.title}',
-              isSystem: true);
-          _appendLog('ℹ️ ${diagnostic.explanation}', isSystem: true);
-          if (diagnostic.affectedLocation != null &&
-              diagnostic.affectedLocation!.isNotEmpty) {
-            _appendLog('📍 Local: ${diagnostic.affectedLocation}',
-                isSystem: true);
-          }
-          if (diagnostic.suggestedTerminalCommand != null) {
-            _appendLog(
-              '🛠️ Comando sugerido: ${diagnostic.suggestedTerminalCommand}',
-              isSystem: true,
-            );
-          }
+          _appendResolutionBlock(diagnostic);
         }
       }
     } finally {
@@ -1186,8 +1199,9 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     return launchProject(effectiveProject, device: target);
   }
 
-  /// Invokes [GeminiAiService.diagnoseAndSuggestAppFix] for the current
-  /// diagnostic card, scanning local project files when available.
+  /// Invokes [GeminiAiService.analyzeAndBuildAppFix] for the current
+  /// diagnostic card, scanning local project files (including native submodules)
+  /// and extracting verified code patches when applicable.
   Future<String?> generateAiDiagnosisForCurrentDiagnostic({
     String? projectPath,
     String? apiKey,
@@ -1212,7 +1226,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     );
 
     try {
-      final suggestion = await GeminiAiService.diagnoseAndSuggestAppFix(
+      final result = await GeminiAiService.analyzeAndBuildAppFix(
         projectPath: effectiveProjectPath,
         issueTitle: diagnostic.title,
         crashLogs: effectiveLogs,
@@ -1224,18 +1238,30 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       final current = state.buildDiagnostic;
       if (current == null) return null;
 
-      state = state.copyWith(
-        buildDiagnostic: current.copyWith(
-          isGeneratingAiFix: false,
-          aiFixSuggestion: suggestion,
-          aiFixError: null,
-        ),
+      final mergedPatches = DiagnosticCodeFixService.mergeValidatedPatches(
+        projectPath: effectiveProjectPath,
+        primary: result.patches,
+        secondary: current.suggestedPatches,
       );
+
+      final updatedDiag = current.copyWith(
+        isGeneratingAiFix: false,
+        aiFixSuggestion: result.explanationMarkdown,
+        suggestedPatches: mergedPatches,
+        aiFixError: null,
+      );
+
+      state = state.copyWith(buildDiagnostic: updatedDiag);
       _appendLog(
-        '🤖 Análise de IA concluída para: ${diagnostic.title}',
+        '🤖 Análise de IA concluída para: ${diagnostic.title}'
+        '${mergedPatches.isNotEmpty ? " (${mergedPatches.length} patch(es) prontos)" : ""}',
         isSystem: true,
       );
-      return suggestion;
+      _appendResolutionBlock(
+        updatedDiag,
+        aiSummary: result.explanationMarkdown,
+      );
+      return result.explanationMarkdown;
     } catch (e) {
       if (!mounted || generation != _launchGeneration) return null;
       final current = state.buildDiagnostic;
@@ -1249,6 +1275,144 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       }
       return null;
     }
+  }
+
+  /// Applies [selectedPatches] (or all [AndroidBuildDiagnostic.suggestedPatches])
+  /// inside the active project with automatic backup and selective `.cxx` cleanup.
+  Future<AppPatchApplyResult> applyDiagnosticPatches({
+    String? projectPath,
+    List<DiagnosticFilePatch>? selectedPatches,
+    bool relaunchAfterApply = false,
+  }) async {
+    final diagnostic = state.buildDiagnostic;
+    final effectiveProject = (projectPath ?? state.projectPath ?? '').trim();
+    if (diagnostic == null || state.isApplyingBuildFix) {
+      return const AppPatchApplyResult(
+        appliedCount: 0,
+        errorMessage: 'Nenhum diagnóstico ativo ou aplicação em andamento.',
+      );
+    }
+
+    final toApply = selectedPatches ?? diagnostic.suggestedPatches;
+    if (toApply.isEmpty) {
+      return const AppPatchApplyResult(
+        appliedCount: 0,
+        errorMessage: 'Nenhum patch disponível para aplicar.',
+      );
+    }
+
+    state = state.copyWith(isApplyingBuildFix: true);
+    _appendLog(
+      '🛠️ Aplicando ${toApply.length} correção(ões) no projeto...',
+      isSystem: true,
+    );
+
+    final result = await DiagnosticCodeFixService.applyPatches(
+      projectPath: effectiveProject,
+      patches: toApply,
+    );
+    if (!mounted) return result;
+
+    if (!result.isSuccess) {
+      state = state.copyWith(isApplyingBuildFix: false);
+      _appendLog(
+        '❌ ${result.errorMessage ?? "Falha ao aplicar patches."}',
+        isError: true,
+      );
+      return result;
+    }
+
+    for (final file in result.modifiedFiles) {
+      _appendLog('✅ Correção aplicada em: $file', isSystem: true, isResolution: true);
+    }
+    if (result.backupDir != null) {
+      _appendLog(
+        '💾 Backup salvo em: ${result.backupDir}',
+        isSystem: true,
+        isResolution: true,
+      );
+    }
+    if (result.clearedCxxCache) {
+      _appendLog(
+        '🧹 Cache nativo .cxx limpo para garantir recompilação C++/Vulkan.',
+        isSystem: true,
+        isResolution: true,
+      );
+    }
+
+    final remainingPatches = diagnostic.suggestedPatches
+        .where((p) => !toApply.contains(p))
+        .toList(growable: false);
+
+    state = state.copyWith(
+      isApplyingBuildFix: false,
+      buildDiagnostic: diagnostic.copyWith(
+        suggestedPatches: remainingPatches,
+        lastAppliedBackupDir: result.backupDir,
+        appliedFixSummary:
+            'Aplicado em: ${result.modifiedFiles.join(", ")}',
+      ),
+    );
+
+    if (relaunchAfterApply &&
+        effectiveProject.isNotEmpty &&
+        state.selectedDevice != null) {
+      _appendLog(
+        '🚀 Relançando projeto no aparelho após aplicar correções...',
+        isSystem: true,
+      );
+      await launchProject(effectiveProject, device: state.selectedDevice);
+    }
+    return result;
+  }
+
+  /// Restores the original file contents from the last patch backup directory.
+  Future<bool> revertLastDiagnosticPatches({String? projectPath}) async {
+    final diagnostic = state.buildDiagnostic;
+    final backupDir = diagnostic?.lastAppliedBackupDir?.trim();
+    final effectiveProject = (projectPath ?? state.projectPath ?? '').trim();
+    if (diagnostic == null ||
+        backupDir == null ||
+        backupDir.isEmpty ||
+        effectiveProject.isEmpty ||
+        state.isApplyingBuildFix) {
+      return false;
+    }
+
+    state = state.copyWith(isApplyingBuildFix: true);
+    final restored = await DiagnosticCodeFixService.revertBackup(
+      projectPath: effectiveProject,
+      backupDir: backupDir,
+    );
+    if (!mounted) return false;
+
+    if (restored.isEmpty) {
+      state = state.copyWith(isApplyingBuildFix: false);
+      _appendLog(
+        '⚠️ Não foi possível restaurar o backup de patches.',
+        isError: true,
+      );
+      return false;
+    }
+
+    _appendLog(
+      '↩️ Backup restaurado em: ${restored.join(", ")}',
+      isSystem: true,
+      isResolution: true,
+    );
+    final reEnriched = DiagnosticCodeFixService.enrichDiagnosticWithLocalAnalysis(
+      diagnostic.copyWith(
+        lastAppliedBackupDir: null,
+        appliedFixSummary: null,
+      ),
+      projectPath: effectiveProject,
+      crashLogs: _currentRunLines,
+    );
+    state = state.copyWith(
+      isApplyingBuildFix: false,
+      buildDiagnostic: reEnriched,
+    );
+    return true;
   }
 
   void dismissBuildDiagnostic() {

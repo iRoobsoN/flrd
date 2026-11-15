@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'connected_device.dart';
 
 /// Shell binary profile used when creating interactive persistent terminals.
 enum TerminalShellProfile {
@@ -32,6 +33,7 @@ class TerminalLine {
   final bool isError;
   final bool isSystem;
   final bool isCommandEcho;
+  final bool isResolution;
 
   const TerminalLine({
     required this.timestamp,
@@ -39,6 +41,7 @@ class TerminalLine {
     this.isError = false,
     this.isSystem = false,
     this.isCommandEcho = false,
+    this.isResolution = false,
   });
 
   String get formattedTime {
@@ -63,6 +66,7 @@ class TerminalTabSession {
   final int? exitCode;
   final List<TerminalLine> lines;
   final List<String> commandHistory;
+  final AndroidBuildDiagnostic? diagnostic;
 
   const TerminalTabSession({
     required this.id,
@@ -74,6 +78,7 @@ class TerminalTabSession {
     this.exitCode,
     this.lines = const [],
     this.commandHistory = const [],
+    this.diagnostic,
   });
 
   bool get isPinned => kind == TerminalTabKind.androidDebug;
@@ -87,6 +92,7 @@ class TerminalTabSession {
     Object? exitCode = _terminalUnset,
     List<TerminalLine>? lines,
     List<String>? commandHistory,
+    Object? diagnostic = _terminalUnset,
   }) {
     return TerminalTabSession(
       id: id,
@@ -100,6 +106,9 @@ class TerminalTabSession {
           : exitCode as int?,
       lines: lines ?? this.lines,
       commandHistory: commandHistory ?? this.commandHistory,
+      diagnostic: identical(diagnostic, _terminalUnset)
+          ? this.diagnostic
+          : diagnostic as AndroidBuildDiagnostic?,
     );
   }
 }

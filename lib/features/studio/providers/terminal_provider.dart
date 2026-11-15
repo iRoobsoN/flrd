@@ -3,7 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import '../../ai/services/gemini_ai_service.dart';
+import '../models/connected_device.dart';
 import '../models/terminal_session.dart';
+import '../services/android_device_runner_service.dart';
+import '../services/diagnostic_code_fix_service.dart';
 import '../services/terminal_shell_service.dart';
 import 'android_debug_provider.dart';
 
@@ -29,14 +34,24 @@ class _ShellProcessHandle {
 /// interactive shell terminals (`PowerShell`, `CMD`, `bash`/`zsh`).
 class TerminalNotifier extends StateNotifier<TerminalWorkspaceState> {
   final TerminalShellService _service;
+  final AndroidDeviceRunnerService? _deviceRunner;
+  final http.Client? _aiHttpClient;
 
   final Map<String, _ShellProcessHandle> _processes = {};
+  final Map<String, Timer> _diagTimers = {};
+  final Map<String, String> _lastDiagnosedSignature = {};
   int _nextShellNumber = 1;
   bool _disposed = false;
 
   static const int _maxLinesPerTab = 800;
 
-  TerminalNotifier(this._service) : super(TerminalWorkspaceState.initial());
+  TerminalNotifier(
+    this._service, {
+    AndroidDeviceRunnerService? deviceRunner,
+    http.Client? aiHttpClient,
+  })  : _deviceRunner = deviceRunner,
+        _aiHttpClient = aiHttpClient,
+        super(TerminalWorkspaceState.initial());
 
   void setProjectDirectory(String workingDirectory) {
     final trimmed = workingDirectory.trim();
@@ -185,6 +200,9 @@ class TerminalNotifier extends StateNotifier<TerminalWorkspaceState> {
           isSystem: true,
           isError: code != 0,
         );
+        if (code != 0) {
+          _scheduleShellDiagnostic(tabId, immediate: true);
+        }
       }));
 
       return true;
@@ -231,6 +249,9 @@ class TerminalNotifier extends StateNotifier<TerminalWorkspaceState> {
       return;
     }
 
+    _diagTimers.remove(tabId)?.cancel();
+    _lastDiagnosedSignature.remove(tabId);
+    _updateTab(tabId, (t) => t.copyWith(diagnostic: null));
     _appendLine(tabId, '\$ $command', isCommandEcho: true);
 
     if (!_processes.containsKey(tabId)) {
@@ -300,7 +321,259 @@ class TerminalNotifier extends StateNotifier<TerminalWorkspaceState> {
   void clearTab(String tabId) {
     final tab = _findTab(tabId);
     if (tab == null || !tab.isInteractiveShell) return;
-    _updateTab(tabId, (t) => t.copyWith(lines: const []));
+    _diagTimers.remove(tabId)?.cancel();
+    _lastDiagnosedSignature.remove(tabId);
+    _updateTab(tabId, (t) => t.copyWith(lines: const [], diagnostic: null));
+  }
+
+  void dismissTabDiagnostic(String tabId) {
+    final tab = _findTab(tabId);
+    if (tab == null) return;
+    _updateTab(tabId, (t) => t.copyWith(diagnostic: null));
+  }
+
+  /// Generates a deep AI/local diagnosis + code patches for an interactive shell tab's failure.
+  Future<String?> generateAiDiagnosisForTab(
+    String tabId, {
+    String? apiKey,
+  }) async {
+    final tab = _findTab(tabId);
+    final diagnostic = tab?.diagnostic;
+    if (tab == null || diagnostic == null || diagnostic.isGeneratingAiFix) {
+      return null;
+    }
+
+    final commandLogs = _extractLatestCommandLines(tab);
+    final effectiveLogs = diagnostic.relevantLogLines.isNotEmpty
+        ? diagnostic.relevantLogLines
+        : commandLogs;
+
+    _updateTab(
+      tabId,
+      (t) => t.copyWith(
+        diagnostic: diagnostic.copyWith(isGeneratingAiFix: true, aiFixError: null),
+      ),
+    );
+
+    try {
+      final result = await GeminiAiService.analyzeAndBuildAppFix(
+        projectPath: tab.workingDirectory,
+        issueTitle: diagnostic.title,
+        crashLogs: effectiveLogs,
+        affectedLocation: diagnostic.affectedLocation,
+        apiKey: apiKey,
+        httpClient: _aiHttpClient,
+      );
+      if (_disposed) return null;
+      final currentTab = _findTab(tabId);
+      final currentDiag = currentTab?.diagnostic;
+      if (currentTab == null || currentDiag == null) return null;
+
+      final mergedPatches = DiagnosticCodeFixService.mergeValidatedPatches(
+        projectPath: currentTab.workingDirectory,
+        primary: result.patches,
+        secondary: currentDiag.suggestedPatches,
+      );
+
+      final updatedDiag = currentDiag.copyWith(
+        isGeneratingAiFix: false,
+        aiFixSuggestion: result.explanationMarkdown,
+        suggestedPatches: mergedPatches,
+        aiFixError: null,
+      );
+      _updateTab(tabId, (t) => t.copyWith(diagnostic: updatedDiag));
+
+      for (final line in DiagnosticCodeFixService.formatTerminalResolutionLines(
+        updatedDiag,
+        aiSummary: result.explanationMarkdown,
+      )) {
+        _appendLine(tabId, line, isSystem: true, isResolution: true);
+      }
+      return result.explanationMarkdown;
+    } catch (e) {
+      if (_disposed) return null;
+      final currentDiag = _findTab(tabId)?.diagnostic;
+      if (currentDiag != null) {
+        _updateTab(
+          tabId,
+          (t) => t.copyWith(
+            diagnostic: currentDiag.copyWith(
+              isGeneratingAiFix: false,
+              aiFixError: 'Falha ao analisar erro com IA: $e',
+            ),
+          ),
+        );
+      }
+      return null;
+    }
+  }
+
+  /// Applies [selectedPatches] for an interactive shell tab's active diagnostic.
+  Future<AppPatchApplyResult> applyPatchesForTab(
+    String tabId, {
+    List<DiagnosticFilePatch>? selectedPatches,
+  }) async {
+    final tab = _findTab(tabId);
+    final diagnostic = tab?.diagnostic;
+    if (tab == null || diagnostic == null) {
+      return const AppPatchApplyResult(
+        appliedCount: 0,
+        errorMessage: 'Nenhum diagnóstico ativo nesta aba.',
+      );
+    }
+
+    final toApply = selectedPatches ?? diagnostic.suggestedPatches;
+    final result = await DiagnosticCodeFixService.applyPatches(
+      projectPath: tab.workingDirectory,
+      patches: toApply,
+    );
+    if (_disposed) return result;
+
+    if (!result.isSuccess) {
+      _appendLine(
+        tabId,
+        '❌ ${result.errorMessage ?? "Falha ao aplicar patches."}',
+        isError: true,
+      );
+      return result;
+    }
+
+    for (final file in result.modifiedFiles) {
+      _appendLine(
+        tabId,
+        '✅ Correção aplicada em: $file',
+        isSystem: true,
+        isResolution: true,
+      );
+    }
+    if (result.backupDir != null) {
+      _appendLine(
+        tabId,
+        '💾 Backup salvo em: ${result.backupDir}',
+        isSystem: true,
+        isResolution: true,
+      );
+    }
+    if (result.clearedCxxCache) {
+      _appendLine(
+        tabId,
+        '🧹 Cache nativo .cxx limpo para garantir recompilação.',
+        isSystem: true,
+        isResolution: true,
+      );
+    }
+
+    final remaining = diagnostic.suggestedPatches
+        .where((p) => !toApply.contains(p))
+        .toList(growable: false);
+    _updateTab(
+      tabId,
+      (t) => t.copyWith(
+        diagnostic: diagnostic.copyWith(
+          suggestedPatches: remaining,
+          lastAppliedBackupDir: result.backupDir,
+          appliedFixSummary: 'Aplicado em: ${result.modifiedFiles.join(", ")}',
+        ),
+      ),
+    );
+    return result;
+  }
+
+  Future<bool> revertPatchesForTab(String tabId) async {
+    final tab = _findTab(tabId);
+    final backupDir = tab?.diagnostic?.lastAppliedBackupDir?.trim();
+    if (tab == null || backupDir == null || backupDir.isEmpty) return false;
+
+    final restored = await DiagnosticCodeFixService.revertBackup(
+      projectPath: tab.workingDirectory,
+      backupDir: backupDir,
+    );
+    if (_disposed || restored.isEmpty) return false;
+
+    _appendLine(
+      tabId,
+      '↩️ Backup restaurado em: ${restored.join(", ")}',
+      isSystem: true,
+      isResolution: true,
+    );
+    final reEnriched = DiagnosticCodeFixService.enrichDiagnosticWithLocalAnalysis(
+      tab.diagnostic!.copyWith(
+        lastAppliedBackupDir: null,
+        appliedFixSummary: null,
+      ),
+      projectPath: tab.workingDirectory,
+      crashLogs: _extractLatestCommandLines(tab),
+    );
+    _updateTab(tabId, (t) => t.copyWith(diagnostic: reEnriched));
+    return true;
+  }
+
+  static bool _looksLikeTerminalFailureLine(String line) {
+    final lower = line.toLowerCase();
+    return lower.contains('failed to link shaders') ||
+        lower.contains('pipeline create failed') ||
+        lower.contains('vkcmdbindpipeline') ||
+        lower.contains('fatal signal 11') ||
+        lower.contains('fatal signal 6') ||
+        lower.contains('failure: build failed') ||
+        lower.contains('gradle build failed') ||
+        lower.contains('unhandled exception:') ||
+        lower.contains('install_failed_') ||
+        lower.contains('outofmemoryerror') ||
+        lower.contains('std::bad_alloc') ||
+        lower.contains('cmake error') ||
+        lower.contains('no devices/emulators found') ||
+        (lower.contains('adb.exe') && lower.contains('not found'));
+  }
+
+  List<String> _extractLatestCommandLines(TerminalTabSession tab) {
+    final startIdx = tab.lines.lastIndexWhere((l) => l.isCommandEcho);
+    final slice = startIdx >= 0 ? tab.lines.skip(startIdx + 1) : tab.lines;
+    return slice
+        .where((l) => !l.isResolution && !l.isSystem)
+        .map((l) => l.text)
+        .toList(growable: false);
+  }
+
+  void _scheduleShellDiagnostic(String tabId, {bool immediate = false}) {
+    if (_disposed || _deviceRunner == null) return;
+    _diagTimers.remove(tabId)?.cancel();
+    _diagTimers[tabId] = Timer(
+      Duration(milliseconds: immediate ? 30 : 220),
+      () => unawaited(_evaluateShellDiagnostic(tabId)),
+    );
+  }
+
+  Future<void> _evaluateShellDiagnostic(String tabId) async {
+    final runner = _deviceRunner;
+    if (_disposed || runner == null) return;
+    final tab = _findTab(tabId);
+    if (tab == null || !tab.isInteractiveShell) return;
+
+    final rawLines = _extractLatestCommandLines(tab);
+    if (rawLines.isEmpty) return;
+
+    final base = await runner.diagnoseBuildFailure(
+      rawLines,
+      projectPath: tab.workingDirectory,
+    );
+    if (_disposed || base == null) return;
+
+    final enriched = DiagnosticCodeFixService.enrichDiagnosticWithLocalAnalysis(
+      base,
+      projectPath: tab.workingDirectory,
+      crashLogs: rawLines,
+    );
+    final sig = '${enriched.issueType.name}::${enriched.affectedLocation ?? ""}';
+    if (_lastDiagnosedSignature[tabId] == sig && tab.diagnostic != null) {
+      return;
+    }
+    _lastDiagnosedSignature[tabId] = sig;
+
+    _updateTab(tabId, (t) => t.copyWith(diagnostic: enriched));
+    for (final line in DiagnosticCodeFixService.formatTerminalResolutionLines(enriched)) {
+      _appendLine(tabId, line, isSystem: true, isResolution: true);
+    }
   }
 
   TerminalTabSession? _findTab(String tabId) {
@@ -328,6 +601,7 @@ class TerminalNotifier extends StateNotifier<TerminalWorkspaceState> {
     bool isError = false,
     bool isSystem = false,
     bool isCommandEcho = false,
+    bool isResolution = false,
   }) {
     if (_disposed) return;
     final cleaned = TerminalShellService.stripAnsiCodes(rawText).trimRight();
@@ -344,17 +618,29 @@ class TerminalNotifier extends StateNotifier<TerminalWorkspaceState> {
           isError: isError,
           isSystem: isSystem,
           isCommandEcho: isCommandEcho,
+          isResolution: isResolution,
         ),
       );
     if (updatedLines.length > _maxLinesPerTab) {
       updatedLines.removeRange(0, updatedLines.length - _maxLinesPerTab);
     }
     _updateTab(tabId, (t) => t.copyWith(lines: updatedLines));
+
+    if (!isResolution &&
+        !isSystem &&
+        !isCommandEcho &&
+        _looksLikeTerminalFailureLine(cleaned)) {
+      _scheduleShellDiagnostic(tabId);
+    }
   }
 
   @override
   void dispose() {
     _disposed = true;
+    for (final timer in _diagTimers.values) {
+      timer.cancel();
+    }
+    _diagTimers.clear();
     final handles = _processes.values.toList(growable: false);
     _processes.clear();
     for (final handle in handles) {
@@ -376,5 +662,6 @@ final terminalShellServiceProvider = Provider<TerminalShellService>((ref) {
 final terminalProvider =
     StateNotifierProvider<TerminalNotifier, TerminalWorkspaceState>((ref) {
   final service = ref.watch(terminalShellServiceProvider);
-  return TerminalNotifier(service);
+  final runner = ref.watch(androidDeviceRunnerServiceProvider);
+  return TerminalNotifier(service, deviceRunner: runner);
 });
