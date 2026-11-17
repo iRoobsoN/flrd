@@ -347,5 +347,47 @@ void main() {
 
       expect(find.byType(FlutterDoctorDialog), findsOneWidget);
     });
+
+    testWidgets('Displays PC overview card, grouped ready/pending sections, and copies checklist', (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      String? copiedText;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          if (methodCall.method == 'Clipboard.setData') {
+            copiedText = (methodCall.arguments as Map)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        );
+      });
+
+      await tester.pumpWidget(createTestWidget(language: AppLanguage.pt));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('doctor_pc_overview_card')), findsOneWidget);
+      expect(find.byKey(const ValueKey('doctor_pending_section_header')), findsOneWidget);
+      expect(find.byKey(const ValueKey('doctor_ready_section_header')), findsOneWidget);
+      expect(find.text('Já feitos neste PC (1)'), findsOneWidget);
+      expect(find.text('Pendentes para atenção (2)'), findsOneWidget);
+
+      // Copy checklist button in footer
+      final copyChecklistBtn = find.byKey(const ValueKey('doctor_copy_checklist_button'));
+      expect(copyChecklistBtn, findsOneWidget);
+      await tester.tap(copyChecklistBtn);
+      await tester.pump();
+
+      expect(copiedText, contains('Já Prontos no PC (1)'));
+      expect(copiedText, contains('Pendentes (2)'));
+      expect(copiedText, contains('Visual Studio - develop Windows apps'));
+    });
   });
 }

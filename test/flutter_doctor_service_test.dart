@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:flrd/core/services/flutter_doctor_service.dart';
 
 void main() {
@@ -368,6 +369,107 @@ void main() {
       final report = await container.read(flutterDoctorProvider.notifier).runDoctor();
       expect(report.healthyCount, equals(1));
       expect(container.read(flutterDoctorProvider).healthyCount, equals(1));
+    });
+
+    test('extended PC probes detect ready Git/Ninja/NDK/ADB and flag Java 25 vs compatible JDK', () async {
+      final tempDir = Directory.systemTemp.createTempSync('flrd_doctor_probes_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final sdkDir = Directory(p.join(tempDir.path, 'android_sdk'))..createSync(recursive: true);
+      Directory(p.join(sdkDir.path, 'ndk', '26.1.10909125')).createSync(recursive: true);
+      Directory(p.join(sdkDir.path, 'platform-tools')).createSync(recursive: true);
+      File(p.join(sdkDir.path, 'platform-tools', Platform.isWindows ? 'adb.exe' : 'adb'))
+          .writeAsStringSync('stub');
+
+      final jdk17Dir = Directory(p.join(tempDir.path, 'jdk17'))..createSync(recursive: true);
+      Directory(p.join(jdk17Dir.path, 'bin')).createSync(recursive: true);
+      File(p.join(jdk17Dir.path, 'bin', Platform.isWindows ? 'java.exe' : 'java'))
+          .writeAsStringSync('stub');
+      File(p.join(jdk17Dir.path, 'release')).writeAsStringSync('JAVA_VERSION="17.0.12"\n');
+
+      final service = FlutterDoctorService(
+        autoScan: false,
+        enableExtendedPcChecks: true,
+        environmentProvider: () => {
+          'ANDROID_SDK_ROOT': sdkDir.path,
+          'JAVA_HOME': jdk17Dir.path,
+        },
+        processRunner: (executable, arguments, {runInShell = true}) async {
+          if (executable == 'where.exe' || executable == 'which') {
+            return ProcessResult(1, 0, 'C:\\src\\flutter\\bin\\flutter.bat', '');
+          }
+          if (executable == 'flutter' &&
+              arguments.isNotEmpty &&
+              arguments.first == 'doctor') {
+            return ProcessResult(
+              2,
+              0,
+              '[√] Flutter (Channel stable, 3.47.9)\n[√] Android toolchain - develop for Android devices (Android SDK 35.0.0)\n',
+              '',
+            );
+          }
+          if (executable == 'flutter' &&
+              arguments.length >= 2 &&
+              arguments[0] == 'config') {
+            return ProcessResult(3, 0, 'Configure Settings:\n  jdk-dir: (Not set)\n', '');
+          }
+          if (executable == 'git') {
+            return ProcessResult(4, 0, 'git version 2.47.0.windows.1', '');
+          }
+          if (executable == 'java') {
+            return ProcessResult(5, 0, '', 'openjdk version "25.0.4" 2026-07-21');
+          }
+          if (executable == 'ninja') {
+            return ProcessResult(6, 0, '1.12.1', '');
+          }
+          if (executable.toLowerCase().contains('adb')) {
+            return ProcessResult(
+              7,
+              0,
+              'List of devices attached\nRXGL20BSBJX            device model:SM_S938B\n',
+              '',
+            );
+          }
+          return ProcessResult(8, 0, '', '');
+        },
+      );
+
+      final report = await service.runDoctor();
+
+      expect(report.healthyItems.any((i) => i.id == 'git_cli'), isTrue);
+      expect(report.healthyItems.any((i) => i.id == 'native_cpp_toolchain'), isTrue);
+      expect(report.healthyItems.any((i) => i.id == 'adb_usb'), isTrue);
+
+      final jdkItem = report.pendingItems.firstWhere((i) => i.id == 'java_jdk_lts');
+      expect(jdkItem.status, equals(DoctorItemStatus.warning));
+      expect(jdkItem.actionCommand, contains('flutter config --jdk-dir='));
+      expect(jdkItem.actionCommand, contains(jdk17Dir.path));
+
+      final checklist = report.toChecklistMarkdown(pt: true);
+      expect(checklist, contains('Já Prontos no PC'));
+      expect(checklist, contains('Pendentes'));
+      expect(checklist, contains('Git CLI'));
+      expect(checklist, contains('Java / JDK Compatível'));
+    });
+
+    test('normalizes Windows CP1252 mojibake [âˆš] bullets from flutter doctor output', () {
+      const mojibakeOutput = '''
+[âˆš] Flutter (Channel stable, 3.47.9) [400ms]
+    â€¢ Flutter version 3.47.9 at C:\\src\\flutter
+[âˆš] Visual Studio - develop Windows apps [120ms]
+[!] Android toolchain - develop for Android devices (Android SDK version 36.0.0)
+    X cmdline-tools component is missing.
+    X Android license status unknown.
+''';
+
+      final report = FlutterDoctorService.parseDoctorOutput(mojibakeOutput);
+      expect(report.totalCount, equals(3));
+      expect(report.healthyCount, equals(2));
+      expect(report.healthyItems.map((i) => i.id), containsAll(['flutter', 'visual_studio']));
+      expect(report.pendingItems.single.solutionGuidance, contains('Command-line Tools'));
+      expect(report.pendingItems.single.actionCommand, equals('flutter doctor --android-licenses'));
     });
   });
 }

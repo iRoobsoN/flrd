@@ -198,8 +198,8 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(
-          maxWidth: 680,
-          maxHeight: 740,
+          maxWidth: 720,
+          maxHeight: 820,
           minHeight: 380,
         ),
         child: Container(
@@ -774,23 +774,321 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
       );
     }
 
-    // 3. Scrollable List of DoctorItem Cards
+    // 3. Scrollable Overview + Grouped DoctorItem Cards
+    final readyItems = report.healthyItems;
+    final pendingItems = report.pendingItems;
+    final showGroupedSections = _filter == null;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (int i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(height: 10),
-            _buildDoctorItemCard(
-              context: context,
-              item: items[i],
-              isExpanded: _expandedItemIds.contains(items[i].id),
-              strings: strings,
+          if (showGroupedSections && report.items.isNotEmpty) ...[
+            _buildPcOverviewSummaryCard(
+              report: report,
+              readyItems: readyItems,
+              pendingItems: pendingItems,
               isPt: isPt,
               isEs: isEs,
             ),
+            const SizedBox(height: 10),
           ],
+          if (showGroupedSections) ...[
+            if (readyItems.isNotEmpty) ...[
+              _buildSectionHeader(
+                key: const ValueKey('doctor_ready_section_header'),
+                icon: Icons.verified_rounded,
+                color: AppColors.success,
+                title: isPt
+                    ? 'Já Configurados no PC (${readyItems.length})'
+                    : (isEs
+                        ? 'Ya Configurados en el PC (${readyItems.length})'
+                        : 'Already Configured on PC (${readyItems.length})'),
+              ),
+              const SizedBox(height: 6),
+              for (int i = 0; i < readyItems.length; i++) ...[
+                if (i > 0) const SizedBox(height: 8),
+                _buildDoctorItemCard(
+                  context: context,
+                  item: readyItems[i],
+                  isExpanded: _expandedItemIds.contains(readyItems[i].id),
+                  strings: strings,
+                  isPt: isPt,
+                  isEs: isEs,
+                ),
+              ],
+              if (pendingItems.isNotEmpty) const SizedBox(height: 10),
+            ],
+            if (pendingItems.isNotEmpty) ...[
+              _buildSectionHeader(
+                key: const ValueKey('doctor_pending_section_header'),
+                icon: Icons.warning_amber_rounded,
+                color: pendingItems.any((i) => i.isMissing)
+                    ? AppColors.danger
+                    : AppColors.warning,
+                title: isPt
+                    ? 'Pendências Sinalizadas (${pendingItems.length})'
+                    : (isEs
+                        ? 'Pendientes por Configurar (${pendingItems.length})'
+                        : 'Pending Configuration (${pendingItems.length})'),
+              ),
+              const SizedBox(height: 6),
+              for (int i = 0; i < pendingItems.length; i++) ...[
+                if (i > 0) const SizedBox(height: 8),
+                _buildDoctorItemCard(
+                  context: context,
+                  item: pendingItems[i],
+                  isExpanded: _expandedItemIds.contains(pendingItems[i].id),
+                  strings: strings,
+                  isPt: isPt,
+                  isEs: isEs,
+                ),
+              ],
+            ],
+          ] else ...[
+            for (int i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _buildDoctorItemCard(
+                context: context,
+                item: items[i],
+                isExpanded: _expandedItemIds.contains(items[i].id),
+                strings: strings,
+                isPt: isPt,
+                isEs: isEs,
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _shortSummaryLabel(DoctorItem item) {
+    switch (item.id) {
+      case 'flutter':
+      case 'flutter_sdk':
+        return 'Flutter SDK';
+      case 'windows_version':
+        return 'Windows OS';
+      case 'android_toolchain':
+        return 'Android SDK';
+      case 'android_studio':
+        return 'Android Studio';
+      case 'visual_studio':
+        return 'Visual Studio C++';
+      case 'chrome':
+        return 'Chrome Web';
+      case 'connected_device':
+        return 'Dispositivos';
+      case 'network_resources':
+        return 'Rede / Internet';
+      case 'git_cli':
+        return 'Git';
+      case 'java_jdk_lts':
+        return 'Java / JDK';
+      case 'native_cpp_toolchain':
+        return 'Ninja & NDK';
+      case 'adb_usb':
+        return 'ADB / USB';
+      default:
+        final cut = item.title.split(RegExp(r'\s*[\(\-–]')).first.trim();
+        return cut.isNotEmpty ? cut : item.title;
+    }
+  }
+
+  Widget _buildPcOverviewSummaryCard({
+    required DoctorReport report,
+    required List<DoctorItem> readyItems,
+    required List<DoctorItem> pendingItems,
+    required bool isPt,
+    required bool isEs,
+  }) {
+    final doneHeader = isPt
+        ? 'Já feitos neste PC (${readyItems.length})'
+        : (isEs
+            ? 'Ya listos en este PC (${readyItems.length})'
+            : 'Done on PC (${readyItems.length})');
+    final pendingHeader = isPt
+        ? 'Pendentes para atenção (${pendingItems.length})'
+        : (isEs
+            ? 'Pendientes (${pendingItems.length})'
+            : 'Pending (${pendingItems.length})');
+    final allClearText = isPt
+        ? 'Nenhuma pendência neste PC — pronto para build!'
+        : (isEs
+            ? 'Sin pendientes — ¡listo para compilar!'
+            : 'All clear on this PC — ready to build!');
+
+    return Container(
+      key: const ValueKey('doctor_pc_overview_card'),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 6,
+            runSpacing: 5,
+            children: [
+              Text(
+                doneHeader,
+                style: const TextStyle(
+                  color: AppColors.success,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (readyItems.isEmpty)
+                Text(
+                  isPt ? 'nenhum ainda' : 'none yet',
+                  style: const TextStyle(color: AppColors.textMuted, fontSize: 10.5),
+                )
+              else
+                for (final item in readyItems)
+                  Material(
+                    color: AppColors.success.withOpacity(0.12),
+                    clipBehavior: Clip.antiAlias,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(5),
+                      side: BorderSide(
+                        color: AppColors.success.withOpacity(0.32),
+                      ),
+                    ),
+                    child: InkWell(
+                      onTap: () => setState(() => _expandedItemIds.add(item.id)),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2.5,
+                        ),
+                        child: Text(
+                          '✓ ${_shortSummaryLabel(item)}',
+                          style: const TextStyle(
+                            color: AppColors.success,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (pendingItems.isEmpty)
+            Row(
+              children: [
+                const Icon(
+                  Icons.celebration_rounded,
+                  size: 12,
+                  color: AppColors.success,
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    allClearText,
+                    style: const TextStyle(
+                      color: AppColors.success,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 6,
+              runSpacing: 5,
+              children: [
+                Text(
+                  pendingHeader,
+                  style: TextStyle(
+                    color: pendingItems.any((i) => i.isMissing)
+                        ? AppColors.danger
+                        : AppColors.warning,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                for (final item in pendingItems)
+                  Material(
+                    color: (item.isMissing
+                            ? AppColors.danger
+                            : AppColors.warning)
+                        .withOpacity(0.12),
+                    clipBehavior: Clip.antiAlias,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(5),
+                      side: BorderSide(
+                        color: (item.isMissing
+                                ? AppColors.danger
+                                : AppColors.warning)
+                            .withOpacity(0.35),
+                      ),
+                    ),
+                    child: InkWell(
+                      onTap: () => setState(() => _expandedItemIds.add(item.id)),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2.5,
+                        ),
+                        child: Text(
+                          '${item.isMissing ? "✗" : "!"} ${_shortSummaryLabel(item)}',
+                          style: TextStyle(
+                            color: item.isMissing
+                                ? AppColors.danger
+                                : AppColors.warning,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required Key key,
+    required IconData icon,
+    required Color color,
+    required String title,
+  }) {
+    return Container(
+      key: key,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.24)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1239,14 +1537,28 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
     required DoctorReport report,
     required String closeLabel,
   }) {
+    final lang = ref.read(appLanguageProvider);
+    final isPt = lang == AppLanguage.pt;
+    final checklistLabel = isPt
+        ? 'Copiar Checklist'
+        : (lang == AppLanguage.es ? 'Copiar Lista' : 'Copy Checklist');
+    final checklistCopiedMsg = isPt
+        ? 'Checklist (prontos + pendentes) copiado!'
+        : (lang == AppLanguage.es
+            ? '¡Lista de verificación copiada!'
+            : 'PC checklist copied to clipboard!');
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: const BoxDecoration(
         color: AppColors.backgroundSecondary,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 8,
         children: [
           const Text(
             'FLRD Doctor • v0.2.1',
@@ -1256,16 +1568,39 @@ class _FlutterDoctorDialogState extends ConsumerState<FlutterDoctorDialog> {
               fontWeight: FontWeight.w500,
             ),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.surface,
-              foregroundColor: AppColors.textPrimary,
-              side: const BorderSide(color: AppColors.border),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(closeLabel, style: const TextStyle(fontSize: 11)),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (report.items.isNotEmpty) ...[
+                OutlinedButton.icon(
+                  key: const ValueKey('doctor_copy_checklist_button'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.secondary,
+                    side: BorderSide(color: AppColors.secondary.withOpacity(0.4)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => _copyToClipboard(
+                    report.toChecklistMarkdown(pt: isPt),
+                    checklistCopiedMsg,
+                  ),
+                  icon: const Icon(Icons.checklist_rounded, size: 13),
+                  label: Text(checklistLabel, style: const TextStyle(fontSize: 11)),
+                ),
+                const SizedBox(width: 8),
+              ],
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.surface,
+                  foregroundColor: AppColors.textPrimary,
+                  side: const BorderSide(color: AppColors.border),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(closeLabel, style: const TextStyle(fontSize: 11)),
+              ),
+            ],
           ),
         ],
       ),
