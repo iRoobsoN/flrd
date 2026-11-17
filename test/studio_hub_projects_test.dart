@@ -9,6 +9,7 @@ import 'package:flrd/features/projects/models/registered_project.dart';
 import 'package:flrd/features/projects/presentation/widgets/import_project_dialog.dart';
 import 'package:flrd/features/projects/providers/projects_provider.dart';
 import 'package:flrd/features/projects/services/project_analyzer_service.dart';
+import 'package:flrd/features/projects/services/workspace_projects_service.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
 import 'package:flrd/features/studio/presentation/widgets/embedded_code_viewer.dart';
@@ -113,12 +114,24 @@ void main() {
   });
 
   group('ProjectsProvider State Selection & Desync Tests', () {
-    test('selectProject(null) successfully clears selectedProjectId', () {
+    test('starts empty without mockup projects and selectProject(null) clears selectedProjectId', () {
       final container = ProviderContainer();
+      addTearDown(container.dispose);
       final notifier = container.read(projectsProvider.notifier);
 
-      notifier.selectProject('my_awesome_app');
-      expect(container.read(projectsProvider).selectedProjectId, 'my_awesome_app');
+      expect(container.read(projectsProvider).projects, isEmpty);
+
+      notifier.addProject(
+        name: 'real_workspace_app',
+        orgId: 'com.example.real',
+        path: p.join(tempDir.path, 'real_workspace_app'),
+        preset: PresetType.saas,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: {},
+      );
+
+      notifier.selectProject('real_workspace_app');
+      expect(container.read(projectsProvider).selectedProjectId, 'real_workspace_app');
 
       notifier.selectProject(null);
       expect(container.read(projectsProvider).selectedProjectId, isNull);
@@ -126,13 +139,24 @@ void main() {
 
     test('removeProject clears selectedProjectId if active project is deleted', () {
       final container = ProviderContainer();
+      addTearDown(container.dispose);
       final notifier = container.read(projectsProvider.notifier);
 
-      notifier.selectProject('my_awesome_app');
-      expect(container.read(projectsProvider).selectedProjectId, 'my_awesome_app');
+      notifier.addProject(
+        name: 'real_workspace_app',
+        orgId: 'com.example.real',
+        path: p.join(tempDir.path, 'real_workspace_app'),
+        preset: PresetType.saas,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: {},
+      );
 
-      notifier.removeProject('my_awesome_app');
+      notifier.selectProject('real_workspace_app');
+      expect(container.read(projectsProvider).selectedProjectId, 'real_workspace_app');
+
+      notifier.removeProject('real_workspace_app');
       expect(container.read(projectsProvider).selectedProjectId, isNull);
+      expect(container.read(projectsProvider).projects, isEmpty);
     });
   });
 
@@ -720,6 +744,140 @@ class SettingsScreen extends StatelessWidget {
         await tester.pump(const Duration(seconds: 5));
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
+      },
+    );
+  });
+
+  group('Real-Only Projects Discovery, Persistence & Card Removal', () {
+    test(
+      'WorkspaceProjectsService discovers real pubspec.yaml apps, filters missing/fake paths and persists real projects',
+      () async {
+        final root = Directory(p.join(tempDir.path, 'workspace_scan'))
+          ..createSync(recursive: true);
+
+        final realApp = Directory(p.join(root.path, 'snapia_real'))
+          ..createSync(recursive: true);
+        File(p.join(realApp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: snapia_real
+dependencies:
+  flutter:
+    sdk: flutter
+''');
+        Directory(p.join(realApp.path, 'lib')).createSync(recursive: true);
+        File(p.join(realApp.path, 'lib', 'main.dart')).writeAsStringSync(
+          'void main() {}\n',
+        );
+        // Nested example/ subproject inside a real project must be skipped.
+        final nestedExample = Directory(p.join(realApp.path, 'example'))
+          ..createSync(recursive: true);
+        File(p.join(nestedExample.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: nested_example\n');
+
+        // Plain non-Flutter folder must be skipped.
+        Directory(p.join(root.path, 'random_folder'))
+            .createSync(recursive: true);
+
+        // Hidden or build folder must be skipped.
+        final hiddenApp = Directory(p.join(root.path, '.hidden_app'))
+          ..createSync(recursive: true);
+        File(p.join(hiddenApp.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: hidden_app\n');
+
+        final storageFile = p.join(tempDir.path, 'config', 'registered_projects.json');
+        await WorkspaceProjectsService.savePersistedProjectPaths(
+          [
+            realApp.path,
+            p.join(tempDir.path, 'nonexistent_mockup_app'),
+          ],
+          storageFilePath: storageFile,
+        );
+
+        final loaded = WorkspaceProjectsService.loadPersistedProjectPaths(
+          storageFilePath: storageFile,
+        );
+        expect(loaded.hasStorageFile, isTrue);
+        expect(loaded.paths, [WorkspaceProjectsService.normalizeProjectPath(realApp.path)]);
+
+        final notifier = ProjectsNotifier(
+          storageFilePath: storageFile,
+          workspaceScanRoots: [root.path],
+          enableDiskSync: true,
+          autoInitialize: false,
+        );
+        addTearDown(notifier.dispose);
+
+        await notifier.scanWorkspace();
+
+        expect(notifier.state.projects, hasLength(1));
+        expect(notifier.state.projects.first.name, 'snapia_real');
+
+        notifier.removeProject('snapia_real');
+        expect(notifier.state.projects, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'ProjectsGridView shows empty state without mockups and allows removing a real project card',
+      (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final realDir = Directory(p.join(tempDir.path, 'real_card_app'))
+          ..createSync(recursive: true);
+        File(p.join(realDir.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: real_card_app\n');
+
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(
+              home: Scaffold(
+                body: SingleChildScrollView(child: ProjectsGridView()),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(const ValueKey('empty_projects_state')),
+          findsOneWidget,
+        );
+
+        container.read(projectsProvider.notifier).addProject(
+              name: 'real_card_app',
+              orgId: 'com.example.realcard',
+              path: realDir.path,
+              preset: PresetType.saas,
+              navigationStyle: NavigationStyle.tabs,
+              permissions: const {},
+            );
+        await tester.pumpAndSettle();
+
+        expect(find.text('real_card_app'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('remove_project_real_card_app')),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey('remove_project_real_card_app')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('real_card_app'), findsNothing);
+        expect(
+          find.byKey(const ValueKey('empty_projects_state')),
+          findsOneWidget,
+        );
+        expect(realDir.existsSync(), isTrue);
+        expect(tester.takeException(), isNull);
+        await tester.pump(const Duration(seconds: 5));
       },
     );
   });

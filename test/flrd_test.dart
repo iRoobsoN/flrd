@@ -140,14 +140,14 @@ void main() {
   });
 
   group('Projects & Workspace Tests', () {
-    test('ProjectsNotifier initializes with starter projects', () {
-      final notifier = ProjectsNotifier();
-      expect(notifier.state.projects.isNotEmpty, isTrue);
-      expect(notifier.state.projects.length, greaterThanOrEqualTo(3));
+    test('ProjectsNotifier initializes empty with no mockup projects', () {
+      final notifier = ProjectsNotifier(enableDiskSync: false);
+      expect(notifier.state.projects, isEmpty);
+      expect(notifier.state.selectedProjectId, isNull);
     });
 
     test('addProject inserts a new registered project at the top', () {
-      final notifier = ProjectsNotifier();
+      final notifier = ProjectsNotifier(enableDiskSync: false);
       notifier.addProject(
         name: 'flutter_fintech',
         orgId: 'com.fintech.app',
@@ -162,7 +162,15 @@ void main() {
     });
 
     test('removeProject removes project by id', () {
-      final notifier = ProjectsNotifier();
+      final notifier = ProjectsNotifier(enableDiskSync: false);
+      notifier.addProject(
+        name: 'real_app',
+        orgId: 'com.real.app',
+        path: 'C:/Projects/real_app',
+        preset: PresetType.saas,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: {},
+      );
       final initialCount = notifier.state.projects.length;
       final firstId = notifier.state.projects.first.id;
 

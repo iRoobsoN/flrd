@@ -8,6 +8,12 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/flutter_sdk_dialog.dart';
 import '../../../core/window/custom_titlebar.dart';
+import '../../projects/models/registered_project.dart';
+import '../../projects/providers/projects_provider.dart';
+import '../../projects/services/project_analyzer_service.dart';
+import '../../projects/services/workspace_projects_service.dart';
+import '../../studio/presentation/app_studio_screen.dart';
+import '../../studio/providers/studio_provider.dart';
 import 'controllers/wizard_controller.dart';
 import '../models/project_name_validator.dart';
 import 'widgets/wizard_sidebar.dart';
@@ -150,6 +156,7 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
   final List<String> _logs = [];
   bool _isComplete = false;
   bool _isSuccess = true;
+  RegisteredProject? _generatedProject;
 
   @override
   void initState() {
@@ -197,10 +204,28 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
     );
 
     final result = await generator.execute();
+    RegisteredProject? generatedProject;
+    if (result && !kIsWeb && config.outputPath.trim().isNotEmpty) {
+      final targetPath = p.normalize(
+        p.join(config.outputPath.trim(), config.projectName),
+      );
+      if (WorkspaceProjectsService.isValidFlutterProjectDir(targetPath)) {
+        try {
+          final analyzed =
+              await ProjectAnalyzerService.analyzeProject(targetPath);
+          generatedProject = analyzed.project;
+          if (mounted) {
+            ref.read(projectsProvider.notifier).registerProject(analyzed.project);
+            ref.read(studioProvider.notifier).setNodes(analyzed.routeNodes);
+          }
+        } catch (_) {}
+      }
+    }
     if (mounted) {
       setState(() {
         _isComplete = true;
         _isSuccess = result;
+        _generatedProject = generatedProject;
       });
     }
   }
@@ -336,6 +361,34 @@ class _GenerationProgressDialogState extends ConsumerState<_GenerationProgressDi
                     style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
                     child: const Text('Close'),
                   ),
+                  if (_isSuccess && _generatedProject != null) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        final project = _generatedProject!;
+                        final navigator = Navigator.of(context);
+                        navigator.pop();
+                        navigator.push(
+                          MaterialPageRoute(
+                            builder: (_) => AppStudioScreen(project: project),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.alt_route_rounded, size: 16),
+                      label: const Text('Open in Studio'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.secondary,
+                        side: const BorderSide(color: AppColors.secondary),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
                     onPressed: () {

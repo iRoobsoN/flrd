@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
-import '../../../projects/providers/projects_provider.dart';
+import '../../../wizard/presentation/controllers/wizard_controller.dart';
+import '../../../wizard/presentation/wizard_screen.dart';
 import '../../models/marketplace_template.dart';
 
 class TemplateDetailsModal extends ConsumerWidget {
@@ -18,23 +19,27 @@ class TemplateDetailsModal extends ConsumerWidget {
   }
 
   void _installTemplate(BuildContext context, WidgetRef ref) {
-    // Add to recognized projects
-    ref.read(projectsProvider.notifier).addProject(
-          name: template.id.replaceAll('-', '_'),
-          orgId: 'com.marketplace.${template.id.replaceAll('-', '')}',
-          path: 'C:/Projects/${template.id.replaceAll('-', '_')}',
-          preset: template.preset,
-          navigationStyle: template.navigationStyle,
-          permissions: {},
-          routeCount: template.screensCount,
+    final suggestedName = template.id.replaceAll('-', '_');
+    ref.read(wizardProvider.notifier).updateConfig(
+          (c) => c.copyWith(
+            projectName: suggestedName,
+            orgId: 'com.app.${template.id.replaceAll('-', '')}',
+            preset: template.preset,
+            navigationStyle: template.navigationStyle,
+            seedColor: template.accentColor,
+          ),
         );
 
-    Navigator.of(context).pop();
+    final navigator = Navigator.of(context);
+    navigator.pop();
+    navigator.push(
+      MaterialPageRoute(builder: (_) => const WizardScreen()),
+    );
 
-    AppToast.success(
+    AppToast.info(
       context,
-      'Template "${template.title}" instalado e adicionado aos Meus Projetos!',
-      duration: const Duration(seconds: 3),
+      'Blueprint "${template.title}" carregado no assistente. Escolha a pasta real para gerar o projeto no disco!',
+      duration: const Duration(seconds: 4),
     );
   }
 

@@ -731,7 +731,7 @@ class _HubScreenState extends ConsumerState<HubScreen> {
                             ref.read(projectsProvider).projects.length;
                         AppToast.info(
                           context,
-                          'Scan complete: $count Flutter ${count == 1 ? "project" : "projects"} recognized on this machine!',
+                          'Scan concluído: $count ${count == 1 ? "projeto Flutter real encontrado" : "projetos Flutter reais encontrados"} no computador.',
                           duration: const Duration(seconds: 2),
                         );
                       }

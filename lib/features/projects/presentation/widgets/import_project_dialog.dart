@@ -31,8 +31,7 @@ class ImportProjectDialog extends ConsumerStatefulWidget {
 }
 
 class _ImportProjectDialogState extends ConsumerState<ImportProjectDialog> {
-  final TextEditingController _pathController =
-      TextEditingController(text: 'C:/Projects');
+  final TextEditingController _pathController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -411,10 +410,28 @@ class _ImportProjectDialogState extends ConsumerState<ImportProjectDialog> {
                     ),
                     onPressed: _isLoading
                         ? null
-                        : () => setState(
+                        : () {
+                            if (kIsWeb) {
+                              setState(
+                                () => _pathController.text = 'C:/Projects/flrd',
+                              );
+                              return;
+                            }
+                            final cwd = Directory.current.path.replaceAll('\\', '/');
+                            final home = (Platform.environment['USERPROFILE'] ??
+                                    Platform.environment['HOME'] ??
+                                    '')
+                                .replaceAll('\\', '/');
+                            final fallback = home.isNotEmpty
+                                ? '$home/Desktop'
+                                : cwd;
+                            setState(
                               () => _pathController.text =
-                                  'C:/Users/Rob/Desktop/flrd',
-                            ),
+                                  File(p.join(cwd, 'pubspec.yaml')).existsSync()
+                                      ? cwd
+                                      : fallback,
+                            );
+                          },
                   ),
                 ],
               ),

@@ -3,11 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import '../../../../core/localization/language_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../../projects/models/registered_project.dart';
+import '../../../projects/presentation/widgets/import_project_dialog.dart';
 import '../../../projects/providers/projects_provider.dart';
 import '../../../projects/services/project_analyzer_service.dart';
+import '../../../projects/services/workspace_projects_service.dart';
 import '../../../studio/presentation/app_studio_screen.dart';
 import '../../../studio/providers/studio_provider.dart';
 import '../../../wizard/presentation/wizard_screen.dart';
@@ -37,10 +40,12 @@ class ProjectsGridView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(projectsProvider);
+    final strings = ref.watch(appStringsProvider);
     final projects = state.projects;
 
     if (projects.isEmpty) {
       return Container(
+        key: const ValueKey('empty_projects_state'),
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
         decoration: BoxDecoration(
@@ -66,42 +71,121 @@ class ProjectsGridView extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'No registered projects yet',
-              style: TextStyle(
+            Text(
+              strings.noProjectsTitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.bold,
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Create your first app or scan a directory with Flutter projects.',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Text(
+                strings.noProjectsSubtitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+              ),
             ),
             const SizedBox(height: 20),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                ElevatedButton.icon(
+                  key: const ValueKey('empty_create_project_button'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const WizardScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: Text(
+                    strings.newProjectTitle,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                OutlinedButton.icon(
+                  key: const ValueKey('empty_import_project_button'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.border),
+                    backgroundColor: AppColors.surface,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () => ImportProjectDialog.show(context),
+                  icon: const Icon(
+                    Icons.folder_open_rounded,
+                    size: 16,
+                    color: AppColors.secondary,
+                  ),
+                  label: Text(
+                    strings.language.code == 'pt'
+                        ? 'Abrir Pasta do PC'
+                        : 'Open Local Folder',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
                 ),
-              ),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const WizardScreen()),
-                );
-              },
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text(
-                'Create New Project',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              ),
+                OutlinedButton.icon(
+                  key: const ValueKey('empty_scan_projects_button'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.border),
+                    backgroundColor: AppColors.surface,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: state.isScanning
+                      ? null
+                      : () =>
+                          ref.read(projectsProvider.notifier).scanWorkspace(),
+                  icon: const Icon(
+                    Icons.refresh_rounded,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                  label: Text(
+                    strings.language.code == 'pt'
+                        ? 'Buscar no Computador'
+                        : 'Scan Machine',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -130,6 +214,18 @@ class ProjectsGridView extends ConsumerWidget {
                 var targetProject = project;
                 final navigator = Navigator.of(context);
                 if (!kIsWeb &&
+                    !WorkspaceProjectsService.isValidFlutterProjectDir(
+                      project.path,
+                    )) {
+                  ref.read(projectsProvider.notifier).removeProject(project.id);
+                  if (!context.mounted) return;
+                  AppToast.error(
+                    context,
+                    'Projeto real não encontrado em "${project.path}". Removido da lista.',
+                  );
+                  return;
+                }
+                if (!kIsWeb &&
                     File(p.join(project.path, 'pubspec.yaml')).existsSync()) {
                   final projectsNotifier = ref.read(projectsProvider.notifier);
                   final studioNotifier = ref.read(studioProvider.notifier);
@@ -154,6 +250,13 @@ class ProjectsGridView extends ConsumerWidget {
               },
               onOpenVsCode: () => _openVsCode(context, project.path),
               onOpenDirectory: () => _openDirectory(project.path),
+              onRemove: () {
+                ref.read(projectsProvider.notifier).removeProject(project.id);
+                AppToast.info(
+                  context,
+                  'Projeto "${project.name}" removido da lista do FLRD.',
+                );
+              },
             );
           },
         );
@@ -167,12 +270,14 @@ class _ProjectCard extends StatefulWidget {
   final VoidCallback onOpenStudio;
   final VoidCallback onOpenVsCode;
   final VoidCallback onOpenDirectory;
+  final VoidCallback onRemove;
 
   const _ProjectCard({
     required this.project,
     required this.onOpenStudio,
     required this.onOpenVsCode,
     required this.onOpenDirectory,
+    required this.onRemove,
   });
 
   @override
@@ -276,6 +381,26 @@ class _ProjectCardState extends State<_ProjectCard> {
                         color: AppColors.secondary,
                         fontSize: 9,
                         fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Tooltip(
+                    message: 'Remover da lista',
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: InkWell(
+                        key: ValueKey('remove_project_${p.id}'),
+                        onTap: widget.onRemove,
+                        borderRadius: BorderRadius.circular(4),
+                        child: const Padding(
+                          padding: EdgeInsets.all(2),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 14,
+                            color: AppColors.textMuted,
+                          ),
+                        ),
                       ),
                     ),
                   ),
