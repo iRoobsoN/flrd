@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import '../../wizard/models/project_config.dart';
+import 'preset_file_helper.dart';
 
 class SaasPreset {
   SaasPreset._();
@@ -32,57 +33,10 @@ class SaasPreset {
   }
 
   static Future<void> _writeTheme(String targetPath, ProjectConfig config) async {
-    final file = _resolveFile(targetPath, 'lib/core/theme/app_theme.dart');
-    final seedHex = config.seedColor.value.toRadixString(16).padLeft(8, '0');
-
-    await _writeFile(file, '''
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-
-class AppTheme {
-  AppTheme._();
-
-  static const Color seedColor = Color(0x$seedHex);
-
-  static ThemeData get lightTheme {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: seedColor,
-      brightness: Brightness.light,
+    await PresetFileHelper.writeAppTheme(
+      targetPath: targetPath,
+      config: config,
     );
-
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: colorScheme,
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(ThemeData.light().textTheme),
-      appBarTheme: AppBarTheme(
-        backgroundColor: colorScheme.surface,
-        foregroundColor: colorScheme.onSurface,
-        elevation: 0,
-        centerTitle: true,
-      ),
-    );
-  }
-
-  static ThemeData get darkTheme {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: seedColor,
-      brightness: Brightness.dark,
-    );
-
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: colorScheme,
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(ThemeData.dark().textTheme),
-      appBarTheme: AppBarTheme(
-        backgroundColor: colorScheme.surface,
-        foregroundColor: colorScheme.onSurface,
-        elevation: 0,
-        centerTitle: true,
-      ),
-    );
-  }
-}
-''');
   }
 
   static Future<void> _writeAuthModels(String targetPath) async {

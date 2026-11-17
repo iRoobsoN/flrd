@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import '../../../../core/theme/app_colors.dart';
 import '../../models/project_config.dart';
 import '../controllers/wizard_controller.dart';
+import '../widgets/dependencies_review_panel.dart';
 
 class NativeConfigTab extends ConsumerWidget {
   const NativeConfigTab({super.key});
@@ -160,6 +161,10 @@ class NativeConfigTab extends ConsumerWidget {
 
           // Resumo final completo do app antes da geração
           _WizardSummaryCard(config: config),
+          const SizedBox(height: 20),
+
+          // Opções Avançadas opcionais: revisar/desmarcar/incluir dependências antes de criar
+          const AdvancedDependenciesSection(),
         ],
       ),
     );
@@ -179,6 +184,7 @@ class _WizardSummaryCard extends StatelessWidget {
     final permList = config.permissions.isEmpty
         ? 'Nenhuma selecionada'
         : config.permissions.map((perm) => perm.name).join(', ');
+    final depsCount = config.resolvedPackagesToInstall.length;
 
     return _SectionContainer(
       title: 'RESUMO FINAL DO APP (PRONTO PARA CRIAR)',
@@ -205,6 +211,11 @@ class _WizardSummaryCard extends StatelessWidget {
             _SummaryRow(
               label: 'Alvos Nativos',
               value: 'Android SDK ${config.androidMinSdk}+ • iOS ${config.iosTarget}+',
+            ),
+            _SummaryRow(
+              label: 'Dependências',
+              value:
+                  '$depsCount pacote(s)${config.hasCustomDependencies ? " • revisado" : " (padrão do preset)"}',
             ),
           ],
         ),

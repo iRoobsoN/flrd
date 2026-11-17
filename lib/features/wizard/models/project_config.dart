@@ -227,6 +227,24 @@ enum DevicePermission {
   });
 }
 
+class PlannedDependency {
+  final String name;
+  final String originLabel;
+  final String reason;
+  final bool requiredByFullTemplate;
+  final bool isIncluded;
+  final bool isExtra;
+
+  const PlannedDependency({
+    required this.name,
+    required this.originLabel,
+    required this.reason,
+    required this.requiredByFullTemplate,
+    required this.isIncluded,
+    this.isExtra = false,
+  });
+}
+
 class ProjectConfig {
   final String projectName;
   final String orgId;
@@ -241,6 +259,11 @@ class ProjectConfig {
   final String iosTarget;
   final Set<String> targetPlatforms;
 
+  /// Advanced optional overrides configured before creation.
+  final Set<String> excludedPackages;
+  final List<String> extraPackages;
+  final bool minimalScaffold;
+
   const ProjectConfig({
     this.projectName = 'my_awesome_app',
     this.orgId = 'com.example',
@@ -254,7 +277,126 @@ class ProjectConfig {
     this.enableMultiDex = true,
     this.iosTarget = '15.0',
     this.targetPlatforms = const {'android', 'ios', 'web'},
+    this.excludedPackages = const {},
+    this.extraPackages = const [],
+    this.minimalScaffold = false,
   });
+
+  static const Map<String, ({String reason, bool requiredByFullTemplate})>
+      _packageCatalog = {
+    'flutter_riverpod': (
+      reason: 'Estado reativo e AuthNotifier nos arquivos iniciais do SaaS.',
+      requiredByFullTemplate: true,
+    ),
+    'go_router': (
+      reason: 'Rotas declarativas e proteção de páginas geradas em app_router.dart.',
+      requiredByFullTemplate: true,
+    ),
+    'supabase_flutter': (
+      reason: 'SDK Supabase Auth/Database (opcional se preferir Firebase ou API própria).',
+      requiredByFullTemplate: false,
+    ),
+    'google_fonts': (
+      reason: 'Tipografia PlusJakartaSans no AppTheme (se removida, usa fonte nativa M3).',
+      requiredByFullTemplate: false,
+    ),
+    'flutter_bloc': (
+      reason: 'Cubits/BLoCs gerados para autenticação no preset Clean-Lite.',
+      requiredByFullTemplate: true,
+    ),
+    'dio': (
+      reason: 'Cliente HTTP pré-configurado em core/network/dio_client.dart.',
+      requiredByFullTemplate: true,
+    ),
+    'get_it': (
+      reason: 'Localizador de serviços / DI em core/di/injection.dart.',
+      requiredByFullTemplate: true,
+    ),
+    'sqflite': (
+      reason: 'Banco SQLite local em core/database/database_helper.dart.',
+      requiredByFullTemplate: true,
+    ),
+    'path': (
+      reason: 'Resolução segura do arquivo .db no armazenamento do aparelho.',
+      requiredByFullTemplate: true,
+    ),
+    'provider': (
+      reason: 'ChangeNotifier para gerenciar lista local e tema no preset Offline.',
+      requiredByFullTemplate: true,
+    ),
+    'shared_preferences': (
+      reason: 'Armazenamento chave-valor para preferências do usuário no Offline.',
+      requiredByFullTemplate: true,
+    ),
+    'permission_handler': (
+      reason: 'Wrapper PermissionService em Dart (AndroidManifest e Info.plist continuam injetados).',
+      requiredByFullTemplate: false,
+    ),
+  };
+
+  /// Complete list of dependencies planned for `pubspec.yaml`, annotated with
+  /// their origin, role, and whether the user opted to include/exclude each one.
+  List<PlannedDependency> get plannedDependencies {
+    final baseNames = <String>[
+      'go_router',
+      'google_fonts',
+      ...switch (preset) {
+        PresetType.saas => ['flutter_riverpod', 'supabase_flutter'],
+        PresetType.cleanLite => ['flutter_bloc', 'dio', 'get_it'],
+        PresetType.offline => ['sqflite', 'path', 'provider', 'shared_preferences'],
+      },
+    ];
+
+    final seen = <String>{};
+    final items = <PlannedDependency>[];
+
+    void addEntry(String name, String originLabel, {bool isExtra = false}) {
+      if (!seen.add(name)) return;
+      final meta = _packageCatalog[name];
+      items.add(
+        PlannedDependency(
+          name: name,
+          originLabel: originLabel,
+          reason: meta?.reason ??
+              'Dependência adicional solicitada manualmente antes da criação.',
+          requiredByFullTemplate: meta?.requiredByFullTemplate ?? false,
+          isIncluded: isExtra || !excludedPackages.contains(name),
+          isExtra: isExtra,
+        ),
+      );
+    }
+
+    for (final pkg in baseNames) {
+      addEntry(pkg, 'Preset ${preset.name}');
+    }
+    if (permissions.isNotEmpty) {
+      addEntry('permission_handler', 'Permissões Nativas');
+    }
+    for (final extra in extraPackages) {
+      final clean = extra.trim().toLowerCase();
+      if (clean.isNotEmpty) {
+        addEntry(clean, 'Extra Avançada', isExtra: true);
+      }
+    }
+    return items;
+  }
+
+  /// Final ordered list of external packages that `ProjectGenerator` will install.
+  List<String> get resolvedPackagesToInstall => plannedDependencies
+      .where((dep) => dep.isIncluded)
+      .map((dep) => dep.name)
+      .toList();
+
+  /// True if the user excluded any package directly imported by the preset's
+  /// full template boilerplate files.
+  bool get hasMissingTemplatePackages => plannedDependencies
+      .any((dep) => dep.requiredByFullTemplate && !dep.isIncluded);
+
+  bool get shouldSynthesizeMinimalApp =>
+      minimalScaffold || hasMissingTemplatePackages;
+
+  bool get hasCustomDependencies =>
+      excludedPackages.isNotEmpty || extraPackages.isNotEmpty || minimalScaffold;
 
   ProjectConfig copyWith({
     String? projectName,
@@ -269,6 +411,9 @@ class ProjectConfig {
     bool? enableMultiDex,
     String? iosTarget,
     Set<String>? targetPlatforms,
+    Set<String>? excludedPackages,
+    List<String>? extraPackages,
+    bool? minimalScaffold,
   }) {
     return ProjectConfig(
       projectName: projectName ?? this.projectName,
@@ -283,6 +428,9 @@ class ProjectConfig {
       enableMultiDex: enableMultiDex ?? this.enableMultiDex,
       iosTarget: iosTarget ?? this.iosTarget,
       targetPlatforms: targetPlatforms ?? this.targetPlatforms,
+      excludedPackages: excludedPackages ?? this.excludedPackages,
+      extraPackages: extraPackages ?? this.extraPackages,
+      minimalScaffold: minimalScaffold ?? this.minimalScaffold,
     );
   }
 }

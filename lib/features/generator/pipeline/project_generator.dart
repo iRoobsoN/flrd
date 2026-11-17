@@ -8,6 +8,7 @@ import '../injectors/pubspec_injector.dart';
 import '../presets/saas_preset.dart';
 import '../presets/clean_lite_preset.dart';
 import '../presets/offline_preset.dart';
+import '../presets/preset_file_helper.dart';
 import '../services/permission_service_template.dart';
 
 const bool _kIsWeb = identical(0, 0.0);
@@ -139,77 +140,51 @@ class ProjectGenerator {
       }
 
       // Step 3: Resolving Dynamic Dependencies & Pubspec
-      onLog('📦 Step 3/5: Resolving dynamic packages from pub.dev...');
-      final packagesToAdd = <String>['go_router', 'google_fonts'];
-      
-      switch (config.preset) {
-        case PresetType.saas:
-          packagesToAdd.addAll(['flutter_riverpod', 'supabase_flutter']);
-          break;
-        case PresetType.cleanLite:
-          packagesToAdd.addAll(['flutter_bloc', 'dio', 'get_it']);
-          break;
-        case PresetType.offline:
-          packagesToAdd.addAll(['sqflite', 'path', 'provider', 'shared_preferences']);
-          break;
-      }
-
-      if (config.permissions.isNotEmpty) {
-        packagesToAdd.add('permission_handler');
-      }
-
-      bool pubSuccess = false;
-      try {
-        final pubRes = await runExecutableArguments(
-          'flutter',
-          ['pub', 'add', ...packagesToAdd],
-          workingDirectory: targetPath,
-        );
-        if (pubRes.exitCode == 0) {
-          pubSuccess = true;
-          onLog('✅ Dependencies resolved and added.');
-        } else {
-          onLog('⚠️ flutter pub add exited with code ${pubRes.exitCode}. Falling back to PubspecInjector...');
+      final packagesToAdd = config.resolvedPackagesToInstall;
+      if (packagesToAdd.isEmpty) {
+        onLog('📦 Step 3/5: Nenhuma dependência externa selecionada (modo mínimo limpo).');
+      } else {
+        onLog('📦 Step 3/5: Instalando dependências selecionadas (${packagesToAdd.join(", ")})...');
+        bool pubSuccess = false;
+        try {
+          final pubRes = await runExecutableArguments(
+            'flutter',
+            ['pub', 'add', ...packagesToAdd],
+            workingDirectory: targetPath,
+          );
+          if (pubRes.exitCode == 0) {
+            pubSuccess = true;
+            onLog('✅ Dependencies resolved and added.');
+          } else {
+            onLog('⚠️ flutter pub add exited with code ${pubRes.exitCode}. Falling back to PubspecInjector...');
+          }
+        } catch (e) {
+          onLog('⚠️ flutter pub add unavailable: $e. Falling back to PubspecInjector...');
         }
-      } catch (e) {
-        onLog('⚠️ flutter pub add unavailable: $e. Falling back to PubspecInjector...');
-      }
 
-      // Semantic YAML injection fallback
-      if (!pubSuccess) {
-        final depMap = {for (final p in packagesToAdd) p: 'any'};
-        final injected = await PubspecInjector.injectDependencies(
-          projectRoot: targetPath,
-          dependencies: depMap,
-        );
-        if (injected) {
-          onLog('✅ Dependencies injected into pubspec.yaml via semantic PubspecInjector.');
-        } else {
-          onLog('⚠️ Semantic PubspecInjector could not modify pubspec.yaml.');
+        // Semantic YAML injection fallback
+        if (!pubSuccess) {
+          final depMap = {for (final p in packagesToAdd) p: 'any'};
+          final injected = await PubspecInjector.injectDependencies(
+            projectRoot: targetPath,
+            dependencies: depMap,
+          );
+          if (injected) {
+            onLog('✅ Dependencies injected into pubspec.yaml via semantic PubspecInjector.');
+          } else {
+            onLog('⚠️ Semantic PubspecInjector could not modify pubspec.yaml.');
+          }
         }
       }
 
       // Step 4: Synthesize Lib & Theme
-      onLog('🎨 Step 4/5: Synthesizing architecture presets & GoRouter guards...');
-      
-      // Synthesize permission helper if permissions are enabled
-      if (config.permissions.isNotEmpty) {
-        await PermissionServiceTemplate.synthesize(targetPath, config.permissions);
-      }
-
-      // Synthesize preset files
-      switch (config.preset) {
-        case PresetType.saas:
-          await SaasPreset.synthesize(targetPath, config);
-          break;
-        case PresetType.cleanLite:
-          await CleanLitePreset.synthesize(targetPath, config);
-          break;
-        case PresetType.offline:
-          await OfflinePreset.synthesize(targetPath, config);
-          break;
-      }
-      onLog('✅ Full architectural preset with auth guards applied.');
+      onLog('🎨 Step 4/5: Synthesizing project code & theme...');
+      await synthesizeProjectCode(targetPath, config);
+      onLog(
+        config.shouldSynthesizeMinimalApp
+            ? '✅ Estrutura mínima limpa gerada sem boilerplate indesejado.'
+            : '✅ Full architectural preset with auth guards applied.',
+      );
 
       onLog('🎉 Step 5/5: FLRD scaffolding complete! Opening project...');
       return true;
@@ -237,6 +212,43 @@ class ProjectGenerator {
         onLog('❌ Unexpected error: $e');
       }
       return false;
+    }
+  }
+
+  /// Synthesizes the Dart code into [targetPath], adapting cleanly when the user
+  /// enabled minimal scaffold mode or excluded template packages.
+  static Future<void> synthesizeProjectCode(
+    String targetPath,
+    ProjectConfig config,
+  ) async {
+    final packages = config.resolvedPackagesToInstall;
+
+    if (config.shouldSynthesizeMinimalApp) {
+      await PresetFileHelper.synthesizeMinimalApp(
+        targetPath: targetPath,
+        config: config,
+      );
+      return;
+    }
+
+    if (config.permissions.isNotEmpty &&
+        packages.contains('permission_handler')) {
+      await PermissionServiceTemplate.synthesize(
+        targetPath,
+        config.permissions,
+      );
+    }
+
+    switch (config.preset) {
+      case PresetType.saas:
+        await SaasPreset.synthesize(targetPath, config);
+        break;
+      case PresetType.cleanLite:
+        await CleanLitePreset.synthesize(targetPath, config);
+        break;
+      case PresetType.offline:
+        await OfflinePreset.synthesize(targetPath, config);
+        break;
     }
   }
 }

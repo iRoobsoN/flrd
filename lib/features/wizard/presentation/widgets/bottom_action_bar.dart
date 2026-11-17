@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../controllers/wizard_controller.dart';
+import 'dependencies_review_panel.dart';
 
 class BottomActionBar extends ConsumerWidget {
   final VoidCallback onGenerate;
@@ -67,7 +68,25 @@ class BottomActionBar extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
+
+          // Optional quick access to review/edit planned pubspec.yaml dependencies
+          Tooltip(
+            message:
+                'Opções Avançadas (Opcional): revisar dependências antes de criar',
+            child: InkWell(
+              key: const ValueKey('bottom_bar_deps_review_badge'),
+              borderRadius: BorderRadius.circular(6),
+              onTap: () => DependenciesReviewDialog.show(context),
+              child: _Badge(
+                label: 'Deps',
+                value:
+                    '${state.config.resolvedPackagesToInstall.length}${state.config.hasCustomDependencies ? "*" : ""}',
+                icon: Icons.tune_rounded,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
 
           // Navigation Controls
           if (!isFirstStep) ...[
@@ -200,7 +219,7 @@ class _GenerateHeroButtonState extends State<_GenerateHeroButton> {
   Widget build(BuildContext context) {
     final label = widget.enabled
         ? 'Criar Projeto Flutter'
-        : 'Criar (${widget.remainingSteps} etapas restantes)';
+        : 'Faltam ${widget.remainingSteps} ${widget.remainingSteps == 1 ? "etapa" : "etapas"}';
 
     return Tooltip(
       message: widget.enabled
