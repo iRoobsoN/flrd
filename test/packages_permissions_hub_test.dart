@@ -18,6 +18,7 @@ import 'package:flrd/features/wizard/models/project_config.dart';
 http.Client _createFakePubDevClient({
   Map<String, ({String version, String desc, int points, int likes, bool favorite, String? publisher})>?
       catalog,
+  void Function(Uri uri)? onRequest,
 }) {
   final db = catalog ??
       {
@@ -49,6 +50,7 @@ http.Client _createFakePubDevClient({
 
   return MockClient((request) async {
     final uri = request.url;
+    onRequest?.call(uri);
     if (uri.path == '/api/search') {
       final q = (uri.queryParameters['q'] ?? '').toLowerCase();
       final matches = db.keys.where((name) {
@@ -461,9 +463,12 @@ void main() {
         routeCount: 3,
       );
 
+      var networkRequests = 0;
       final container = ProviderContainer(
         overrides: [
-          pubDevHttpClientProvider.overrideWithValue(_createFakePubDevClient()),
+          pubDevHttpClientProvider.overrideWithValue(
+            _createFakePubDevClient(onRequest: (_) => networkRequests++),
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -489,6 +494,36 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+
+      // 0. Verify installed dependencies appear FIRST and pub.dev is NOT fetched on mount
+      expect(networkRequests, 0);
+      expect(find.byKey(const ValueKey('pubdev_add_dio')), findsNothing);
+      final exploreBtnFinder = find.byKey(const ValueKey('pubdev_explore_button'));
+      expect(exploreBtnFinder, findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Dependências Atuais no pubspec.yaml')).dy,
+        lessThan(
+          tester.getTopLeft(find.byKey(const ValueKey('pubdev_search_input'))).dy,
+        ),
+      );
+
+      // Toggling filter before searching stays local without hitting pub.dev
+      await tester.tap(find.byKey(const ValueKey('pubdev_high_rated_filter')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pubdev_high_rated_filter')));
+      await tester.pumpAndSettle();
+      expect(networkRequests, 0);
+
+      // Clicking "Explorar populares" loads pub.dev on demand, and "Ocultar" collapses results
+      await tester.ensureVisible(exploreBtnFinder);
+      await tester.tap(exploreBtnFinder);
+      await tester.pumpAndSettle();
+      expect(networkRequests, greaterThan(0));
+      expect(find.byKey(const ValueKey('pubdev_add_go_router')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pubdev_clear_button')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pubdev_add_go_router')), findsNothing);
 
       // 1. Search pub.dev for 'dio' and 1-click install
       await tester.enterText(

@@ -62,11 +62,6 @@ class _ProjectPackagesPermissionsHubState
   void initState() {
     super.initState();
     _reloadDiskSnapshots();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _performPubDevSearch('');
-      }
-    });
   }
 
   @override
@@ -74,6 +69,8 @@ class _ProjectPackagesPermissionsHubState
     super.didUpdateWidget(oldWidget);
     if (oldWidget.project.path != widget.project.path) {
       _reloadDiskSnapshots();
+      _pubSearchResult = null;
+      _isSearchingPubDev = false;
     }
   }
 
@@ -594,16 +591,16 @@ class _ProjectPackagesPermissionsHubState
             child: ListView(
               padding: const EdgeInsets.all(14),
               children: [
-                // 1. Live pub.dev search panel
+                // 1. Installed dependencies from real pubspec.yaml (shown first)
+                _buildInstalledDependenciesSection(),
+                const SizedBox(height: 14),
+
+                // 2. On-demand pub.dev search panel (only queries when requested)
                 _buildPubDevSearchBox(installedNames, results),
                 const SizedBox(height: 14),
 
-                // 2. Quick manual package add form (always available offline/custom)
+                // 3. Quick manual package add form (always available offline/custom)
                 _buildManualDependencyForm(),
-                const SizedBox(height: 14),
-
-                // 3. Installed dependencies from real pubspec.yaml
-                _buildInstalledDependenciesSection(),
               ],
             ),
           ),
@@ -624,6 +621,7 @@ class _ProjectPackagesPermissionsHubState
       ('Rotas', 'go_router'),
       ('Permissões', 'permission_handler'),
     ];
+    final hasQueried = _isSearchingPubDev || _pubSearchResult != null;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -645,7 +643,7 @@ class _ProjectPackagesPermissionsHubState
               const SizedBox(width: 6),
               const Expanded(
                 child: Text(
-                  'Buscar pacotes bem avaliados direto no pub.dev',
+                  'Buscar Nova Dependência no pub.dev',
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 12,
@@ -654,12 +652,38 @@ class _ProjectPackagesPermissionsHubState
                 ),
               ),
               if (_pubSearchResult?.fromOfflineFallback == true)
-                const Text(
-                  'Modo Offline Curado',
-                  style: TextStyle(
-                    color: AppColors.warning,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
+                const Padding(
+                  padding: EdgeInsets.only(right: 6),
+                  child: Text(
+                    'Modo Offline Curado',
+                    style: TextStyle(
+                      color: AppColors.warning,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              if (_pubSearchResult != null && !_isSearchingPubDev)
+                TextButton(
+                  key: const ValueKey('pubdev_clear_button'),
+                  onPressed: () {
+                    setState(() {
+                      _pubSearchResult = null;
+                      _pubSearchController.clear();
+                    });
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.textMuted,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text(
+                    'Ocultar',
+                    style: TextStyle(fontSize: 10.5),
                   ),
                 ),
             ],
@@ -757,7 +781,9 @@ class _ProjectPackagesPermissionsHubState
                 ),
                 onSelected: (v) {
                   setState(() => _highRatedOnly = v);
-                  _performPubDevSearch(_pubSearchController.text);
+                  if (_pubSearchResult != null) {
+                    _performPubDevSearch(_pubSearchController.text);
+                  }
                 },
               ),
               FilterChip(
@@ -782,7 +808,9 @@ class _ProjectPackagesPermissionsHubState
                 ),
                 onSelected: (v) {
                   setState(() => _favoritesOnly = v);
-                  _performPubDevSearch(_pubSearchController.text);
+                  if (_pubSearchResult != null) {
+                    _performPubDevSearch(_pubSearchController.text);
+                  }
                 },
               ),
               DropdownButton<PubDevSort>(
@@ -804,7 +832,9 @@ class _ProjectPackagesPermissionsHubState
                 onChanged: (val) {
                   if (val == null) return;
                   setState(() => _sort = val);
-                  _performPubDevSearch(_pubSearchController.text);
+                  if (_pubSearchResult != null) {
+                    _performPubDevSearch(_pubSearchController.text);
+                  }
                 },
               ),
             ],
@@ -813,54 +843,85 @@ class _ProjectPackagesPermissionsHubState
           Wrap(
             spacing: 6,
             runSpacing: 4,
-            children: quickQueries
-                .map(
-                  (q) => ActionChip(
-                    label: Text(q.$1, style: const TextStyle(fontSize: 10)),
-                    backgroundColor: AppColors.surface,
-                    side: const BorderSide(color: AppColors.borderSubtle),
-                    labelStyle: const TextStyle(color: AppColors.secondary),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () {
-                      _pubSearchController.text = q.$2;
-                      _performPubDevSearch(q.$2);
-                    },
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final q in quickQueries)
+                ActionChip(
+                  label: Text(q.$1, style: const TextStyle(fontSize: 10)),
+                  backgroundColor: AppColors.surface,
+                  side: const BorderSide(color: AppColors.borderSubtle),
+                  labelStyle: const TextStyle(color: AppColors.secondary),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    _pubSearchController.text = q.$2;
+                    _performPubDevSearch(q.$2);
+                  },
+                ),
+              if (!hasQueried)
+                OutlinedButton.icon(
+                  key: const ValueKey('pubdev_explore_button'),
+                  onPressed: () {
+                    _pubSearchController.clear();
+                    _performPubDevSearch('');
+                  },
+                  icon: const Icon(Icons.explore_rounded, size: 13),
+                  label: const Text(
+                    'Explorar populares no pub.dev',
+                    style: TextStyle(fontSize: 10.5),
                   ),
-                )
-                .toList(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.secondary,
+                    side: BorderSide(color: AppColors.secondary.withOpacity(0.4)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+            ],
           ),
-          if (_pubSearchResult?.errorMessage != null) ...[
+          if (!hasQueried) ...[
             const SizedBox(height: 8),
-            Text(
-              _pubSearchResult!.errorMessage!,
-              style: const TextStyle(color: AppColors.warning, fontSize: 10.5),
+            const Text(
+              'O pub.dev só é consultado quando você pesquisa um pacote ou clica para explorar.',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 11),
             ),
-          ],
-          const SizedBox(height: 10),
-          if (_isSearchingPubDev && results.isEmpty)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: CircularProgressIndicator(strokeWidth: 2),
+          ] else ...[
+            if (_pubSearchResult?.errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _pubSearchResult!.errorMessage!,
+                style: const TextStyle(color: AppColors.warning, fontSize: 10.5),
               ),
-            )
-          else if (results.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text(
-                'Nenhum pacote encontrado para essa busca.',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 11.5),
-              ),
-            )
-          else
-            Column(
-              children: [
-                for (final pkg in results.take(8)) ...[
-                  _buildPubDevResultRow(pkg, installedNames.contains(pkg.name)),
-                  const SizedBox(height: 6),
+            ],
+            const SizedBox(height: 10),
+            if (_isSearchingPubDev && results.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (results.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  'Nenhum pacote encontrado para essa busca.',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 11.5),
+                ),
+              )
+            else
+              Column(
+                children: [
+                  for (final pkg in results.take(8)) ...[
+                    _buildPubDevResultRow(pkg, installedNames.contains(pkg.name)),
+                    const SizedBox(height: 6),
+                  ],
                 ],
-              ],
-            ),
+              ),
+          ],
         ],
       ),
     );
