@@ -19,6 +19,7 @@ import '../providers/terminal_provider.dart';
 import 'widgets/ai_screen_generator_dialog.dart';
 import 'widgets/android_debug_controls.dart';
 import 'widgets/embedded_code_viewer.dart';
+import 'widgets/project_packages_permissions_hub.dart';
 import 'widgets/route_connector_painter.dart';
 import 'widgets/route_node_card.dart';
 import 'widgets/screen_materials_builder.dart';
@@ -77,6 +78,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   bool _isDraggingNode = false;
   bool _isRescanningRoutes = false;
   bool _isDiagramCollapsed = false;
+  late RegisteredProject _currentProject;
   bool _showAndroidConsole = false;
   String? _currentCode;
   String? _lastSelectedNodeId;
@@ -129,7 +131,8 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _currentProject = widget.project;
+    _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -147,6 +150,14 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
         ref.read(androidDebugProvider.notifier).scanDevices();
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant AppStudioScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.project != widget.project) {
+      _currentProject = widget.project;
+    }
   }
 
   @override
@@ -345,11 +356,13 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                   // Tab 1: Interactive Route Flowchart
                   _buildFlowchartTab(context, studio, studioNotifier, selectedNode),
 
-                  // Tab 2: Permissions Injector
-                  _buildPermissionsTab(),
-
-                  // Tab 3: Architecture & Dependencies
-                  _buildArchitectureTab(),
+                  // Tab 2: Unified Packages (pub.dev) & Native Permissions Hub
+                  ProjectPackagesPermissionsHub(
+                    project: _currentProject,
+                    onProjectUpdated: (updated) {
+                      setState(() => _currentProject = updated);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -715,16 +728,9 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
               const SizedBox(width: 2),
               _buildStudioViewTab(
                 index: 1,
-                icon: Icons.security_rounded,
-                label: 'Permissions',
+                icon: Icons.extension_rounded,
+                label: 'Packages & Permissions',
                 isSelected: currentIndex == 1,
-              ),
-              const SizedBox(width: 2),
-              _buildStudioViewTab(
-                index: 2,
-                icon: Icons.layers_rounded,
-                label: 'Architecture',
-                isSelected: currentIndex == 2,
               ),
             ],
           ),
@@ -1383,124 +1389,4 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     );
   }
 
-  Widget _buildPermissionsTab() {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Permissões Nativas Injetadas',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Injeção semântica com parsing AST sem corromper AndroidManifest.xml ou Info.plist.',
-            style: TextStyle(color: AppColors.textMuted, fontSize: 13),
-          ),
-          const SizedBox(height: 24),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: widget.project.permissions.map((perm) {
-              return Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceCard,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.check_circle_rounded,
-                      color: AppColors.success,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      perm.name,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildArchitectureTab() {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Visão da Arquitetura & Stack',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Padrão ativo: ${widget.project.preset.name.toUpperCase()} • Anti-Obsolescência Garantida',
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
-          ),
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceCard,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Pacotes & Dependências Curadas:',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  '• flutter_riverpod: ^2.5.1\n'
-                  '• go_router: ^14.0.0 (Blindado com refreshListenable)\n'
-                  '• supabase_flutter: ^2.5.0\n'
-                  '• google_fonts: ^6.2.1\n'
-                  '• flutter_animate: ^4.5.0',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    color: AppColors.secondary,
-                    fontSize: 12,
-                    height: 1.6,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
