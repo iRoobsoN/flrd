@@ -27,32 +27,143 @@ enum NavigationStyle {
     required this.description,
     required this.icon,
   });
+
+  String get ptLabel {
+    switch (this) {
+      case NavigationStyle.tabs:
+        return 'Abas na Base (Bottom Bar)';
+      case NavigationStyle.drawer:
+        return 'Menu Lateral Retrátil (Drawer)';
+      case NavigationStyle.adaptiveRail:
+        return 'Shell Adaptativo (Celular + Desktop)';
+    }
+  }
+
+  String get useCaseHint {
+    switch (this) {
+      case NavigationStyle.tabs:
+        return 'Ideal para apps com 3 a 5 áreas principais usadas com o polegar (redes sociais, finanças, delivery).';
+      case NavigationStyle.drawer:
+        return 'Indicado para apps com muitas seções, cadastros ou ferramentas internas.';
+      case NavigationStyle.adaptiveRail:
+        return 'Indicado se o app vai rodar tanto no celular quanto no Windows, Web ou tablets.';
+    }
+  }
 }
 
 enum PresetType {
   saas(
     name: 'SaaS / Indie Hacker',
-    tagline: 'Riverpod + GoRouter + Supabase + Modern UI',
+    tagline: 'Riverpod + GoRouter + Supabase + UI Moderna',
+    friendlySubtitle: 'Apps Conectados na Nuvem, Login & Assinaturas',
+    badgeLabel: 'Mais Popular • Nuvem & Auth',
+    plainExplanation:
+        'Estrutura pronta para aplicativos online com cadastro/login de usuários, banco de dados na nuvem (Supabase) e atualização reativa de telas.',
+    idealFor:
+        'Quem quer lançar um produto digital rápido sem precisar construir servidor próprio do zero.',
+    appExamples: [
+      'Delivery, loja ou marketplace local',
+      'SaaS de gestão, CRM ou agendamentos',
+      'Comunidade, cursos ou área de membros',
+      'App por assinatura com perfil e painel online',
+    ],
+    generatedPackages: [
+      'flutter_riverpod',
+      'go_router',
+      'supabase_flutter',
+      'google_fonts',
+    ],
+    technicalHighlights: [
+      'Gerenciamento reativo com Riverpod',
+      'Rotas protegidas por login (Auth Guards)',
+      'Integração pronta com Supabase Auth/DB',
+      'Tema claro e escuro configurado',
+    ],
     icon: Icons.rocket_launch_rounded,
   ),
   cleanLite(
     name: 'Clean-Lite Scalable',
-    tagline: 'BLoC + Dio + GetIt + Feature-First Folders',
+    tagline: 'BLoC + Dio + GetIt + Pastas por Funcionalidade',
+    friendlySubtitle: 'Apps Corporativos, Fintechs & APIs Próprias',
+    badgeLabel: 'Escalável • API REST Própria',
+    plainExplanation:
+        'Arquitetura em camadas separadas (feature-first), cliente HTTP profissional (Dio) e BLoC. Ideal quando o app cresce em time ou consome um backend próprio.',
+    idealFor:
+        'Projetos médios/grandes ou empresas com API REST própria (Node, Java, Python, Go, .NET).',
+    appExamples: [
+      'Banco digital, fintech ou carteira Pix',
+      'E-commerce ligado a sistema/API própria',
+      'Portal corporativo, ERP móvel ou logística',
+      'App médico, telemedicina ou atendimento',
+    ],
+    generatedPackages: [
+      'flutter_bloc',
+      'dio',
+      'get_it',
+      'go_router',
+      'google_fonts',
+    ],
+    technicalHighlights: [
+      'BLoC / Cubit para estados previsíveis',
+      'Cliente HTTP Dio preparado para APIs',
+      'Injeção de dependências com GetIt',
+      'Organização limpa por funcionalidade',
+    ],
     icon: Icons.layers_rounded,
   ),
   offline(
     name: 'Offline-First Utility',
-    tagline: 'Drift / Isar + Provider + Dynamic Material 3',
+    tagline: 'SQLite (sqflite) + Provider + SharedPreferences + Material 3',
+    friendlySubtitle: 'Apps Locais, Rápidos & Sem Depender de Internet',
+    badgeLabel: '100% Local • Zero Latência',
+    plainExplanation:
+        'Salva dados diretamente no aparelho em banco SQLite local e preferências nativas. Abre instantaneamente até no modo avião e sem custo de servidor.',
+    idealFor:
+        'Utilitários pessoais, ferramentas de produtividade e apps que precisam funcionar sem sinal.',
+    appExamples: [
+      'Controle de gastos ou finanças pessoais',
+      'Notas, lista de compras, diário ou tarefas',
+      'App de treinos, receitas, hábitos ou estudos',
+      'Coletor de estoque / checklist em campo',
+    ],
+    generatedPackages: [
+      'sqflite',
+      'shared_preferences',
+      'provider',
+      'path',
+      'go_router',
+      'google_fonts',
+    ],
+    technicalHighlights: [
+      'Banco relacional SQLite local (sqflite)',
+      'Persistência simples de ajustes do usuário',
+      'Estado leve com Provider',
+      'Funciona integralmente offline',
+    ],
     icon: Icons.wifi_off_rounded,
   );
 
   final String name;
   final String tagline;
+  final String friendlySubtitle;
+  final String badgeLabel;
+  final String plainExplanation;
+  final String idealFor;
+  final List<String> appExamples;
+  final List<String> generatedPackages;
+  final List<String> technicalHighlights;
   final IconData icon;
 
   const PresetType({
     required this.name,
     required this.tagline,
+    required this.friendlySubtitle,
+    required this.badgeLabel,
+    required this.plainExplanation,
+    required this.idealFor,
+    required this.appExamples,
+    required this.generatedPackages,
+    required this.technicalHighlights,
     required this.icon,
   });
 }

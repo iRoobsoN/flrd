@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/localization/language_provider.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/donate_dialog.dart';
 import '../controllers/wizard_controller.dart';
 
@@ -28,14 +29,28 @@ class WizardSidebar extends ConsumerWidget {
           // Sidebar Section Header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Text(
-              strings.configurationSteps,
-              style: TextStyle(
-                color: AppColors.textMuted.withOpacity(0.8),
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.2,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    strings.configurationSteps,
+                    style: TextStyle(
+                      color: AppColors.textMuted.withOpacity(0.8),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${state.completedCount}/${WizardStep.values.length}',
+                  style: const TextStyle(
+                    color: AppColors.secondary,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 6),
@@ -47,15 +62,26 @@ class WizardSidebar extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final step = WizardStep.values[index];
                 final isSelected = state.currentStep == step;
-                final isPast = state.currentStep.index > step.index;
+                final isCompleted = state.isStepCompleted(step);
+                final isUnlocked = state.isStepUnlocked(step);
 
                 return _SidebarStepItem(
+                  key: ValueKey('wizard_sidebar_step_${step.name}'),
                   stepNumber: '0${index + 1}',
                   title: step.title,
                   subtitle: step.subtitle,
                   isSelected: isSelected,
-                  isPast: isPast,
-                  onTap: () => notifier.setStep(step),
+                  isCompleted: isCompleted,
+                  isLocked: !isUnlocked,
+                  onTap: () {
+                    final moved = notifier.setStep(step);
+                    if (!moved) {
+                      AppToast.info(
+                        context,
+                        'Conclua a etapa atual (${state.currentStep.title}) clicando em Continuar antes de avançar.',
+                      );
+                    }
+                  },
                 );
               },
             ),
@@ -264,15 +290,18 @@ class _SidebarStepItem extends StatefulWidget {
   final String title;
   final String subtitle;
   final bool isSelected;
-  final bool isPast;
+  final bool isCompleted;
+  final bool isLocked;
   final VoidCallback onTap;
 
   const _SidebarStepItem({
+    super.key,
     required this.stepNumber,
     required this.title,
     required this.subtitle,
     required this.isSelected,
-    required this.isPast,
+    required this.isCompleted,
+    required this.isLocked,
     required this.onTap,
   });
 
@@ -285,97 +314,113 @@ class _SidebarStepItemState extends State<_SidebarStepItem> {
 
   @override
   Widget build(BuildContext context) {
+    final textOpacity = widget.isLocked ? 0.52 : 1.0;
+
     return MouseRegion(
+      cursor: widget.isLocked
+          ? SystemMouseCursors.forbidden
+          : SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: widget.isSelected
-                ? AppColors.surfaceSelected
-                : (_isHovered ? AppColors.surfaceHover : Colors.transparent),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
+        child: Opacity(
+          opacity: textOpacity,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
               color: widget.isSelected
-                  ? AppColors.primary.withOpacity(0.5)
-                  : Colors.transparent,
+                  ? AppColors.surfaceSelected
+                  : (!widget.isLocked && _isHovered
+                      ? AppColors.surfaceHover
+                      : Colors.transparent),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: widget.isSelected
+                    ? AppColors.primary.withOpacity(0.5)
+                    : Colors.transparent,
+              ),
             ),
-          ),
-          child: Row(
-            children: [
-              // Step Indicator Pill
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: widget.isSelected
-                      ? AppColors.primary
-                      : (widget.isPast
-                          ? AppColors.success.withOpacity(0.15)
-                          : AppColors.surfaceCard),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
+            child: Row(
+              children: [
+                // Step Indicator Pill
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
                     color: widget.isSelected
                         ? AppColors.primary
-                        : (widget.isPast
-                            ? AppColors.success.withOpacity(0.5)
-                            : AppColors.borderSubtle),
+                        : (widget.isCompleted
+                            ? AppColors.success.withOpacity(0.15)
+                            : AppColors.surfaceCard),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: widget.isSelected
+                          ? AppColors.primary
+                          : (widget.isCompleted
+                              ? AppColors.success.withOpacity(0.5)
+                              : AppColors.borderSubtle),
+                    ),
+                  ),
+                  child: Center(
+                    child: widget.isCompleted && !widget.isSelected
+                        ? const Icon(
+                            Icons.check_rounded,
+                            size: 14,
+                            color: AppColors.success,
+                          )
+                        : widget.isLocked
+                            ? const Icon(
+                                Icons.lock_outline_rounded,
+                                size: 12,
+                                color: AppColors.textMuted,
+                              )
+                            : Text(
+                                widget.stepNumber,
+                                style: TextStyle(
+                                  color: widget.isSelected
+                                      ? Colors.white
+                                      : AppColors.textMuted,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                   ),
                 ),
-                child: Center(
-                  child: widget.isPast
-                      ? const Icon(
-                          Icons.check_rounded,
-                          size: 14,
-                          color: AppColors.success,
-                        )
-                      : Text(
-                          widget.stepNumber,
-                          style: TextStyle(
-                            color: widget.isSelected
-                                ? Colors.white
-                                : AppColors.textMuted,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                          ),
+                const SizedBox(width: 12),
+                // Titles
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.title,
+                        style: TextStyle(
+                          color: widget.isSelected
+                              ? AppColors.textPrimary
+                              : AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight:
+                              widget.isSelected ? FontWeight.w600 : FontWeight.w500,
                         ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Titles
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.title,
-                      style: TextStyle(
-                        color: widget.isSelected
-                            ? AppColors.textPrimary
-                            : AppColors.textSecondary,
-                        fontSize: 12,
-                        fontWeight:
-                            widget.isSelected ? FontWeight.w600 : FontWeight.w500,
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 10,
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 10,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

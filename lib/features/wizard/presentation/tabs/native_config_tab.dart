@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import '../../../../core/theme/app_colors.dart';
+import '../../models/project_config.dart';
 import '../controllers/wizard_controller.dart';
 
 class NativeConfigTab extends ConsumerWidget {
@@ -13,12 +15,12 @@ class NativeConfigTab extends ConsumerWidget {
     final config = state.config;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.all(28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Native Platform Setup',
+            'Etapa 6 • Android, iOS & Revisão Final',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 22,
@@ -27,45 +29,46 @@ class NativeConfigTab extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Configure Gradle and Xcode deployment targets effortlessly without touching fragile config scripts.',
+            'Defina as versões mínimas de compatibilidade para Android e iOS e confira o resumo completo antes de criar o projeto.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 13,
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
 
           // Android Section
           _SectionContainer(
-            title: 'ANDROID GRADLE PROPERTIES',
+            title: 'PROPRIEDADES DO ANDROID (GRADLE)',
             icon: Icons.android_rounded,
             iconColor: AppColors.success,
             children: [
               Row(
                 children: [
-                  Expanded(
+                  const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Minimum SDK Version (minSdkVersion)',
+                        Text(
+                          'Versão Mínima do Android (minSdkVersion)',
                           style: TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'SDK 24+ is recommended for modern camera, biometrics, and security features.',
+                        SizedBox(height: 2),
+                        Text(
+                          'SDK 24+ (Android 7.0) é recomendado para suporte moderno a câmera, biometria e segurança.',
                           style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 12),
                   DropdownButton<int>(
                     value: config.androidMinSdk,
                     dropdownColor: AppColors.surfaceCard,
                     style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
                     items: const [
                       DropdownMenuItem(value: 21, child: Text('SDK 21 (Android 5.0 Lollipop)')),
-                      DropdownMenuItem(value: 24, child: Text('SDK 24 (Android 7.0 Nougat - Recommended)')),
+                      DropdownMenuItem(value: 24, child: Text('SDK 24 (Android 7.0 - Recomendado)')),
                       DropdownMenuItem(value: 26, child: Text('SDK 26 (Android 8.0 Oreo)')),
                       DropdownMenuItem(value: 33, child: Text('SDK 33 (Android 13 Tiramisu)')),
                     ],
@@ -81,19 +84,21 @@ class NativeConfigTab extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Enable MultiDex Support',
-                        style: TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Prevents 64k method limit crashes when compiling heavy packages like Firebase or ML.',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
-                      ),
-                    ],
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Habilitar suporte MultiDex',
+                          style: TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Evita erro de limite de métodos ao usar pacotes maiores como Supabase, Google Maps ou Firebase.',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                        ),
+                      ],
+                    ),
                   ),
                   Switch(
                     value: config.enableMultiDex,
@@ -104,11 +109,11 @@ class NativeConfigTab extends ConsumerWidget {
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
           // iOS Section
           _SectionContainer(
-            title: 'IOS DEPLOYMENT TARGET',
+            title: 'ALVO DE COMPATIBILIDADE IOS',
             icon: Icons.apple_rounded,
             iconColor: AppColors.textPrimary,
             children: [
@@ -119,24 +124,25 @@ class NativeConfigTab extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'iOS Minimum Deployment Target',
+                          'Versão Mínima do iOS (Deployment Target)',
                           style: TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'iOS 15.0+ covers 98%+ of active iOS devices and allows modern SwiftUI/Swift APIs.',
+                          'iOS 15.0+ atende mais de 98% dos iPhones ativos e garante compatibilidade com bibliotecas atuais.',
                           style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 12),
                   DropdownButton<String>(
                     value: config.iosTarget,
                     dropdownColor: AppColors.surfaceCard,
                     style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
                     items: const [
                       DropdownMenuItem(value: '14.0', child: Text('iOS 14.0')),
-                      DropdownMenuItem(value: '15.0', child: Text('iOS 15.0 (Recommended)')),
+                      DropdownMenuItem(value: '15.0', child: Text('iOS 15.0 (Recomendado)')),
                       DropdownMenuItem(value: '16.0', child: Text('iOS 16.0')),
                       DropdownMenuItem(value: '17.0', child: Text('iOS 17.0')),
                     ],
@@ -149,6 +155,93 @@ class NativeConfigTab extends ConsumerWidget {
                 ],
               ),
             ],
+          ),
+          const SizedBox(height: 20),
+
+          // Resumo final completo do app antes da geração
+          _WizardSummaryCard(config: config),
+        ],
+      ),
+    );
+  }
+}
+
+class _WizardSummaryCard extends StatelessWidget {
+  final ProjectConfig config;
+
+  const _WizardSummaryCard({required this.config});
+
+  @override
+  Widget build(BuildContext context) {
+    final fullPath = config.outputPath.trim().isEmpty
+        ? 'Pasta não selecionada'
+        : p.join(config.outputPath.trim(), config.projectName).replaceAll('\\', '/');
+    final permList = config.permissions.isEmpty
+        ? 'Nenhuma selecionada'
+        : config.permissions.map((perm) => perm.name).join(', ');
+
+    return _SectionContainer(
+      title: 'RESUMO FINAL DO APP (PRONTO PARA CRIAR)',
+      icon: Icons.fact_check_rounded,
+      iconColor: AppColors.secondary,
+      children: [
+        Wrap(
+          spacing: 16,
+          runSpacing: 10,
+          children: [
+            _SummaryRow(label: 'Projeto', value: '${config.projectName} (${config.orgId})'),
+            _SummaryRow(label: 'Pasta no disco', value: fullPath),
+            _SummaryRow(
+              label: 'Preset',
+              value: '${config.preset.name} — ${config.preset.friendlySubtitle}',
+            ),
+            _SummaryRow(label: 'Navegação', value: config.navigationStyle.ptLabel),
+            _SummaryRow(
+              label: 'Tema',
+              value:
+                  '#${config.seedColor.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()} • ${config.enableDarkTheme ? "Claro + Escuro" : "Somente Claro"}',
+            ),
+            _SummaryRow(label: 'Permissões', value: permList),
+            _SummaryRow(
+              label: 'Alvos Nativos',
+              value: 'Android SDK ${config.androidMinSdk}+ • iOS ${config.iosTarget}+',
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _SummaryRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 260, maxWidth: 420),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),

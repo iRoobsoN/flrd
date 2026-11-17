@@ -18,7 +18,7 @@ class PermissionsTab extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Smart Permission Wizard',
+            'Etapa 5 • Permissões Nativas do Dispositivo',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 22,
@@ -27,7 +27,7 @@ class PermissionsTab extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Automatically injects AndroidManifest tags, App Store-proof Info.plist keys, and a clean PermissionService.',
+            'Ative apenas o que seu app precisa usar. O FLRD injeta as tags no AndroidManifest.xml, chaves no Info.plist do iOS e um PermissionService pronto.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 13,

@@ -43,7 +43,7 @@ class ThemeTab extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Smart Contrast Theme Engine',
+            'Etapa 4 • Cores & Contraste Acessível',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 22,
@@ -52,17 +52,17 @@ class ThemeTab extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Dynamic seed palettes with automated WCAG contrast checks to prevent invisible text bugs.',
+            'Escolha a cor principal do aplicativo. O FLRD gera paletas Material 3 com verificação automática de legibilidade.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 13,
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
 
           // Primary Seed Selection
           const Text(
-            'PRIMARY SEED COLOR',
+            'COR PRINCIPAL DO APP',
             style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 11,
@@ -131,7 +131,10 @@ class ThemeTab extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           const Text(
                             'Contrast Ratio: ',
@@ -141,7 +144,6 @@ class ThemeTab extends ConsumerWidget {
                             '${contrastRatio.toStringAsFixed(1)}:1',
                             style: const TextStyle(color: AppColors.secondary, fontSize: 13, fontWeight: FontWeight.bold),
                           ),
-                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
@@ -192,14 +194,18 @@ class ThemeTab extends ConsumerWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Welcome to ${state.config.projectName}',
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
+                    Expanded(
+                      child: Text(
+                        'Welcome to ${state.config.projectName}',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 12),
                     ElevatedButton(
                       onPressed: () {},
                       style: ElevatedButton.styleFrom(
@@ -224,9 +230,11 @@ class ThemeTab extends ConsumerWidget {
                     children: [
                       Icon(Icons.palette_rounded, color: selectedColor, size: 18),
                       const SizedBox(width: 10),
-                      Text(
-                        'Dynamic Accent Container with automatic luminosity balancing.',
-                        style: TextStyle(color: AppColors.textPrimary, fontSize: 12),
+                      const Expanded(
+                        child: Text(
+                          'Dynamic Accent Container with automatic luminosity balancing.',
+                          style: TextStyle(color: AppColors.textPrimary, fontSize: 12),
+                        ),
                       ),
                     ],
                   ),

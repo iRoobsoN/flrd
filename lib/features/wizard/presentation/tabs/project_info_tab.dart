@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../models/project_name_validator.dart';
@@ -25,7 +28,7 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
     final config = ref.read(wizardProvider).config;
     _nameController = TextEditingController(text: config.projectName);
     _orgController = TextEditingController(text: config.orgId);
-    
+
     final initialPath = config.outputPath.isNotEmpty
         ? config.outputPath
         : (kIsWeb ? 'C:/Projects' : '');
@@ -33,7 +36,10 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
 
     if (config.outputPath.isEmpty && initialPath.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(wizardProvider.notifier).updateConfig((c) => c.copyWith(outputPath: initialPath));
+        if (!mounted) return;
+        ref
+            .read(wizardProvider.notifier)
+            .updateConfig((c) => c.copyWith(outputPath: initialPath));
       });
     }
   }
@@ -46,12 +52,58 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
     super.dispose();
   }
 
+  List<({String label, String path, IconData icon, Color color})>
+      _suggestedFolders() {
+    final shortcuts =
+        <({String label, String path, IconData icon, Color color})>[
+      (
+        label: 'C:/Projects',
+        path: 'C:/Projects',
+        icon: Icons.flash_on_rounded,
+        color: AppColors.secondary,
+      ),
+    ];
+
+    if (!kIsWeb) {
+      final home = Platform.environment['USERPROFILE'] ??
+          Platform.environment['HOME'] ??
+          '';
+      if (home.isNotEmpty) {
+        final desktop = p.join(home, 'Desktop').replaceAll('\\', '/');
+        final docs = p.join(home, 'Documents').replaceAll('\\', '/');
+        shortcuts.add((
+          label: 'Desktop',
+          path: desktop,
+          icon: Icons.desktop_windows_rounded,
+          color: AppColors.primary,
+        ));
+        shortcuts.add((
+          label: 'Documents',
+          path: docs,
+          icon: Icons.folder_special_rounded,
+          color: AppColors.success,
+        ));
+      }
+    }
+    return shortcuts;
+  }
+
+  void _applyOutputPath(String path) {
+    final cleaned = path.trim();
+    setState(() {
+      _pathController.text = cleaned;
+    });
+    ref
+        .read(wizardProvider.notifier)
+        .updateConfig((c) => c.copyWith(outputPath: cleaned));
+  }
+
   Future<void> _pickFolder() async {
     if (kIsWeb) {
       if (mounted) {
         AppToast.info(
           context,
-          'In web browser mode, use the shortcuts below or type a destination path (e.g. C:/Projects). Native directory picker is active in Desktop build.',
+          'No navegador, use os atalhos abaixo ou digite um caminho (ex.: C:/Projects).',
           duration: const Duration(seconds: 4),
         );
       }
@@ -60,13 +112,10 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
 
     try {
       final result = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Select Project Parent Directory',
+        dialogTitle: 'Selecione a pasta onde criar o projeto',
       );
-      if (result != null) {
-        _pathController.text = result;
-        ref.read(wizardProvider.notifier).updateConfig(
-              (c) => c.copyWith(outputPath: result),
-            );
+      if (result != null && result.trim().isNotEmpty) {
+        _applyOutputPath(result);
       }
     } catch (_) {
       // Gracefully ignored on platforms without directory picker
@@ -76,14 +125,22 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
   @override
   Widget build(BuildContext context) {
     final notifier = ref.read(wizardProvider.notifier);
+    final trimmedPath = _pathController.text.trim();
+    final trimmedName = _nameController.text.trim();
+    final pathError =
+        trimmedPath.isEmpty ? 'Escolha ou digite uma pasta de destino.' : null;
+    final previewFullPath = trimmedPath.isNotEmpty
+        ? p.join(trimmedPath, trimmedName.isEmpty ? 'meu_app' : trimmedName)
+            .replaceAll('\\', '/')
+        : null;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.all(28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Project Setup',
+            'Etapa 1 • Identidade do Projeto',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 22,
@@ -92,19 +149,21 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Define your application identity, namespace, and local directory.',
+            'Defina o nome interno do pacote, o identificador da empresa e onde a pasta do projeto será criada no seu computador.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 13,
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
 
           // Project Name Input
           _FormField(
-            label: 'PROJECT NAME',
-            hint: 'e.g. my_saas_app',
-            helperText: 'Use lowercase letters and underscores (standard Flutter naming).',
+            fieldKey: const ValueKey('wizard_project_name_input'),
+            label: 'NOME DO PROJETO (SNAKE_CASE)',
+            hint: 'ex.: meu_app_delivery',
+            helperText:
+                'Use letras minúsculas, números e underline (padrão oficial Dart/Flutter).',
             errorText: ProjectNameValidator.validate(_nameController.text),
             controller: _nameController,
             onChanged: (val) {
@@ -112,13 +171,15 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
               notifier.updateConfig((c) => c.copyWith(projectName: val.trim()));
             },
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
 
           // Organization / Bundle ID Input
           _FormField(
-            label: 'ORGANIZATION / BUNDLE IDENTIFIER',
-            hint: 'e.g. com.company, dev.robson',
-            helperText: 'Your reverse domain name used for Android package and iOS bundle.',
+            fieldKey: const ValueKey('wizard_org_id_input'),
+            label: 'ORGANIZAÇÃO / APPLICATION ID (DOMÍNIO REVERSO)',
+            hint: 'ex.: com.suaempresa, dev.seuapp',
+            helperText:
+                'Identificador único usado na Play Store (Android) e App Store (iOS).',
             errorText: OrgIdValidator.validate(_orgController.text),
             controller: _orgController,
             onChanged: (val) {
@@ -126,14 +187,14 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
               notifier.updateConfig((c) => c.copyWith(orgId: val.trim()));
             },
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
 
           // Output Directory Selector
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'DESTINATION DIRECTORY',
+                'PASTA DE DESTINO (OBRIGATÓRIO)',
                 style: TextStyle(
                   color: AppColors.textMuted,
                   fontSize: 11,
@@ -146,14 +207,26 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
                 children: [
                   Expanded(
                     child: TextField(
+                      key: const ValueKey('wizard_output_path_input'),
                       controller: _pathController,
-                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
-                      decoration: const InputDecoration(
-                        hintText: 'C:/Users/You/Projects',
-                        prefixIcon: Icon(Icons.folder_open_rounded, size: 18, color: AppColors.textMuted),
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'C:/Projects',
+                        prefixIcon: const Icon(
+                          Icons.folder_open_rounded,
+                          size: 18,
+                          color: AppColors.textMuted,
+                        ),
+                        errorText: pathError,
                       ),
                       onChanged: (val) {
-                        notifier.updateConfig((c) => c.copyWith(outputPath: val.trim()));
+                        setState(() {});
+                        notifier.updateConfig(
+                          (c) => c.copyWith(outputPath: val.trim()),
+                        );
                       },
                     ),
                   ),
@@ -161,13 +234,16 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
                   ElevatedButton.icon(
                     onPressed: _pickFolder,
                     icon: const Icon(Icons.drive_folder_upload_rounded, size: 16),
-                    label: const Text('Browse'),
+                    label: const Text('Escolher Pasta'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.surfaceHover,
                       foregroundColor: AppColors.textPrimary,
                       elevation: 0,
                       side: const BorderSide(color: AppColors.border),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 15,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -176,38 +252,36 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
                 ],
               ),
               const SizedBox(height: 6),
-              const Text(
-                'A new subfolder with your project name will be created in this location.',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+              Text(
+                previewFullPath != null
+                    ? 'Será criado em: $previewFullPath'
+                    : 'Uma subpasta com o nome do projeto será criada dentro dessa pasta.',
+                style: TextStyle(
+                  color: previewFullPath != null
+                      ? AppColors.secondary
+                      : AppColors.textMuted,
+                  fontSize: 11.5,
+                ),
               ),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 6,
-                children: [
-                  ActionChip(
-                    label: const Text('C:/Projects'),
-                    avatar: const Icon(Icons.flash_on_rounded, size: 14, color: AppColors.secondary),
-                    backgroundColor: AppColors.surface,
-                    side: const BorderSide(color: AppColors.border),
-                    labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
-                    onPressed: () {
-                      _pathController.text = 'C:/Projects';
-                      notifier.updateConfig((c) => c.copyWith(outputPath: 'C:/Projects'));
-                    },
-                  ),
-                  ActionChip(
-                    label: const Text('C:/Users/Rob/Desktop'),
-                    avatar: const Icon(Icons.desktop_windows_rounded, size: 14, color: AppColors.primary),
-                    backgroundColor: AppColors.surface,
-                    side: const BorderSide(color: AppColors.border),
-                    labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
-                    onPressed: () {
-                      _pathController.text = 'C:/Users/Rob/Desktop';
-                      notifier.updateConfig((c) => c.copyWith(outputPath: 'C:/Users/Rob/Desktop'));
-                    },
-                  ),
-                ],
+                children: _suggestedFolders()
+                    .map(
+                      (s) => ActionChip(
+                        label: Text(s.label),
+                        avatar: Icon(s.icon, size: 14, color: s.color),
+                        backgroundColor: AppColors.surface,
+                        side: const BorderSide(color: AppColors.border),
+                        labelStyle: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                        onPressed: () => _applyOutputPath(s.path),
+                      ),
+                    )
+                    .toList(),
               ),
             ],
           ),
@@ -218,6 +292,7 @@ class _ProjectInfoTabState extends ConsumerState<ProjectInfoTab> {
 }
 
 class _FormField extends StatelessWidget {
+  final Key? fieldKey;
   final String label;
   final String hint;
   final String helperText;
@@ -226,6 +301,7 @@ class _FormField extends StatelessWidget {
   final ValueChanged<String> onChanged;
 
   const _FormField({
+    this.fieldKey,
     required this.label,
     required this.hint,
     required this.helperText,
@@ -250,6 +326,7 @@ class _FormField extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         TextField(
+          key: fieldKey,
           controller: controller,
           style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
           decoration: InputDecoration(

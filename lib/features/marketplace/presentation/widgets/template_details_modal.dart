@@ -20,8 +20,9 @@ class TemplateDetailsModal extends ConsumerWidget {
 
   void _installTemplate(BuildContext context, WidgetRef ref) {
     final suggestedName = template.id.replaceAll('-', '_');
-    ref.read(wizardProvider.notifier).updateConfig(
-          (c) => c.copyWith(
+    final currentConfig = ref.read(wizardProvider).config;
+    ref.read(wizardProvider.notifier).resetWizard(
+          initialConfig: currentConfig.copyWith(
             projectName: suggestedName,
             orgId: 'com.app.${template.id.replaceAll('-', '')}',
             preset: template.preset,

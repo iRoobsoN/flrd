@@ -18,7 +18,7 @@ class NavigationTab extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Navigation Architecture',
+            'Etapa 3 • Navegação do Aplicativo',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 22,
@@ -27,7 +27,7 @@ class NavigationTab extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Select how users navigate across major sections of your application.',
+            'Escolha como o usuário troca de tela entre as principais seções do aplicativo.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 13,
@@ -206,17 +206,26 @@ class _NavigationOptionCardState extends State<_NavigationOptionCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      widget.navStyle.title,
+                      widget.navStyle.ptLabel,
                       style: const TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
-                      widget.navStyle.description,
+                      widget.navStyle.useCaseHint,
                       style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      widget.navStyle.title,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                      ),
                     ),
                   ],
                 ),

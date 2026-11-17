@@ -47,19 +47,32 @@ class WizardScreen extends ConsumerWidget {
   }
 
   void _showGenerationDialog(BuildContext context, WidgetRef ref) {
-    final config = ref.read(wizardProvider).config;
+    final wizardState = ref.read(wizardProvider);
+    final config = wizardState.config;
+
+    if (!wizardState.canGenerateProject) {
+      final firstPending = wizardState.firstIncompleteStep;
+      final validationErr = wizardState.validateStep(firstPending);
+      ref.read(wizardProvider.notifier).setStep(firstPending);
+      AppToast.error(
+        context,
+        validationErr ??
+            'Conclua todas as etapas (pendente: ${firstPending.title}) antes de criar o projeto.',
+      );
+      return;
+    }
 
     final nameError = ProjectNameValidator.validate(config.projectName);
     if (nameError != null) {
       ref.read(wizardProvider.notifier).setStep(WizardStep.project);
-      AppToast.error(context, 'Invalid Project Name: $nameError');
+      AppToast.error(context, 'Nome inválido: $nameError');
       return;
     }
 
     final orgError = OrgIdValidator.validate(config.orgId);
     if (orgError != null) {
       ref.read(wizardProvider.notifier).setStep(WizardStep.project);
-      AppToast.error(context, 'Invalid Organization ID: $orgError');
+      AppToast.error(context, 'Organization ID inválido: $orgError');
       return;
     }
 
@@ -95,6 +108,7 @@ class WizardScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             // Frameless Desktop Titlebar with Navigation
@@ -135,12 +149,15 @@ class WizardScreen extends ConsumerWidget {
                 ],
               ),
             ),
-
-            // Persistent Action Bar with live badges & hero CTA
-            BottomActionBar(
-              onGenerate: () => _showGenerationDialog(context, ref),
-            ),
           ],
+        ),
+      ),
+      // Placed in Scaffold.bottomNavigationBar so floating SnackBars/AppToast
+      // render cleanly above the bar and never obscure Continuar / Criar buttons.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: BottomActionBar(
+          onGenerate: () => _showGenerationDialog(context, ref),
         ),
       ),
     );

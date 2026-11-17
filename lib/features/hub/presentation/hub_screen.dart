@@ -17,6 +17,7 @@ import '../../marketplace/presentation/marketplace_view.dart';
 import '../../marketplace/providers/marketplace_provider.dart';
 import '../../projects/presentation/widgets/import_project_dialog.dart';
 import '../../projects/providers/projects_provider.dart';
+import '../../wizard/presentation/controllers/wizard_controller.dart';
 import '../../wizard/presentation/wizard_screen.dart';
 import 'widgets/projects_grid_view.dart';
 
@@ -540,6 +541,7 @@ class _HubScreenState extends ConsumerState<HubScreen> {
           buttonText: '${strings.newProjectTitle} →',
           isPrimary: true,
           onTap: () {
+            ref.read(wizardProvider.notifier).resetWizard();
             Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const WizardScreen()),
             );
