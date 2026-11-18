@@ -249,6 +249,10 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     final lower = line.toLowerCase();
     return lower.contains('app failed to start') ||
         lower.contains('lost connection to device') ||
+        lower.contains('target kernel_snapshot_program failed') ||
+        lower.contains('execution failed for task') ||
+        RegExp(r'\.dart:\d+(?::\d+)?:\s*error:', caseSensitive: false)
+            .hasMatch(line) ||
         lower.contains('failed to link shaders') ||
         lower.contains('pipeline create failed') ||
         lower.contains('vkcmdbindpipeline') ||
@@ -271,10 +275,17 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
   }
 
   bool _hasFatalBuildFailureInCurrentRun() {
-    final lower = _currentRunLines.join('\n').toLowerCase();
+    final joined = _currentRunLines.join('\n');
+    final lower = joined.toLowerCase();
     return lower.contains('app failed to start') ||
         lower.contains('gradle build failed') ||
         lower.contains('failure: build failed with an exception') ||
+        lower.contains('execution failed for task') ||
+        lower.contains('target kernel_snapshot_program failed') ||
+        RegExp(r'\.dart:\d+(?::\d+)?:\s*error:', caseSensitive: false)
+            .hasMatch(joined) ||
+        lower.contains('compile against a higher android sdk version') ||
+        lower.contains('requires android sdk version') ||
         lower.contains('failed with exit code') ||
         lower.contains('cmake error') ||
         lower.contains('cmake was unable to find a build program corresponding to') ||
@@ -426,7 +437,9 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
             previous.issueType == diagnostic.issueType &&
             previous.affectedLocation == diagnostic.affectedLocation &&
             previous.relevantLogLines.length >=
-                diagnostic.relevantLogLines.length) {
+                diagnostic.relevantLogLines.length &&
+            previous.suggestedPatches.length >=
+                diagnostic.suggestedPatches.length) {
           return;
         }
 

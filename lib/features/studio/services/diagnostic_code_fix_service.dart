@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/connected_device.dart';
+import 'android_device_runner_service.dart';
 
 /// Combined human-readable root-cause analysis and verified multi-file code
 /// patches produced by FLRD's deep diagnostic analyzer or Gemini AI.
@@ -174,9 +175,24 @@ class DiagnosticCodeFixService {
     }
 
     // 1. Referenced `lib/.../*.dart[:line]` and `package:<pkg>/.../*.dart[:line]`
-    for (final m in RegExp(r'(lib/[a-zA-Z0-9_./-]+\.dart)(?::(\d+))?')
+    for (final m in RegExp(r'(lib[/\\][a-zA-Z0-9_./\\-]+\.dart)(?::(\d+))?')
         .allMatches(combinedText)) {
-      addCandidate(m.group(1)!, targetLine: int.tryParse(m.group(2) ?? ''));
+      addCandidate(
+        m.group(1)!.replaceAll('\\', '/'),
+        targetLine: int.tryParse(m.group(2) ?? ''),
+      );
+    }
+    if (lowerCombined.contains('googlefonts') ||
+        lowerCombined.contains('google_fonts') ||
+        lowerCombined.contains('texttheme') ||
+        lowerCombined.contains('app_theme.dart')) {
+      addCandidate('lib/core/theme/app_theme.dart');
+    }
+    if (lowerCombined.contains('compilesdk') ||
+        lowerCombined.contains('android sdk') ||
+        lowerCombined.contains('build.gradle')) {
+      addCandidate('android/app/build.gradle.kts');
+      addCandidate('android/app/build.gradle');
     }
     for (final m in RegExp(
       r'package:([a-zA-Z0-9_]+)/([a-zA-Z0-9_./-]+\.dart)(?::(\d+))?',
@@ -565,6 +581,126 @@ class DiagnosticCodeFixService {
       );
     }
 
+    final sdkMismatch =
+        AndroidDeviceRunnerService.extractAndroidCompileSdkMismatch(joined);
+    final isGoogleFontsTextThemeConflict =
+        (lower.contains("the argument type 'texttheme") ||
+                lower.contains('texttheme/*1*/')) &&
+            (lower.contains('material_ui') ||
+                lower.contains('text_theme.dart') ||
+                lower.contains('googlefonts') ||
+                lower.contains('google_fonts') ||
+                lower.contains('app_theme.dart'));
+    final dartErrorMatch = RegExp(
+      r'([a-zA-Z0-9_./\\-]+\.dart):(\d+)(?::\d+)?:\s*Error:\s*(.+)',
+      caseSensitive: false,
+    ).firstMatch(joined);
+    final isDartCompileError = isGoogleFontsTextThemeConflict ||
+        dartErrorMatch != null ||
+        lower.contains('target kernel_snapshot_program failed') ||
+        lower.contains('compileflutterbuilddebug');
+
+    if (isDartCompileError || sdkMismatch != null) {
+      if (isGoogleFontsTextThemeConflict ||
+          lower.contains('googlefonts') ||
+          lower.contains('texttheme')) {
+        _collectGoogleFontsTextThemePatches(
+          projectPath: projectPath,
+          inspectedFiles: context.inspectedFiles,
+          joinedLogs: joined,
+          outPatches: patches,
+        );
+      }
+      if (sdkMismatch != null) {
+        _collectAndroidCompileSdkPatches(
+          projectPath: projectPath,
+          sdkMismatch: sdkMismatch,
+          outPatches: patches,
+        );
+      }
+
+      if (isGoogleFontsTextThemeConflict) {
+        final dartFile = dartErrorMatch?.group(1)?.replaceAll('\\', '/') ??
+            'lib/core/theme/app_theme.dart';
+        buffer
+          ..writeln('**1. Causa Raiz (Conflito `google_fonts` × `material_ui`):**')
+          ..writeln(
+            'A compilação Dart falhou em `$dartFile` porque `GoogleFonts.*TextTheme(...)` tentou trocar `TextTheme` entre `package:flutter/src/material/text_theme.dart` (`TextTheme/*1*/`) e `package:material_ui/src/text_theme.dart` (`TextTheme/*2*/`).',
+          )
+          ..writeln()
+          ..writeln('**2. Solução Prática:**')
+          ..writeln(
+            '• Em `ThemeData(...)`, troque `textTheme: GoogleFonts.<fonte>TextTheme(...)` por `fontFamily: GoogleFonts.<fonte>().fontFamily` (retorna `String?`, eliminando a ambiguidade de `TextTheme`).',
+          );
+        if (sdkMismatch != null) {
+          final pluginNote = sdkMismatch.plugins.isNotEmpty
+              ? sdkMismatch.plugins.join(', ')
+              : 'plugin Android';
+          final currentNote = sdkMismatch.currentSdk != null
+              ? ' (atual: `${sdkMismatch.currentSdk}`)'
+              : '';
+          buffer.writeln(
+            '• Também atualize `compileSdk = ${sdkMismatch.requiredSdk}` em `${sdkMismatch.targetGradleFile}`$currentNote exigido por `$pluginNote`.',
+          );
+        }
+      } else if (sdkMismatch != null) {
+        final pluginNote = sdkMismatch.plugins.isNotEmpty
+            ? sdkMismatch.plugins.join(', ')
+            : 'plugin Android';
+        final currentNote = sdkMismatch.currentSdk != null
+            ? ' enquanto o projeto usa SDK `${sdkMismatch.currentSdk}`'
+            : '';
+        buffer
+          ..writeln('**1. Causa Raiz (`compileSdk` Insuficiente):**')
+          ..writeln(
+            'O plugin `$pluginNote` exige compilação contra **Android SDK ${sdkMismatch.requiredSdk}**$currentNote.',
+          )
+          ..writeln()
+          ..writeln('**2. Solução Prática:**')
+          ..writeln(
+            '• Defina `compileSdk = ${sdkMismatch.requiredSdk}` em `${sdkMismatch.targetGradleFile}` (bloco `android { ... }`).',
+          )
+          ..writeln(
+            '• Depois de aplicar o ajuste, rode novamente o app no aparelho ou execute `flutter clean && flutter run`.',
+          );
+      } else {
+        final dartFile = dartErrorMatch?.group(1)?.replaceAll('\\', '/');
+        final dartLine = dartErrorMatch?.group(2);
+        final dartMsg = dartErrorMatch?.group(3)?.trim();
+        buffer
+          ..writeln('**1. Causa Raiz (Erro de Compilação Dart):**')
+          ..writeln(
+            dartFile != null
+                ? 'O compilador Dart (`compileFlutterBuildDebug` / `kernel_snapshot_program`) falhou em `$dartFile:${dartLine ?? '1'}`${dartMsg != null && dartMsg.isNotEmpty ? ': `$dartMsg`' : '.'}'
+                : 'A tarefa Gradle `:app:compileFlutterBuildDebug` falhou por erro de compilação no código Dart.',
+          )
+          ..writeln()
+          ..writeln('**2. Solução Prática:**')
+          ..writeln(
+            '• Corrija a assinatura, import ou tipo reportado em `${dartFile ?? filesNote}`.',
+          )
+          ..writeln(
+            '• Rode `flutter pub get` e valide localmente com `flutter analyze` antes de relançar no dispositivo.',
+          );
+      }
+
+      if (patches.isNotEmpty) {
+        final patchedFiles =
+            patches.map((e) => '`${e.relativePath}`').toSet().join(', ');
+        buffer
+          ..writeln()
+          ..writeln('**3. Correção Automática Pronta (FLRD):**')
+          ..writeln(
+            '• ${patches.length} patch(es) validado(s) em $patchedFiles. Clique em **Ver & Aplicar Correções** para aplicar com backup automático em `.flrd/backups/`.',
+          );
+      }
+      return AppFixAnalysisResult(
+        explanationMarkdown: buffer.toString().trimRight(),
+        patches: patches,
+        inspectedFiles: context.inspectedFiles,
+      );
+    }
+
     buffer
       ..writeln('**1. Causa Raiz:**')
       ..writeln('Falha detectada durante o ciclo de build/execução Android: `$issueTitle`.')
@@ -578,6 +714,286 @@ class DiagnosticCodeFixService {
       patches: patches,
       inspectedFiles: context.inspectedFiles,
     );
+  }
+
+  static void _collectGoogleFontsTextThemePatches({
+    required String projectPath,
+    required List<String> inspectedFiles,
+    required String joinedLogs,
+    required List<DiagnosticFilePatch> outPatches,
+  }) {
+    final canonicalRoot = p.normalize(p.absolute(projectPath.trim()));
+    if (canonicalRoot.isEmpty) return;
+
+    final candidateRelPaths = <String>{
+      for (final file in inspectedFiles)
+        if (file.toLowerCase().endsWith('.dart')) file.replaceAll('\\', '/'),
+      for (final m in RegExp(r'(lib[/\\][a-zA-Z0-9_./\\-]+\.dart)')
+          .allMatches(joinedLogs))
+        m.group(1)!.replaceAll('\\', '/'),
+      'lib/core/theme/app_theme.dart',
+    };
+
+    final seenFiles = <String>{};
+    final pattern = RegExp(
+      r'([ \t]*)textTheme\s*:\s*GoogleFonts\.([a-zA-Z0-9_]+)TextTheme\s*\(',
+    );
+
+    for (final rawRel in candidateRelPaths) {
+      final relPath = rawRel.replaceAll('\\', '/').trim();
+      if (relPath.isEmpty || !seenFiles.add(relPath.toLowerCase())) continue;
+
+      final absPath = p.normalize(p.join(canonicalRoot, relPath));
+      if (!p.isWithin(canonicalRoot, absPath)) continue;
+
+      final file = File(absPath);
+      if (!file.existsSync()) continue;
+
+      String normalized;
+      try {
+        normalized = file.readAsStringSync().replaceAll('\r\n', '\n');
+      } catch (_) {
+        continue;
+      }
+
+      var lastPatchedEnd = 0;
+      for (final m in pattern.allMatches(normalized)) {
+        if (m.start < lastPatchedEnd) continue;
+
+        final closeParenIdx =
+            _findMatchingClosingParen(normalized, m.end - 1);
+        if (closeParenIdx == null) continue;
+
+        var afterIdx = closeParenIdx + 1;
+        while (afterIdx < normalized.length &&
+            (normalized[afterIdx] == ' ' ||
+                normalized[afterIdx] == '\t' ||
+                normalized[afterIdx] == '\r' ||
+                normalized[afterIdx] == '\n')) {
+          afterIdx++;
+        }
+        final hasComma =
+            afterIdx < normalized.length && normalized[afterIdx] == ',';
+        final endIdx = hasComma ? afterIdx + 1 : closeParenIdx + 1;
+        final trailingComma = hasComma ? ',' : '';
+
+        final indent = m.group(1)!;
+        final fontMethod = m.group(2)!;
+        final insideCopyWith = _isInsideCopyWithCall(normalized, m.start);
+
+        final String replacementExpr;
+        if (insideCopyWith) {
+          final innerArg = normalized.substring(m.end, closeParenIdx).trim();
+          if (innerArg.isEmpty) continue;
+          replacementExpr =
+              '${indent}textTheme: ($innerArg).apply(fontFamily: GoogleFonts.$fontMethod().fontFamily)$trailingComma';
+        } else {
+          replacementExpr =
+              '${indent}fontFamily: GoogleFonts.$fontMethod().fontFamily$trailingComma';
+        }
+
+        final expandedStart =
+            _expandPrecedingLinesUntilUnique(normalized, m.start, endIdx);
+        final prefix = normalized.substring(expandedStart, m.start);
+        final rawSearch = normalized.substring(m.start, endIdx);
+
+        outPatches.add(
+          DiagnosticFilePatch(
+            relativePath: relPath,
+            description: insideCopyWith
+                ? 'Substituir GoogleFonts.${fontMethod}TextTheme por TextTheme.apply(fontFamily: ...) em $relPath.'
+                : 'Substituir GoogleFonts.${fontMethod}TextTheme por fontFamily: GoogleFonts.$fontMethod().fontFamily em $relPath.',
+            searchText: '$prefix$rawSearch',
+            replaceText: '$prefix$replacementExpr',
+          ),
+        );
+        lastPatchedEnd = endIdx;
+      }
+    }
+  }
+
+  static void _collectAndroidCompileSdkPatches({
+    required String projectPath,
+    required ({
+      String? currentSdk,
+      String requiredSdk,
+      List<String> plugins,
+      String targetGradleFile,
+    }) sdkMismatch,
+    required List<DiagnosticFilePatch> outPatches,
+  }) {
+    final requiredInt = int.tryParse(sdkMismatch.requiredSdk);
+    if (requiredInt == null || requiredInt <= 0) return;
+
+    final canonicalRoot = p.normalize(p.absolute(projectPath.trim()));
+    if (canonicalRoot.isEmpty) return;
+
+    const gradleCandidates = <String>[
+      'android/app/build.gradle.kts',
+      'android/app/build.gradle',
+    ];
+
+    final pluginLabel = sdkMismatch.plugins.isNotEmpty
+        ? sdkMismatch.plugins.join(', ')
+        : 'plugin Android';
+
+    final patterns = <RegExp>[
+      RegExp(
+        r'^([ \t]*compileSdk\s*=\s*)(\d+|flutter\.compileSdkVersion)\b([ \t]*(?://.*)?)$',
+        multiLine: true,
+      ),
+      RegExp(
+        r'^([ \t]*compileSdkVersion\s*(?:=|\s)\s*)(\d+|flutter\.compileSdkVersion)\b([ \t]*(?://.*)?)$',
+        multiLine: true,
+      ),
+      RegExp(
+        r'^([ \t]*compileSdk\s+)(\d+|flutter\.compileSdkVersion)\b([ \t]*(?://.*)?)$',
+        multiLine: true,
+      ),
+    ];
+
+    for (final relPath in gradleCandidates) {
+      final absPath = p.normalize(p.join(canonicalRoot, relPath));
+      if (!p.isWithin(canonicalRoot, absPath)) continue;
+
+      final file = File(absPath);
+      if (!file.existsSync()) continue;
+
+      String normalized;
+      try {
+        normalized = file.readAsStringSync().replaceAll('\r\n', '\n');
+      } catch (_) {
+        continue;
+      }
+
+      RegExpMatch? match;
+      for (final pattern in patterns) {
+        match = pattern.firstMatch(normalized);
+        if (match != null) break;
+      }
+      if (match == null) continue;
+
+      final currentValue = match.group(2)!.trim();
+      final currentInt = int.tryParse(currentValue);
+      if (currentInt != null && currentInt >= requiredInt) {
+        return;
+      }
+
+      final prefixOp = match.group(1)!;
+      final suffixComment = match.group(3) ?? '';
+      final rawSearch = match.group(0)!;
+      final rawReplace = '$prefixOp$requiredInt$suffixComment';
+      final expandedStart =
+          _expandPrecedingLinesUntilUnique(normalized, match.start, match.end);
+      final lineContextPrefix = normalized.substring(expandedStart, match.start);
+
+      outPatches.add(
+        DiagnosticFilePatch(
+          relativePath: relPath,
+          description:
+              'Atualizar compileSdk de $currentValue para $requiredInt em $relPath (exigido por $pluginLabel).',
+          searchText: '$lineContextPrefix$rawSearch',
+          replaceText: '$lineContextPrefix$rawReplace',
+        ),
+      );
+      return;
+    }
+  }
+
+  static int? _findMatchingClosingParen(String source, int openParenIndex) {
+    if (openParenIndex < 0 ||
+        openParenIndex >= source.length ||
+        source[openParenIndex] != '(') {
+      return null;
+    }
+    var depth = 0;
+    var i = openParenIndex;
+    while (i < source.length) {
+      final ch = source[i];
+      if (ch == "'" || ch == '"') {
+        final quote = ch;
+        i++;
+        while (i < source.length) {
+          if (source[i] == r'\') {
+            i += 2;
+            continue;
+          }
+          if (source[i] == quote) break;
+          i++;
+        }
+      } else if (ch == '(') {
+        depth++;
+      } else if (ch == ')') {
+        depth--;
+        if (depth == 0) return i;
+      }
+      i++;
+    }
+    return null;
+  }
+
+  static bool _isInsideCopyWithCall(String source, int offset) {
+    var depth = 0;
+    for (var i = offset - 1; i >= 0; i--) {
+      final ch = source[i];
+      if (ch == ')') {
+        depth++;
+      } else if (ch == '(') {
+        if (depth > 0) {
+          depth--;
+        } else {
+          final start = (i - 24).clamp(0, i);
+          final before = source.substring(start, i);
+          return RegExp(r'\.copyWith\s*$').hasMatch(before);
+        }
+      }
+    }
+    return false;
+  }
+
+  static int _expandPrecedingLinesUntilUnique(
+    String source,
+    int startOffset,
+    int endOffset,
+  ) {
+    var cursor = startOffset;
+    if (_countOccurrences(source, source.substring(cursor, endOffset)) <= 1) {
+      return cursor;
+    }
+    for (var step = 0; step < 5 && cursor > 0; step++) {
+      final prevNewline = source.lastIndexOf('\n', cursor - 1);
+      cursor = prevNewline == -1 ? 0 : prevNewline + 1;
+      // Keep stepping back until we include at least one full preceding line if cursor started mid-line.
+      if (step == 0 && cursor == startOffset && prevNewline > 0) {
+        final earlierNewline = source.lastIndexOf('\n', prevNewline - 1);
+        cursor = earlierNewline == -1 ? 0 : earlierNewline + 1;
+      }
+      if (_countOccurrences(source, source.substring(cursor, endOffset)) <= 1) {
+        return cursor;
+      }
+      if (cursor > 0 && source[cursor - 1] == '\n') {
+        cursor = cursor - 1;
+        final lineStart = source.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
+        cursor = lineStart == -1 ? 0 : lineStart + 1;
+        if (_countOccurrences(source, source.substring(cursor, endOffset)) <= 1) {
+          return cursor;
+        }
+      }
+    }
+    return cursor;
+  }
+
+  static int _countOccurrences(String source, String needle) {
+    if (needle.isEmpty) return 0;
+    var count = 0;
+    var idx = 0;
+    while (true) {
+      final found = source.indexOf(needle, idx);
+      if (found == -1) break;
+      count++;
+      idx = found + needle.length;
+    }
+    return count;
   }
 
   /// Extracts a fenced JSON `{ "patches": [...] }` block from an AI response,

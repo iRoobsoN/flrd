@@ -202,6 +202,8 @@ enum AndroidBuildIssueType {
   cmakeHostCompilerMismatch,
   cmakeMsvcEnvironmentMissing,
   androidSdkLicenseOrComponentMissing,
+  androidCompileSdkTooLow,
+  dartCompileError,
   adbDeviceDisconnected,
   androidInstallFailed,
   vulkanAdrenoPipelineCrash,

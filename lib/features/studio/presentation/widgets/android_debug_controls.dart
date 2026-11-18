@@ -1276,7 +1276,9 @@ class _AndroidDebugConsolePanelState
   }) {
     final hasAiFix = diagnostic.aiFixSuggestion != null &&
         diagnostic.aiFixSuggestion!.trim().isNotEmpty;
-    final desiredCap = hasAiFix ? 240.0 : 165.0;
+    final desiredCap = hasAiFix
+        ? 245.0
+        : (diagnostic.hasSuggestedPatches ? 220.0 : 175.0);
     final maxCardHeight =
         math.max(36.0, math.min(desiredCap, (effectiveHeight - 82.0) * 0.65));
     final accentColor =

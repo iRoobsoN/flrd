@@ -47,11 +47,13 @@ class PresetFileHelper {
     final fontImport = useGoogleFonts
         ? "import 'package:google_fonts/google_fonts.dart';\n"
         : '';
-    final lightTextTheme = useGoogleFonts
-        ? '      textTheme: GoogleFonts.plusJakartaSansTextTheme(ThemeData.light().textTheme),\n'
+    // Use fontFamily (String?) rather than GoogleFonts.*TextTheme(ThemeData...)
+    // to avoid TextTheme type conflicts between flutter/material.dart and material_ui.
+    final lightFontFamily = useGoogleFonts
+        ? '      fontFamily: GoogleFonts.plusJakartaSans().fontFamily,\n'
         : '';
-    final darkTextTheme = useGoogleFonts
-        ? '      textTheme: GoogleFonts.plusJakartaSansTextTheme(ThemeData.dark().textTheme),\n'
+    final darkFontFamily = useGoogleFonts
+        ? '      fontFamily: GoogleFonts.plusJakartaSans().fontFamily,\n'
         : '';
 
     await writeFile(
@@ -74,7 +76,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-$lightTextTheme      appBarTheme: AppBarTheme(
+$lightFontFamily      appBarTheme: AppBarTheme(
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.onSurface,
         elevation: 0,
@@ -92,7 +94,7 @@ $lightTextTheme      appBarTheme: AppBarTheme(
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-$darkTextTheme      appBarTheme: AppBarTheme(
+$darkFontFamily      appBarTheme: AppBarTheme(
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.onSurface,
         elevation: 0,

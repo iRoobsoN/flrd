@@ -802,6 +802,21 @@ class AndroidDeviceRunnerService {
     );
     if (dartDiag != null) return dartDiag;
 
+    final compileDiag = _classifyDartCompileError(
+      logLines,
+      joined,
+      lower,
+      projectPackageName: projectPackageName,
+    );
+    if (compileDiag != null) return compileDiag;
+
+    final compileSdkDiag = _classifyAndroidCompileSdkTooLow(
+      logLines,
+      joined,
+      lower,
+    );
+    if (compileSdkDiag != null) return compileSdkDiag;
+
     return null;
   }
 
@@ -1466,6 +1481,248 @@ class AndroidDeviceRunnerService {
         if (location != null) 'Local no código Dart: $location',
         'Trate valores nulos, índices de lista ou falhas assíncronas (`try/catch`, checagem de `mounted`) no ponto indicado.',
         'Clique em "Gerar Solução com IA" para inspecionar o arquivo Dart local e gerar o patch sugerido.',
+      ],
+    );
+  }
+
+  static ({
+    String? currentSdk,
+    String requiredSdk,
+    List<String> plugins,
+    String targetGradleFile,
+  })? extractAndroidCompileSdkMismatch(String joined) {
+    final lower = joined.toLowerCase();
+    final hasCompileSdkCue =
+        lower.contains('compile against android sdk') ||
+            lower.contains('requires android sdk version') ||
+            lower.contains('compiles against android sdk') ||
+            lower.contains('compile against a higher android sdk') ||
+            lower.contains('compile against version');
+    if (!hasCompileSdkCue) return null;
+
+    var maxRequired = 0;
+    final sdkCandidates = <RegExp>[
+      RegExp(
+        r'requires\s+android\s+sdk\s+version\s+(\d+)',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'compiles\s+against\s+android\s+sdk\s+(\d+)',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'compileSdk\s*=\s*(\d+)',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'compile\s+against\s+version\s+(\d+)\s+or\s+later',
+        caseSensitive: false,
+      ),
+    ];
+
+    for (final rx in sdkCandidates) {
+      for (final m in rx.allMatches(joined)) {
+        final v = int.tryParse(m.group(1) ?? '');
+        if (v != null && v > maxRequired) {
+          maxRequired = v;
+        }
+      }
+    }
+    if (maxRequired <= 0) return null;
+
+    final currentMatch = RegExp(
+      r'configured\s+to\s+compile\s+against\s+android\s+sdk\s+(\d+)',
+      caseSensitive: false,
+    ).firstMatch(joined);
+    final currentSdk = currentMatch?.group(1);
+
+    final plugins = <String>{};
+    for (final m in RegExp(
+      r'The\s+plugin\s+([a-zA-Z0-9_.-]+)\s+requires\s+Android\s+SDK',
+      caseSensitive: false,
+    ).allMatches(joined)) {
+      plugins.add(m.group(1)!);
+    }
+    for (final m in RegExp(
+      r'^\s*(?:\[[^\]]*\]\s*)?-\s*([a-zA-Z0-9_.-]+)\s+compiles\s+against\s+Android\s+SDK',
+      caseSensitive: false,
+      multiLine: true,
+    ).allMatches(joined)) {
+      plugins.add(m.group(1)!);
+    }
+
+    final isKts = lower.contains('build.gradle.kts');
+    return (
+      currentSdk: currentSdk,
+      requiredSdk: '$maxRequired',
+      plugins: plugins.toList(growable: false),
+      targetGradleFile:
+          isKts ? 'android/app/build.gradle.kts' : 'android/app/build.gradle',
+    );
+  }
+
+  static String _normalizeDartErrorFile(String rawFile) {
+    final posix = rawFile.replaceAll('\\', '/').trim();
+    final libIdx = posix.lastIndexOf('/lib/');
+    if (libIdx >= 0) {
+      return posix.substring(libIdx + 1);
+    }
+    final testIdx = posix.lastIndexOf('/test/');
+    if (testIdx >= 0) {
+      return posix.substring(testIdx + 1);
+    }
+    return posix;
+  }
+
+  AndroidBuildDiagnostic? _classifyDartCompileError(
+    List<String> logLines,
+    String joined,
+    String lower, {
+    String? projectPackageName,
+  }) {
+    final errMatches = RegExp(
+      r'(?:^|\s|\]\s*|file:///)([a-zA-Z0-9_./\\:-]+\.dart):(\d+)(?::(\d+))?:\s*Error:\s*([^\r\n]+)',
+      caseSensitive: false,
+      multiLine: true,
+    ).allMatches(joined).toList(growable: false);
+
+    final hasKernelFailure =
+        lower.contains('target kernel_snapshot_program failed') ||
+            lower.contains("execution failed for task ':app:compileflutterbuild");
+
+    if (errMatches.isEmpty && !hasKernelFailure) return null;
+
+    String? primaryLocation;
+    String? primaryMessage;
+    final uniqueErrors = <String>[];
+    for (final m in errMatches) {
+      final normFile = _normalizeDartErrorFile(m.group(1)!);
+      final lineNum = m.group(2)!;
+      final msg = m.group(4)!.trim();
+      final loc = '$normFile:$lineNum';
+      primaryLocation ??= loc;
+      primaryMessage ??= msg;
+      final summary = '$loc -> $msg';
+      if (!uniqueErrors.contains(summary) && uniqueErrors.length < 4) {
+        uniqueErrors.add(summary);
+      }
+    }
+
+    primaryLocation ??= _extractDartLocation(
+      joined,
+      projectPackageName: projectPackageName,
+    );
+
+    final sdkMismatch = extractAndroidCompileSdkMismatch(joined);
+    final isGoogleFontsTextThemeConflict =
+        (lower.contains("the argument type 'texttheme") ||
+                lower.contains('texttheme/*1*/')) &&
+            (lower.contains('material_ui') ||
+                lower.contains('text_theme.dart') ||
+                lower.contains('googlefonts') ||
+                lower.contains('google_fonts'));
+
+    final relevant = _extractRelevantLogWindow(
+      logLines,
+      RegExp(
+        r'\.dart:\d+(?::\d+)?:\s*Error:|TextTheme|google_fonts|material_ui|compileSdk|Android SDK \d+|Target kernel_snapshot_program',
+        caseSensitive: false,
+      ),
+      contextBefore: 2,
+      contextAfter: 8,
+    );
+
+    if (isGoogleFontsTextThemeConflict) {
+      final fileOnly = primaryLocation?.split(':').first ?? 'lib/core/theme/app_theme.dart';
+      final sdkNote = sdkMismatch != null
+          ? ' Além disso, ${sdkMismatch.plugins.isNotEmpty ? sdkMismatch.plugins.join(", ") : "um plugin Android"} exige `compileSdk = ${sdkMismatch.requiredSdk}`.'
+          : '';
+      return AndroidBuildDiagnostic(
+        issueType: AndroidBuildIssueType.dartCompileError,
+        isRuntimeCrash: false,
+        title: sdkMismatch != null
+            ? 'Erro de tema (google_fonts) em $primaryLocation + compileSdk ${sdkMismatch.requiredSdk}'
+            : 'Conflito google_fonts × Material 3 em ${primaryLocation ?? fileOnly}',
+        affectedLocation: sdkMismatch != null
+            ? '${primaryLocation ?? fileOnly} e ${sdkMismatch.targetGradleFile}'
+            : (primaryLocation ?? fileOnly),
+        crashSummary: primaryMessage ??
+            "Conflito de tipo 'TextTheme' entre flutter/material.dart e material_ui.",
+        explanation:
+            'A versão do pacote `google_fonts` conflitou no tipo `TextTheme` entre `flutter/material.dart` e `material_ui` '
+            'ao chamar `GoogleFonts.*TextTheme(ThemeData...textTheme)` em `$fileOnly`.$sdkNote '
+            'A solução prática é trocar para `fontFamily: GoogleFonts.<fonte>().fontFamily` (que usa String simples em vez de TextTheme)'
+            '${sdkMismatch != null ? " e atualizar `compileSdk = ${sdkMismatch.requiredSdk}` no Gradle." : "."}',
+        relevantLogLines: relevant,
+        steps: [
+          'Clique em "Ver & Aplicar Correções" acima para substituir `textTheme: GoogleFonts.*TextTheme(...)` por `fontFamily: GoogleFonts.<fonte>().fontFamily` automaticamente em `$fileOnly`'
+              '${sdkMismatch != null ? " e definir `compileSdk = ${sdkMismatch.requiredSdk}` em `${sdkMismatch.targetGradleFile}`." : "."}',
+          'Ou, se preferir não usar Google Fonts no projeto, remova o pacote no terminal com `flutter pub remove google_fonts` e retire o import de `$fileOnly`.',
+          'Depois de aplicar a correção, clique em "Aplicar e Relançar no Celular".',
+        ],
+      );
+    }
+
+    final isMissingImport = lower.contains("target of uri doesn't exist") ||
+        lower.contains('error when reading') ||
+        lower.contains('not found:');
+
+    return AndroidBuildDiagnostic(
+      issueType: AndroidBuildIssueType.dartCompileError,
+      isRuntimeCrash: false,
+      title: primaryLocation != null
+          ? 'Erro de compilação Dart em $primaryLocation'
+          : 'Falha na compilação do código Dart',
+      affectedLocation: primaryLocation,
+      crashSummary: primaryMessage ?? 'Target kernel_snapshot_program failed',
+      suggestedTerminalCommand: isMissingImport ? 'flutter pub get' : null,
+      explanation: primaryMessage != null
+          ? 'O compilador Dart encontrou um erro${primaryLocation != null ? " em `$primaryLocation`" : ""}: $primaryMessage'
+          : 'A compilação do código Dart falhou antes de empacotar o APK Android (`compileFlutterBuildDebug`).',
+      relevantLogLines: relevant,
+      steps: [
+        if (uniqueErrors.isNotEmpty) 'Erro(s) encontrado(s): ${uniqueErrors.join(" | ")}',
+        if (primaryLocation != null) 'Abra `$primaryLocation` para revisar a linha apontada.',
+        if (sdkMismatch != null)
+          'Aviso adicional detectado: atualize `compileSdk = ${sdkMismatch.requiredSdk}` em `${sdkMismatch.targetGradleFile}` (use o botão "Ver & Aplicar Correções" se disponível).',
+        if (isMissingImport) 'Execute `flutter pub get` para baixar dependências ou corrigir imports quebrados.',
+        'Use "Gerar Solução com IA" caso queira uma sugestão automática contextualizada no seu arquivo.',
+      ],
+    );
+  }
+
+  AndroidBuildDiagnostic? _classifyAndroidCompileSdkTooLow(
+    List<String> logLines,
+    String joined,
+    String lower,
+  ) {
+    final sdkMismatch = extractAndroidCompileSdkMismatch(joined);
+    if (sdkMismatch == null) return null;
+
+    final pluginLabel = sdkMismatch.plugins.isNotEmpty
+        ? sdkMismatch.plugins.join(', ')
+        : 'plugin Android';
+    final currentLabel = sdkMismatch.currentSdk ?? 'atual';
+
+    return AndroidBuildDiagnostic(
+      issueType: AndroidBuildIssueType.androidCompileSdkTooLow,
+      isRuntimeCrash: false,
+      title:
+          'Plugin ($pluginLabel) exige Android compileSdk ${sdkMismatch.requiredSdk} (projeto usa $currentLabel)',
+      affectedLocation: sdkMismatch.targetGradleFile,
+      crashSummary:
+          '$pluginLabel requer Android SDK ${sdkMismatch.requiredSdk}, mas o projeto está compilando contra SDK $currentLabel.',
+      explanation:
+          'O plugin `$pluginLabel` exige `compileSdk = ${sdkMismatch.requiredSdk}` no Gradle do Android '
+          '(projeto usa SDK $currentLabel; versões mais novas do SDK Android são retrocompatíveis e não impedem o app de rodar em celulares mais antigos com `minSdk` menor).',
+      relevantLogLines: _extractRelevantLogWindow(
+        logLines,
+        RegExp(r'compileSdk|Android SDK \d+|compiles against Android SDK',
+            caseSensitive: false),
+      ),
+      steps: [
+        'Clique em "Ver & Aplicar Correções" acima para ajustar `compileSdk = ${sdkMismatch.requiredSdk}` em `${sdkMismatch.targetGradleFile}` automaticamente.',
+        'Ou edite `${sdkMismatch.targetGradleFile}` manualmente dentro de `android { compileSdk = ${sdkMismatch.requiredSdk} }` e relance o app.',
       ],
     );
   }
