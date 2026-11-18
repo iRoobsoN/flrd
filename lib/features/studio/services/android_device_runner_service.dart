@@ -3109,4 +3109,73 @@ ConvertTo-Json -InputObject $items -Compress
       } catch (_) {}
     }
   }
+
+  /// Captures a PNG screenshot from the connected Android device via `adb`
+  /// and saves it to `<projectPath>/.flrd/screenshots/` (or system temp).
+  Future<({String? filePath, String? errorMessage})> captureDeviceScreenshot({
+    String? deviceId,
+    String? projectPath,
+  }) async {
+    final located = await _locateAdbAndSdk();
+    final adbPath = located.adbPath;
+    if (adbPath == null || adbPath.isEmpty) {
+      return (
+        filePath: null,
+        errorMessage: 'ADB (adb.exe) não encontrado no Android SDK.',
+      );
+    }
+
+    final args = <String>[
+      if (deviceId != null && deviceId.trim().isNotEmpty) ...[
+        '-s',
+        deviceId.trim(),
+      ],
+      'exec-out',
+      'screencap',
+      '-p',
+    ];
+
+    try {
+      final result = await Process.run(
+        adbPath,
+        args,
+        stdoutEncoding: null,
+      );
+      if (result.exitCode != 0) {
+        final errText = result.stderr?.toString().trim() ?? '';
+        return (
+          filePath: null,
+          errorMessage: errText.isNotEmpty
+              ? errText
+              : 'Falha ao capturar tela (código ${result.exitCode}).',
+        );
+      }
+
+      final bytes = result.stdout is List<int>
+          ? result.stdout as List<int>
+          : const <int>[];
+      if (bytes.isEmpty) {
+        return (
+          filePath: null,
+          errorMessage: 'O dispositivo retornou uma captura vazia.',
+        );
+      }
+
+      final stamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .replaceAll('.', '-');
+      final cleanProject = projectPath?.trim() ?? '';
+      final targetDir = cleanProject.isNotEmpty
+          ? Directory(p.join(cleanProject, '.flrd', 'screenshots'))
+          : Directory(p.join(Directory.systemTemp.path, 'flrd_screenshots'));
+      targetDir.createSync(recursive: true);
+
+      final outFile = File(p.join(targetDir.path, 'screen_$stamp.png'));
+      outFile.writeAsBytesSync(bytes, flush: true);
+      return (filePath: outFile.path, errorMessage: null);
+    } catch (e) {
+      return (filePath: null, errorMessage: 'Erro ao capturar tela: $e');
+    }
+  }
 }

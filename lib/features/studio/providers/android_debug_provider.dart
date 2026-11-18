@@ -1432,6 +1432,23 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     state = state.copyWith(buildDiagnostic: null);
   }
 
+  /// Captures a screenshot from the currently connected Android device.
+  Future<({String? filePath, String? errorMessage})> captureDeviceScreenshot({
+    String? projectPath,
+  }) async {
+    final targetProject = projectPath ?? state.projectPath;
+    final res = await _service.captureDeviceScreenshot(
+      deviceId: state.selectedDevice?.id,
+      projectPath: targetProject,
+    );
+    if (res.filePath != null) {
+      _appendLog('📸 Captura de tela salva em: ${res.filePath}');
+    } else if (res.errorMessage != null) {
+      _appendLog('⚠️ ${res.errorMessage}', isError: true);
+    }
+    return res;
+  }
+
   void dismissError() {
     state = state.copyWith(
       status: DeviceRunStatus.idle,

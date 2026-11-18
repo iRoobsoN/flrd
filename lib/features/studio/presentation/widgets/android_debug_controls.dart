@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -192,6 +194,72 @@ class AndroidDebugToolbarControls extends ConsumerWidget {
           ),
         ],
         const SizedBox(width: 4),
+        _ToolbarIconButton(
+          key: const ValueKey('android_screenshot_button'),
+          icon: Icons.camera_alt_rounded,
+          tooltip: 'Capturar tela do aparelho conectado',
+          color: AppColors.primary,
+          onPressed: () async {
+            final res = await notifier.captureDeviceScreenshot(
+              projectPath: state.projectPath,
+            );
+            if (!context.mounted) return;
+            if (res.filePath == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    res.errorMessage ?? 'Não foi possível capturar a tela.',
+                  ),
+                ),
+              );
+              return;
+            }
+            await showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppColors.surface,
+                title: const Text(
+                  'Captura do Aparelho',
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 15),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: 360,
+                        maxHeight: 520,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(res.filePath!),
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SelectableText(
+                      res.filePath!,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Fechar'),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(width: 4),
         _ConsoleToggleButton(
           isConsoleOpen: isConsoleOpen,
           hasError: hasError,
@@ -295,6 +363,72 @@ class _ActiveSessionControls extends StatelessWidget {
           tooltip: 'Hot Restart (reinicia estado do app)',
           color: canTriggerReload ? AppColors.secondary : AppColors.textMuted,
           onPressed: canTriggerReload ? notifier.hotRestart : null,
+        ),
+        const SizedBox(width: 4),
+        _ToolbarIconButton(
+          key: const ValueKey('android_screenshot_button'),
+          icon: Icons.camera_alt_rounded,
+          tooltip: 'Capturar tela do aparelho conectado',
+          color: AppColors.primary,
+          onPressed: () async {
+            final res = await notifier.captureDeviceScreenshot(
+              projectPath: state.projectPath,
+            );
+            if (!context.mounted) return;
+            if (res.filePath == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    res.errorMessage ?? 'Não foi possível capturar a tela.',
+                  ),
+                ),
+              );
+              return;
+            }
+            await showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppColors.surface,
+                title: const Text(
+                  'Captura do Aparelho',
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 15),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: 360,
+                        maxHeight: 520,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(res.filePath!),
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SelectableText(
+                      res.filePath!,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Fechar'),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
         const SizedBox(width: 4),
         _ConsoleToggleButton(
