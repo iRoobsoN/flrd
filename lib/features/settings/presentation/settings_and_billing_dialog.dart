@@ -428,6 +428,53 @@ class _SettingsAndBillingDialogState
               ),
             ],
           ),
+          const SizedBox(height: 18),
+
+          // Gemini Model Selector
+          const Text(
+            'Gemini Model',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _buildModelOptionCard(
+                    key: const ValueKey('ai_model_option_gemini-2.5-flash'),
+                    title: 'Gemini 2.5 Flash',
+                    subtitle: 'Fast & efficient for rapid UI & widget iteration',
+                    icon: Icons.bolt_rounded,
+                    isSelected:
+                        aiSettings.selectedModel == AiSettingsState.geminiFlashModel,
+                    onTap: () => ref
+                        .read(aiSettingsProvider.notifier)
+                        .setSelectedModel(AiSettingsState.geminiFlashModel),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildModelOptionCard(
+                    key: const ValueKey('ai_model_option_gemini-2.5-pro'),
+                    title: 'Gemini 2.5 Pro',
+                    subtitle:
+                        'Deeper reasoning for complex screens & architecture',
+                    icon: Icons.auto_awesome_rounded,
+                    isSelected:
+                        aiSettings.selectedModel == AiSettingsState.geminiProModel,
+                    onTap: () => ref
+                        .read(aiSettingsProvider.notifier)
+                        .setSelectedModel(AiSettingsState.geminiProModel),
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 14),
 
           // Helper callout
@@ -445,7 +492,7 @@ class _SettingsAndBillingDialogState
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Your API key is securely stored locally on your device and never shared with third-party servers.',
+                    'Your BYOK API key and selected Gemini model are stored locally in ~/.flrd/ai_settings.json on your device and never shared with third-party servers.',
                     style: TextStyle(
                       color: AppColors.textMuted,
                       fontSize: 11,
@@ -457,6 +504,81 @@ class _SettingsAndBillingDialogState
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModelOptionCard({
+    required Key key,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: key,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.secondary.withValues(alpha: 0.14)
+                : AppColors.surfaceCard,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? AppColors.secondary : AppColors.borderSubtle,
+              width: isSelected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: isSelected ? AppColors.secondary : AppColors.textMuted,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 12,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 11,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                isSelected
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                size: 16,
+                color: isSelected ? AppColors.secondary : AppColors.textMuted,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

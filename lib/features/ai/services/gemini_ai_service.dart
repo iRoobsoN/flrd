@@ -9,6 +9,9 @@ import '../../studio/domain/screen_material.dart';
 import '../../studio/domain/widget_variation.dart';
 import '../../studio/models/route_node.dart';
 import '../../studio/services/diagnostic_code_fix_service.dart';
+import '../models/ai_execution_plan.dart';
+import '../providers/ai_settings_provider.dart';
+import 'project_context_snapshot_service.dart';
 
 /// Encapsulates the output of a generated screen operation.
 class GeneratedScreenResult {
@@ -27,12 +30,40 @@ class GeneratedScreenResult {
       'GeneratedScreenResult(filePath: $filePath, absolutePath: $absolutePath, codeLength: ${code.length})';
 }
 
-/// Service providing AI-powered Flutter screen synthesis using Google Gemini 1.5 Flash
-/// with offline architectural fallback synthesis.
+/// Service providing AI-powered Flutter screen and widget synthesis using Google Gemini 2.5
+/// with Plan-First outcome transparency and legacy offline fallback helpers.
 class GeminiAiService {
   GeminiAiService._();
 
-  /// Generates a complete Flutter screen widget file using Gemini 1.5 Flash or
+  static const String defaultModel = AiSettingsState.geminiFlashModel;
+
+  static const List<String> _generationModelCascade = [
+    AiSettingsState.geminiFlashModel,
+    AiSettingsState.geminiProModel,
+    'gemini-2.0-flash',
+  ];
+
+  /// Builds an ordered, deduplicated Gemini model cascade prioritizing [preferredModel].
+  static List<String> buildModelCascade([
+    String? preferredModel = defaultModel,
+  ]) {
+    final normalized = AiSettingsState.normalizeModel(preferredModel);
+    final models = <String>[normalized];
+    for (final candidate in _generationModelCascade) {
+      if (!models.contains(candidate)) {
+        models.add(candidate);
+      }
+    }
+    return List<String>.unmodifiable(models);
+  }
+
+  static bool _hasValidApiKey(String? apiKey) {
+    if (apiKey == null) return false;
+    final trimmed = apiKey.trim();
+    return trimmed.isNotEmpty && trimmed != 'null' && trimmed != 'undefined';
+  }
+
+  /// Generates a complete Flutter screen widget file using Gemini 2.5 or
   /// an architectural synthesis fallback when offline or lacking an API key.
   ///
   /// Extracts compilable Dart code, writes the file to the target project directory,
@@ -46,83 +77,56 @@ class GeminiAiService {
     List<RouteNode>? existingRoutes,
     List<ScreenMaterialItem>? materials,
     String? apiKey,
+    String preferredModel = defaultModel,
     http.Client? httpClient,
   }) async {
     String rawCode = '';
 
-    final hasApiKey = apiKey != null &&
-        apiKey.trim().isNotEmpty &&
-        apiKey.trim() != 'null' &&
-        apiKey.trim() != 'undefined';
-    if (hasApiKey) {
-      final client = httpClient ?? http.Client();
-      try {
-        final uri = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}',
-        );
+    if (_hasValidApiKey(apiKey)) {
+      var routeContext = '';
+      if (existingRoutes != null && existingRoutes.isNotEmpty) {
+        final routesSummary = existingRoutes
+            .map((r) => '${r.title} (${r.path})')
+            .join(', ');
+        routeContext =
+            ' Known app navigation routes for context.go / context.push: $routesSummary.';
+      }
 
-        var routeContext = '';
-        if (existingRoutes != null && existingRoutes.isNotEmpty) {
-          final routesSummary = existingRoutes
-              .map((r) => '${r.title} (${r.path})')
-              .join(', ');
-          routeContext = ' Known app navigation routes for context.go / context.push: $routesSummary.';
-        }
+      final systemPrompt =
+          'You are an expert Flutter engineer. Output ONLY valid, compilable Dart code within ```dart codeblock. Screen class name: $screenClassName. Route: $routePath.$routeContext Preset: $preset. Use AppColors tokens and standard Flutter Material 3 widgets.';
 
-        final systemPrompt =
-            'You are an expert Flutter engineer. Output ONLY valid, compilable Dart code within ```dart codeblock. Screen class name: $screenClassName. Route: $routePath.$routeContext Preset: $preset. Use AppColors tokens and standard Flutter Material 3 widgets.';
-
-        final requestPayload = {
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {
-                  'text': '$systemPrompt\n\nUser Request / Screen Requirements:\n$prompt',
-                }
-              ]
-            }
-          ],
-          'system_instruction': {
+      final requestPayload = {
+        'contents': [
+          {
+            'role': 'user',
             'parts': [
-              {'text': systemPrompt}
+              {
+                'text':
+                    '$systemPrompt\n\nUser Request / Screen Requirements:\n$prompt',
+              }
             ]
           }
-        };
-
-        final response = await client
-            .post(
-              uri,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(requestPayload),
-            )
-            .timeout(const Duration(seconds: 15));
-
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          final decoded = jsonDecode(response.body);
-          if (decoded is Map<String, dynamic> &&
-              decoded['candidates'] is List &&
-              (decoded['candidates'] as List).isNotEmpty) {
-            final candidate = (decoded['candidates'] as List).first;
-            if (candidate is Map<String, dynamic> &&
-                candidate['content'] is Map<String, dynamic>) {
-              final content = candidate['content'] as Map<String, dynamic>;
-              if (content['parts'] is List && (content['parts'] as List).isNotEmpty) {
-                final part = (content['parts'] as List).first;
-                if (part is Map<String, dynamic> && part['text'] is String) {
-                  rawCode = part['text'] as String;
-                }
-              }
-            }
-          }
+        ],
+        'system_instruction': {
+          'parts': [
+            {'text': systemPrompt}
+          ]
         }
-      } catch (_) {
-        // Fall back to offline code synthesis if Gemini API call fails (network drop, timeout, or auth issue)
-        rawCode = '';
-      } finally {
-        if (httpClient == null) {
-          client.close();
-        }
+      };
+
+      final cascadeResult = await _executeGeminiCascade<String>(
+        apiKey: apiKey!,
+        models: buildModelCascade(preferredModel),
+        requestPayload: requestPayload,
+        client: httpClient,
+        timeout: const Duration(seconds: 15),
+        parser: (rawText) {
+          final cleaned = extractDartCode(rawText);
+          return cleaned.trim().isNotEmpty ? rawText : null;
+        },
+      );
+      if (cascadeResult.value != null) {
+        rawCode = cascadeResult.value!;
       }
     }
 
@@ -185,34 +189,7 @@ class GeminiAiService {
   static List<WidgetVariation>? _parseVariationsJson(String rawText) {
     if (rawText.trim().isEmpty) return null;
     try {
-      String text = rawText.trim();
-      if (text.startsWith('```')) {
-        final firstNewline = text.indexOf('\n');
-        if (firstNewline != -1) {
-          text = text.substring(firstNewline + 1);
-        }
-        final lastFence = text.lastIndexOf('```');
-        if (lastFence != -1) {
-          text = text.substring(0, lastFence);
-        }
-      }
-      text = text.trim();
-
-      final startIndex = text.indexOf('[');
-      final endIndex = text.lastIndexOf(']');
-      if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
-        text = text.substring(startIndex, endIndex + 1);
-      } else if (startIndex != -1) {
-        final lastObj = text.lastIndexOf('}');
-        if (lastObj > startIndex) {
-          text = '${text.substring(startIndex, lastObj + 1)}]';
-        }
-      }
-
-      // Remove trailing commas before closing braces/brackets
-      text = text.replaceAll(RegExp(r',\s*([\]}])'), r'$1');
-
-      final decoded = jsonDecode(text);
+      final decoded = _decodeRelaxedJson(rawText);
       if (decoded is List && decoded.isNotEmpty) {
         final results = <WidgetVariation>[];
         for (int i = 0; i < decoded.length; i++) {
@@ -253,97 +230,61 @@ class GeminiAiService {
     return null;
   }
 
-  /// Generates 3 distinct widget variations using Gemini 1.5 Flash API (when apiKey provided)
+  /// Generates 3 distinct widget variations using Gemini 2.5 cascade (when apiKey provided)
   /// or falls back to diverse architectural synthesis.
   static Future<List<WidgetVariation>> generateWidgetVariations({
     required String prompt,
     required PresetType preset,
     RouteNode? routeNode,
     String? apiKey,
+    String preferredModel = defaultModel,
     http.Client? httpClient,
   }) async {
-    final hasApiKey = apiKey != null &&
-        apiKey.trim().isNotEmpty &&
-        apiKey.trim() != 'null' &&
-        apiKey.trim() != 'undefined';
+    if (_hasValidApiKey(apiKey)) {
+      final routeContext = routeNode != null
+          ? ' Target screen: "${routeNode.title}" (${routeNode.path}).'
+          : '';
 
-    if (hasApiKey) {
-      final client = httpClient ?? http.Client();
-      try {
-        final uri = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}',
-        );
+      final systemPrompt =
+          'You are an expert Flutter engineer and UI/UX designer. '
+          'Given the user widget prompt, generate exactly 3 REAL, DIVERSE, PRODUCTION-GRADE Flutter widget variations in JSON format tailored to the user prompt.\n'
+          'Each variation must use a distinct visual design, layout architecture, and Flutter widget composition:\n'
+          '- Variation 1: Glassmorphism style (subtle borders, translucent background, refined typography, glow effects).\n'
+          '- Variation 2: Bento Grid / Modern Card style (clean rounded container, pill badges, structured stats, compact layout).\n'
+          '- Variation 3: Hero Action Banner style (vibrant gradients, prominent focal point, interactive action button).\n'
+          'CRITICAL ANIMATION REQUIREMENT: If the user prompt asks for animations, physics, bouncing ball, pulses, bounce, or dynamic movement, you MUST output animated Flutter code (using AnimationController, CurvedAnimation, TweenAnimationBuilder, or StatefulBuilder with curves like Curves.bounceOut, Curves.elasticOut).\n'
+          'Output ONLY a valid JSON array of 3 objects with keys: "id", "title", "styleTag", "description", "techApproach", "dartCode".\n'
+          'Each "dartCode" MUST be a complete, self-contained, compilable Flutter widget snippet (e.g. Container(...), TweenAnimationBuilder(...), StatefulBuilder(...)). Do NOT wrap in markdown other than optional ```json.';
 
-        final routeContext = routeNode != null
-            ? ' Target screen: "${routeNode.title}" (${routeNode.path}).'
-            : '';
-
-        final systemPrompt =
-            'You are an expert Flutter engineer and UI/UX designer. '
-            'Given the user widget prompt, generate exactly 3 REAL, DIVERSE, PRODUCTION-GRADE Flutter widget variations in JSON format tailored to the user prompt.\n'
-            'Each variation must use a distinct visual design, layout architecture, and Flutter widget composition:\n'
-            '- Variation 1: Glassmorphism style (subtle borders, translucent background, refined typography, glow effects).\n'
-            '- Variation 2: Bento Grid / Modern Card style (clean rounded container, pill badges, structured stats, compact layout).\n'
-            '- Variation 3: Hero Action Banner style (vibrant gradients, prominent focal point, interactive action button).\n'
-            'CRITICAL ANIMATION REQUIREMENT: If the user prompt asks for animations, physics, bouncing ball, pulses, bounce, or dynamic movement, you MUST output animated Flutter code (using AnimationController, CurvedAnimation, TweenAnimationBuilder, or StatefulBuilder with curves like Curves.bounceOut, Curves.elasticOut).\n'
-            'Output ONLY a valid JSON array of 3 objects with keys: "id", "title", "styleTag", "description", "techApproach", "dartCode".\n'
-            'Each "dartCode" MUST be a complete, self-contained, compilable Flutter widget snippet (e.g. Container(...), TweenAnimationBuilder(...), StatefulBuilder(...)). Do NOT wrap in markdown other than optional ```json.';
-
-        final requestPayload = {
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {
-                  'text':
-                      '$systemPrompt\n\nUser Widget Prompt: "$prompt"\nPreset: ${preset.name}.$routeContext',
-                }
-              ]
-            }
-          ],
-          'system_instruction': {
+      final requestPayload = {
+        'contents': [
+          {
+            'role': 'user',
             'parts': [
-              {'text': systemPrompt}
+              {
+                'text':
+                    '$systemPrompt\n\nUser Widget Prompt: "$prompt"\nPreset: ${preset.name}.$routeContext',
+              }
             ]
           }
-        };
-
-        final response = await client
-            .post(
-              uri,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(requestPayload),
-            )
-            .timeout(const Duration(seconds: 15));
-
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          final decoded = jsonDecode(response.body);
-          if (decoded is Map<String, dynamic> &&
-              decoded['candidates'] is List &&
-              (decoded['candidates'] as List).isNotEmpty) {
-            final candidate = (decoded['candidates'] as List).first;
-            if (candidate is Map<String, dynamic> &&
-                candidate['content'] is Map<String, dynamic>) {
-              final content = candidate['content'] as Map<String, dynamic>;
-              if (content['parts'] is List && (content['parts'] as List).isNotEmpty) {
-                final part = (content['parts'] as List).first;
-                if (part is Map<String, dynamic> && part['text'] is String) {
-                  final text = part['text'] as String;
-                  final parsedVariations = _parseVariationsJson(text);
-                  if (parsedVariations != null && parsedVariations.isNotEmpty) {
-                    return parsedVariations;
-                  }
-                }
-              }
-            }
-          }
+        ],
+        'system_instruction': {
+          'parts': [
+            {'text': systemPrompt}
+          ]
         }
-      } catch (_) {
-        // Fall back to architectural synthesis
-      } finally {
-        if (httpClient == null) {
-          client.close();
-        }
+      };
+
+      final cascadeResult = await _executeGeminiCascade<List<WidgetVariation>>(
+        apiKey: apiKey!,
+        models: buildModelCascade(preferredModel),
+        requestPayload: requestPayload,
+        client: httpClient,
+        timeout: const Duration(seconds: 15),
+        parser: _parseVariationsJson,
+      );
+      if (cascadeResult.value != null && cascadeResult.value!.isNotEmpty) {
+        return cascadeResult.value!;
       }
     }
 
@@ -2771,6 +2712,7 @@ class _${screenClassName}State extends State<$screenClassName> {
     RouteNode? routeNode,
     List<RouteNode>? existingRoutes,
     String? apiKey,
+    String preferredModel = defaultModel,
     http.Client? httpClient,
   }) async {
     String rawCode = '';
@@ -2782,71 +2724,41 @@ class _${screenClassName}State extends State<$screenClassName> {
       preset: preset,
     );
 
-    final hasApiKey = apiKey != null &&
-        apiKey.trim().isNotEmpty &&
-        apiKey.trim() != 'null' &&
-        apiKey.trim() != 'undefined';
+    if (_hasValidApiKey(apiKey)) {
+      final systemPrompt =
+          'You are an expert Flutter engineer. Output ONLY a single, focused, standalone, and compilable Flutter widget code snippet within ```dart codeblock based on the requested component and behavioral prompt. Component: ${material.label} (${material.type.displayName}). Preset: $preset. Use AppColors tokens and standard Flutter Material 3 widgets.';
 
-    if (hasApiKey) {
-      final client = httpClient ?? http.Client();
-      try {
-        final uri = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}',
-        );
-
-        final systemPrompt =
-            'You are an expert Flutter engineer. Output ONLY a single, focused, standalone, and compilable Flutter widget code snippet within ```dart codeblock based on the requested component and behavioral prompt. Component: ${material.label} (${material.type.displayName}). Preset: $preset. Use AppColors tokens and standard Flutter Material 3 widgets.';
-
-        final requestPayload = {
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {
-                  'text': '$systemPrompt\n\nWidget Requirements:\n$prompt',
-                }
-              ]
-            }
-          ],
-          'system_instruction': {
+      final requestPayload = {
+        'contents': [
+          {
+            'role': 'user',
             'parts': [
-              {'text': systemPrompt}
+              {
+                'text': '$systemPrompt\n\nWidget Requirements:\n$prompt',
+              }
             ]
           }
-        };
-
-        final response = await client
-            .post(
-              uri,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(requestPayload),
-            )
-            .timeout(const Duration(seconds: 15));
-
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          final decoded = jsonDecode(response.body);
-          if (decoded is Map<String, dynamic> &&
-              decoded['candidates'] is List &&
-              (decoded['candidates'] as List).isNotEmpty) {
-            final candidate = (decoded['candidates'] as List).first;
-            if (candidate is Map<String, dynamic> &&
-                candidate['content'] is Map<String, dynamic>) {
-              final content = candidate['content'] as Map<String, dynamic>;
-              if (content['parts'] is List && (content['parts'] as List).isNotEmpty) {
-                final part = (content['parts'] as List).first;
-                if (part is Map<String, dynamic> && part['text'] is String) {
-                  rawCode = part['text'] as String;
-                }
-              }
-            }
-          }
+        ],
+        'system_instruction': {
+          'parts': [
+            {'text': systemPrompt}
+          ]
         }
-      } catch (_) {
-        rawCode = '';
-      } finally {
-        if (httpClient == null) {
-          client.close();
-        }
+      };
+
+      final cascadeResult = await _executeGeminiCascade<String>(
+        apiKey: apiKey!,
+        models: buildModelCascade(preferredModel),
+        requestPayload: requestPayload,
+        client: httpClient,
+        timeout: const Duration(seconds: 15),
+        parser: (rawText) {
+          final cleaned = extractDartCode(rawText);
+          return cleaned.trim().isNotEmpty ? rawText : null;
+        },
+      );
+      if (cascadeResult.value != null) {
+        rawCode = cascadeResult.value!;
       }
     }
 
@@ -2986,11 +2898,900 @@ class _${className}State extends State<$className> {
   }
 
   static const List<String> _diagnosticModelCascade = [
-    'gemini-2.5-pro',
-    'gemini-2.5-flash',
+    AiSettingsState.geminiProModel,
+    AiSettingsState.geminiFlashModel,
     'gemini-2.0-flash',
-    'gemini-1.5-flash',
   ];
+
+  // ===========================================================================
+  // PLAN-FIRST & OUTCOME-TRANSPARENT GEMINI 2.5 APIS
+  // ===========================================================================
+
+  /// Plans a Flutter widget creation/modification request before codegen,
+  /// returning a structured [AiExecutionPlan] grounded in [projectContext]
+  /// and [userPlacementHint]. Never returns fake offline templates as AI.
+  static Future<AiGenerationOutcome<AiExecutionPlan>> planWidgetCreation({
+    required String prompt,
+    String? userPlacementHint,
+    required PresetType preset,
+    RouteNode? routeNode,
+    ProjectContextSnapshot? projectContext,
+    String? apiKey,
+    String preferredModel = defaultModel,
+    http.Client? client,
+  }) async {
+    if (!_hasValidApiKey(apiKey)) {
+      return const AiGenerationOutcome<AiExecutionPlan>(
+        source: AiResultSource.unconfiguredKey,
+        errorMessage: 'Chave Gemini API (BYOK) não configurada.',
+      );
+    }
+
+    final trimmedPrompt = prompt.trim();
+    if (trimmedPrompt.isEmpty) {
+      return const AiGenerationOutcome<AiExecutionPlan>(
+        source: AiResultSource.error,
+        errorMessage: 'Descreva o widget antes de gerar o plano de execução.',
+      );
+    }
+
+    final grounding = _buildProjectGroundingSection(
+      preset: preset,
+      routeNode: routeNode,
+      projectContext: projectContext,
+      userPlacementHint: userPlacementHint,
+    );
+
+    const systemPrompt =
+        'You are a Principal Flutter Architect. Analyze the user request, natural-language placement hint, and ProjectContextSnapshot BEFORE writing UI code. '
+        'Output ONLY a single valid JSON object representing an AiExecutionPlan with exact keys:\n'
+        '{\n'
+        '  "goalSummary": "concise summary of widget purpose and behavior",\n'
+        '  "widgetName": "ValidPascalCaseWidgetName",\n'
+        '  "architectureType": "statefulWidgetClass | statelessSnippet | fullScreen | codePatch",\n'
+        '  "stateFields": ["DateTime _now", "Timer? _timer", "int _styleIndex"],\n'
+        '  "interactions": ["onTap cycles visual style"],\n'
+        '  "requiredImports": ["dart:async", "package:flutter/material.dart"],\n'
+        '  "requiredPackages": [],\n'
+        '  "placementStrategy": "separateWidgetFile | inlineInScreen | customPath",\n'
+        '  "targetFilePath": "lib/.../screen.dart",\n'
+        '  "extractedWidgetFilePath": "lib/.../widgets/widget_name.dart",\n'
+        '  "visualAnchorDescription": "exact human-readable placement matching the target screen tree",\n'
+        '  "insertionAnchorHint": "top_of_column | bottom_of_column | center_body | after_text:ExactText | before_text:ExactText"\n'
+        '}\n'
+        'RULES:\n'
+        '1. Use architectureType "statefulWidgetClass" whenever the widget needs Timer/clock ticks, animations, user tap/click interactions, style cycling, counters, or mutable state fields.\n'
+        '2. Respect installed packages and Theme.of(context) vs AppColors rules from ProjectContextSnapshot strictly.\n'
+        '3. visualAnchorDescription and insertionAnchorHint MUST accurately reflect the user placement hint and the real widget tree in targetScreenSource.';
+
+    final userPrompt = '''
+$grounding
+
+=== USER WIDGET REQUEST ===
+$trimmedPrompt
+''';
+
+    final requestPayload = {
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': userPrompt}
+          ]
+        }
+      ],
+      'system_instruction': {
+        'parts': [
+          {'text': systemPrompt}
+        ]
+      },
+      'generationConfig': {
+        'responseMimeType': 'application/json',
+        'temperature': 0.25,
+      },
+    };
+
+    final fallbackTargetPath =
+        projectContext?.targetScreenPath ?? routeNode?.filePath;
+
+    final cascadeResult = await _executeGeminiCascade<AiExecutionPlan>(
+      apiKey: apiKey!,
+      models: buildModelCascade(preferredModel),
+      requestPayload: requestPayload,
+      client: client,
+      parser: (rawText) => _parseExecutionPlanJson(
+        rawText,
+        fallbackTargetPath: fallbackTargetPath,
+      ),
+    );
+
+    if (cascadeResult.value != null) {
+      return AiGenerationOutcome<AiExecutionPlan>(
+        data: cascadeResult.value,
+        source: AiResultSource.liveAi,
+        modelUsed: cascadeResult.modelUsed,
+        plan: cascadeResult.value,
+      );
+    }
+
+    return AiGenerationOutcome<AiExecutionPlan>(
+      source: AiResultSource.error,
+      modelUsed: cascadeResult.modelUsed,
+      errorMessage: cascadeResult.errorMessage,
+    );
+  }
+
+  /// Convenience alias for [planWidgetCreation] returning [AiGenerationOutcome<AiExecutionPlan>].
+  static Future<AiGenerationOutcome<AiExecutionPlan>> planWidgetWithOutcome({
+    required String prompt,
+    String? userPlacementHint,
+    required PresetType preset,
+    RouteNode? routeNode,
+    ProjectContextSnapshot? projectContext,
+    String? apiKey,
+    String preferredModel = defaultModel,
+    http.Client? client,
+  }) {
+    return planWidgetCreation(
+      prompt: prompt,
+      userPlacementHint: userPlacementHint,
+      preset: preset,
+      routeNode: routeNode,
+      projectContext: projectContext,
+      apiKey: apiKey,
+      preferredModel: preferredModel,
+      client: client,
+    );
+  }
+
+  /// Generates a compile-ready [WidgetVariation] implementing an approved [AiExecutionPlan]
+  /// grounded in [projectContext]. Never falls back to offline generic mockups.
+  static Future<AiGenerationOutcome<WidgetVariation>> generateWidgetFromPlan({
+    required AiExecutionPlan plan,
+    required String originalPrompt,
+    String? userPlacementHint,
+    required PresetType preset,
+    RouteNode? routeNode,
+    ProjectContextSnapshot? projectContext,
+    String? apiKey,
+    String preferredModel = defaultModel,
+    http.Client? client,
+  }) async {
+    if (!_hasValidApiKey(apiKey)) {
+      return AiGenerationOutcome<WidgetVariation>(
+        source: AiResultSource.unconfiguredKey,
+        errorMessage: 'Chave Gemini API (BYOK) não configurada.',
+        plan: plan,
+      );
+    }
+
+    final grounding = _buildProjectGroundingSection(
+      preset: preset,
+      routeNode: routeNode,
+      projectContext: projectContext,
+      userPlacementHint: userPlacementHint,
+    );
+    final planJson = const JsonEncoder.withIndent('  ').convert(plan.toJson());
+    final widgetClassName = plan.sanitizedWidgetName;
+
+    final systemPrompt =
+        'You are a Principal Flutter Engineer. Implement the approved AiExecutionPlan as a complete, compile-ready Flutter widget.\n'
+        'Output ONLY a valid JSON object with exact keys:\n'
+        '{\n'
+        '  "id": "planned_var_1",\n'
+        '  "title": "Descriptive Widget Title",\n'
+        '  "styleTag": "Visual Style Tag",\n'
+        '  "description": "What the widget does and where it is placed",\n'
+        '  "techApproach": "State/architecture summary",\n'
+        '  "requiredImports": ["dart:async", "package:flutter/material.dart"],\n'
+        '  "extractedWidgetCode": "complete standalone Dart code for the widget class",\n'
+        '  "callSiteSnippet": "$widgetClassName()",\n'
+        '  "dartCode": "complete widget code (same as extractedWidgetCode for statefulWidgetClass)"\n'
+        '}\n'
+        'STRICT RULES:\n'
+        '1. When architectureType == "statefulWidgetClass", extractedWidgetCode MUST define a complete StatefulWidget named $widgetClassName and its State class, implementing every stateField and interaction, with proper initState/dispose cleanup (e.g. Timer?.cancel()).\n'
+        '2. Respect Theme.of(context).colorScheme / textTheme vs AppColors rules strictly from ProjectContextSnapshot.\n'
+        '3. Respect go_router vs Navigator rules and installed packages strictly.\n'
+        '4. Never output placeholder cards or generic static mockups.';
+
+    final userPrompt = '''
+$grounding
+
+=== APPROVED EXECUTION PLAN ===
+$planJson
+
+=== ORIGINAL USER PROMPT ===
+$originalPrompt
+''';
+
+    final requestPayload = {
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': userPrompt}
+          ]
+        }
+      ],
+      'system_instruction': {
+        'parts': [
+          {'text': systemPrompt}
+        ]
+      },
+      'generationConfig': {
+        'responseMimeType': 'application/json',
+        'temperature': 0.35,
+      },
+    };
+
+    final cascadeResult = await _executeGeminiCascade<WidgetVariation>(
+      apiKey: apiKey!,
+      models: buildModelCascade(preferredModel),
+      requestPayload: requestPayload,
+      client: client,
+      parser: (rawText) => _parseSingleVariationJson(rawText, plan),
+    );
+
+    if (cascadeResult.value != null) {
+      return AiGenerationOutcome<WidgetVariation>(
+        data: cascadeResult.value,
+        source: AiResultSource.liveAi,
+        modelUsed: cascadeResult.modelUsed,
+        plan: plan,
+      );
+    }
+
+    return AiGenerationOutcome<WidgetVariation>(
+      source: AiResultSource.error,
+      modelUsed: cascadeResult.modelUsed,
+      errorMessage: cascadeResult.errorMessage,
+      plan: plan,
+    );
+  }
+
+  /// Executes the full Plan-First widget pipeline:
+  /// 1) [planWidgetCreation] to obtain an [AiExecutionPlan], then
+  /// 2) generates compile-ready widget variations adhering to that plan.
+  /// Never returns silent placeholder cards from [synthesizeWidgetVariations].
+  static Future<AiGenerationOutcome<List<WidgetVariation>>>
+      generatePlannedWidgetVariationsWithOutcome({
+    required String prompt,
+    String? userPlacementHint,
+    required PresetType preset,
+    RouteNode? routeNode,
+    ProjectContextSnapshot? projectContext,
+    String? apiKey,
+    String preferredModel = defaultModel,
+    http.Client? client,
+  }) async {
+    if (!_hasValidApiKey(apiKey)) {
+      return const AiGenerationOutcome<List<WidgetVariation>>(
+        source: AiResultSource.unconfiguredKey,
+        errorMessage: 'Chave Gemini API (BYOK) não configurada.',
+      );
+    }
+
+    final trimmedPrompt = prompt.trim();
+    if (trimmedPrompt.isEmpty) {
+      return const AiGenerationOutcome<List<WidgetVariation>>(
+        source: AiResultSource.error,
+        errorMessage: 'Descreva o widget antes de gerar variações com IA.',
+      );
+    }
+
+    final planOutcome = await planWidgetCreation(
+      prompt: trimmedPrompt,
+      userPlacementHint: userPlacementHint,
+      preset: preset,
+      routeNode: routeNode,
+      projectContext: projectContext,
+      apiKey: apiKey,
+      preferredModel: preferredModel,
+      client: client,
+    );
+
+    if (!planOutcome.isSuccess || planOutcome.data == null) {
+      return AiGenerationOutcome<List<WidgetVariation>>(
+        source: planOutcome.source == AiResultSource.liveAi
+            ? AiResultSource.error
+            : planOutcome.source,
+        modelUsed: planOutcome.modelUsed,
+        errorMessage: planOutcome.errorMessage ??
+            'Falha ao gerar o plano de execução do widget.',
+        plan: planOutcome.plan,
+      );
+    }
+
+    final plan = planOutcome.data!;
+    final grounding = _buildProjectGroundingSection(
+      preset: preset,
+      routeNode: routeNode,
+      projectContext: projectContext,
+      userPlacementHint: userPlacementHint,
+    );
+    final planJson = const JsonEncoder.withIndent('  ').convert(plan.toJson());
+    final widgetClassName = plan.sanitizedWidgetName;
+
+    final systemPrompt =
+        'You are a Principal Flutter Engineer and UI Designer. '
+        'Generate 3 distinct, production-ready Flutter widget variations that ALL implement the approved AiExecutionPlan.\n'
+        'Output ONLY a valid JSON array of variation objects, each with keys:\n'
+        '"id", "title", "styleTag", "description", "techApproach", "requiredImports", "extractedWidgetCode", "callSiteSnippet", "dartCode".\n'
+        'STRICT RULES:\n'
+        '1. When plan.architectureType == "statefulWidgetClass", EVERY variation MUST implement a complete compile-ready StatefulWidget named $widgetClassName (with State, initState/dispose, timers/listeners, and interactive tap handlers matching plan.stateFields and plan.interactions).\n'
+        '2. Obey Theme.of(context) vs AppColors rules and go_router vs Navigator rules from ProjectContextSnapshot strictly.\n'
+        '3. Zero generic placeholder cards or unrequested mock text.';
+
+    final userPrompt = '''
+$grounding
+
+=== APPROVED EXECUTION PLAN ===
+$planJson
+
+=== USER WIDGET REQUEST ===
+$trimmedPrompt
+''';
+
+    final requestPayload = {
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': userPrompt}
+          ]
+        }
+      ],
+      'system_instruction': {
+        'parts': [
+          {'text': systemPrompt}
+        ]
+      },
+      'generationConfig': {
+        'responseMimeType': 'application/json',
+        'temperature': 0.45,
+      },
+    };
+
+    final cascadeResult = await _executeGeminiCascade<List<WidgetVariation>>(
+      apiKey: apiKey!,
+      models: buildModelCascade(preferredModel),
+      requestPayload: requestPayload,
+      client: client,
+      parser: (rawText) => _parsePlannedVariationsJson(rawText, plan),
+    );
+
+    if (cascadeResult.value != null && cascadeResult.value!.isNotEmpty) {
+      return AiGenerationOutcome<List<WidgetVariation>>(
+        data: cascadeResult.value,
+        source: AiResultSource.liveAi,
+        modelUsed: cascadeResult.modelUsed,
+        plan: plan,
+      );
+    }
+
+    return AiGenerationOutcome<List<WidgetVariation>>(
+      source: AiResultSource.error,
+      modelUsed: cascadeResult.modelUsed,
+      errorMessage: cascadeResult.errorMessage,
+      plan: plan,
+    );
+  }
+
+  /// Generates a complete Flutter screen grounded in [projectContext] and
+  /// [existingRoutes] with transparent [AiGenerationOutcome] reporting.
+  /// Never returns [synthesizeScreenCode] templates disguised as live AI.
+  static Future<AiGenerationOutcome<String>> generateScreenWithOutcome({
+    required String prompt,
+    String? userPlacementHint,
+    required PresetType preset,
+    RouteNode? routeNode,
+    ProjectContextSnapshot? projectContext,
+    List<String> existingRoutes = const [],
+    String? apiKey,
+    String preferredModel = defaultModel,
+    http.Client? client,
+  }) async {
+    if (!_hasValidApiKey(apiKey)) {
+      return const AiGenerationOutcome<String>(
+        source: AiResultSource.unconfiguredKey,
+        errorMessage: 'Chave Gemini API (BYOK) não configurada.',
+      );
+    }
+
+    final trimmedPrompt = prompt.trim();
+    if (trimmedPrompt.isEmpty) {
+      return const AiGenerationOutcome<String>(
+        source: AiResultSource.error,
+        errorMessage: 'Descreva a tela antes de gerar código com IA.',
+      );
+    }
+
+    final grounding = _buildProjectGroundingSection(
+      preset: preset,
+      routeNode: routeNode,
+      projectContext: projectContext,
+      userPlacementHint: userPlacementHint,
+      existingRoutes: existingRoutes,
+    );
+
+    const systemPrompt =
+        'You are a Principal Flutter Engineer. Generate a complete, compilable Flutter screen widget inside a single ```dart codeblock.\n'
+        'STRICT RULES:\n'
+        '1. Follow every package, Theme.of(context) vs AppColors, and Navigator vs go_router rule in ProjectContextSnapshot.\n'
+        '2. Never reference undefined classes, undefined AppColors tokens, or uninstalled packages.\n'
+        '3. Implement complete state management, lifecycle cleanup (dispose), and responsive Material 3 layout.';
+
+    final userPrompt = '''
+$grounding
+
+=== SCREEN REQUIREMENTS ===
+$trimmedPrompt
+''';
+
+    final requestPayload = {
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': userPrompt}
+          ]
+        }
+      ],
+      'system_instruction': {
+        'parts': [
+          {'text': systemPrompt}
+        ]
+      },
+      'generationConfig': {
+        'temperature': 0.35,
+      },
+    };
+
+    final cascadeResult = await _executeGeminiCascade<String>(
+      apiKey: apiKey!,
+      models: buildModelCascade(preferredModel),
+      requestPayload: requestPayload,
+      client: client,
+      parser: (rawText) {
+        final cleaned = extractDartCode(rawText);
+        if (cleaned.trim().isEmpty) return null;
+        if (!cleaned.contains('class ') && !cleaned.contains('Widget ')) {
+          return null;
+        }
+        return cleaned;
+      },
+    );
+
+    if (cascadeResult.value != null) {
+      return AiGenerationOutcome<String>(
+        data: cascadeResult.value,
+        source: AiResultSource.liveAi,
+        modelUsed: cascadeResult.modelUsed,
+      );
+    }
+
+    return AiGenerationOutcome<String>(
+      source: AiResultSource.error,
+      modelUsed: cascadeResult.modelUsed,
+      errorMessage: cascadeResult.errorMessage,
+    );
+  }
+
+  static Future<({T? value, String? modelUsed, String? errorMessage})>
+      _executeGeminiCascade<T>({
+    required String apiKey,
+    required List<String> models,
+    required Map<String, dynamic> requestPayload,
+    required T? Function(String rawText) parser,
+    http.Client? client,
+    Duration timeout = const Duration(seconds: 25),
+  }) async {
+    final activeClient = client ?? http.Client();
+    final trimmedKey = apiKey.trim();
+    String? lastModelTried;
+    String? lastErrorMessage;
+
+    try {
+      for (final modelId in models) {
+        lastModelTried = modelId;
+        final uri = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=$trimmedKey',
+        );
+
+        try {
+          final response = await activeClient
+              .post(
+                uri,
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(requestPayload),
+              )
+              .timeout(timeout);
+
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            lastErrorMessage = _formatGeminiHttpError(
+              modelId: modelId,
+              statusCode: response.statusCode,
+              responseBody: response.body,
+            );
+            continue;
+          }
+
+          final rawText = _extractGeminiCandidateText(response);
+          if (rawText == null || rawText.trim().isEmpty) {
+            lastErrorMessage =
+                'Resposta vazia retornada pelo modelo $modelId.';
+            continue;
+          }
+
+          final parsed = parser(rawText);
+          if (parsed != null) {
+            return (value: parsed, modelUsed: modelId, errorMessage: null);
+          }
+
+          lastErrorMessage =
+              'Resposta do modelo $modelId não pôde ser interpretada no formato esperado.';
+        } catch (e) {
+          lastErrorMessage = 'Falha ao consultar o modelo $modelId: $e';
+        }
+      }
+    } finally {
+      if (client == null) {
+        activeClient.close();
+      }
+    }
+
+    return (
+      value: null,
+      modelUsed: lastModelTried,
+      errorMessage: lastErrorMessage ??
+          'Não foi possível obter resposta válida dos modelos Gemini.',
+    );
+  }
+
+  static String _formatGeminiHttpError({
+    required String modelId,
+    required int statusCode,
+    required String responseBody,
+  }) {
+    var apiDetail = '';
+    try {
+      final decoded = jsonDecode(responseBody);
+      if (decoded is Map<String, dynamic> && decoded['error'] is Map) {
+        final message =
+            (decoded['error'] as Map)['message']?.toString().trim();
+        if (message != null && message.isNotEmpty) {
+          apiDetail = ': $message';
+        }
+      }
+    } catch (_) {
+      final trimmed = responseBody.trim();
+      if (trimmed.isNotEmpty && trimmed.length <= 200) {
+        apiDetail = ': $trimmed';
+      }
+    }
+
+    if (statusCode == 401 || statusCode == 403) {
+      return 'Autenticação recusada pela API Gemini (HTTP $statusCode, modelo $modelId)$apiDetail. Verifique sua chave API (BYOK).';
+    }
+    if (statusCode == 404) {
+      return 'Modelo Gemini "$modelId" indisponível ou não encontrado (HTTP 404)$apiDetail.';
+    }
+    if (statusCode == 429) {
+      return 'Cota ou limite de requisições atingido na API Gemini (HTTP 429, modelo $modelId)$apiDetail.';
+    }
+    return 'Erro HTTP $statusCode na API Gemini (modelo $modelId)$apiDetail.';
+  }
+
+  static String _buildProjectGroundingSection({
+    required PresetType preset,
+    RouteNode? routeNode,
+    ProjectContextSnapshot? projectContext,
+    String? userPlacementHint,
+    List<String> existingRoutes = const [],
+  }) {
+    final buffer = StringBuffer();
+    buffer.writeln('Preset: ${preset.name} (${preset.tagline})');
+    if (routeNode != null) {
+      buffer.writeln(
+        'Target Route: "${routeNode.title}" (${routeNode.path}, file: ${routeNode.filePath})',
+      );
+    }
+    if (existingRoutes.isNotEmpty) {
+      buffer.writeln('Known App Routes: ${existingRoutes.join(', ')}');
+    }
+    if (userPlacementHint != null && userPlacementHint.trim().isNotEmpty) {
+      buffer.writeln(
+        'User Placement Hint (Natural Language): "${userPlacementHint.trim()}"',
+      );
+    }
+    if (projectContext != null) {
+      buffer.writeln();
+      buffer.writeln(projectContext.toPromptSummary());
+    } else {
+      buffer.writeln();
+      buffer.writeln('=== THEME & NAVIGATION DEFAULTS ===');
+      buffer.writeln(
+        '- Unless AppColors is explicitly defined in the target file, ALWAYS use Theme.of(context).colorScheme and Theme.of(context).textTheme.',
+      );
+      buffer.writeln(
+        '- Only import dart:* and package:flutter/* packages unless explicitly listed in pubspec.yaml.',
+      );
+    }
+    return buffer.toString().trimRight();
+  }
+
+  static String _stripMarkdownCodeFences(String raw) {
+    var text = raw.trim();
+    if (text.startsWith('```')) {
+      final firstNewline = text.indexOf('\n');
+      if (firstNewline != -1) {
+        text = text.substring(firstNewline + 1);
+      } else {
+        text = text.replaceFirst(RegExp(r'^```[a-zA-Z]*'), '');
+      }
+      final lastFence = text.lastIndexOf('```');
+      if (lastFence != -1) {
+        text = text.substring(0, lastFence);
+      }
+    }
+    return text.trim();
+  }
+
+  static dynamic _decodeRelaxedJson(String rawText) {
+    final cleaned = _stripMarkdownCodeFences(rawText);
+    if (cleaned.isEmpty) return null;
+
+    try {
+      return jsonDecode(cleaned);
+    } catch (_) {}
+
+    final objStart = cleaned.indexOf('{');
+    final arrStart = cleaned.indexOf('[');
+    var candidate = cleaned;
+
+    if (objStart != -1 && (arrStart == -1 || objStart < arrStart)) {
+      final objEnd = cleaned.lastIndexOf('}');
+      if (objEnd > objStart) {
+        candidate = cleaned.substring(objStart, objEnd + 1);
+      }
+    } else if (arrStart != -1) {
+      final arrEnd = cleaned.lastIndexOf(']');
+      if (arrEnd > arrStart) {
+        candidate = cleaned.substring(arrStart, arrEnd + 1);
+      } else {
+        final lastObj = cleaned.lastIndexOf('}');
+        if (lastObj > arrStart) {
+          candidate = '${cleaned.substring(arrStart, lastObj + 1)}]';
+        }
+      }
+    }
+
+    try {
+      return jsonDecode(candidate);
+    } catch (_) {}
+
+    final withoutTrailingCommas =
+        candidate.replaceAll(RegExp(r',\s*([\]}])'), r'$1');
+    try {
+      return jsonDecode(withoutTrailingCommas);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static AiExecutionPlan? _parseExecutionPlanJson(
+    String rawText, {
+    String? fallbackTargetPath,
+  }) {
+    final decoded = _decodeRelaxedJson(rawText);
+    Map<String, dynamic>? map;
+    if (decoded is Map<String, dynamic>) {
+      if (decoded['plan'] is Map<String, dynamic>) {
+        map = decoded['plan'] as Map<String, dynamic>;
+      } else {
+        map = decoded;
+      }
+    } else if (decoded is Map) {
+      final coerced = Map<String, dynamic>.from(decoded);
+      if (coerced['plan'] is Map) {
+        map = Map<String, dynamic>.from(coerced['plan'] as Map);
+      } else {
+        map = coerced;
+      }
+    } else if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+      map = Map<String, dynamic>.from(decoded.first as Map);
+    }
+
+    if (map == null) return null;
+
+    final rawGoal =
+        (map['goalSummary'] ?? map['goal_summary'])?.toString().trim() ?? '';
+    final rawWidgetName =
+        (map['widgetName'] ?? map['widget_name'])?.toString().trim() ?? '';
+    if (rawGoal.isEmpty && rawWidgetName.isEmpty) {
+      return null;
+    }
+
+    var plan = AiExecutionPlan.fromJson(map);
+    if ((plan.targetFilePath == null || plan.targetFilePath!.trim().isEmpty) &&
+        fallbackTargetPath != null &&
+        fallbackTargetPath.trim().isNotEmpty) {
+      plan = plan.copyWith(targetFilePath: fallbackTargetPath.trim());
+    }
+    return plan;
+  }
+
+  static WidgetVariation? _parseSingleVariationJson(
+    String rawText,
+    AiExecutionPlan plan,
+  ) {
+    final decoded = _decodeRelaxedJson(rawText);
+    Map<String, dynamic>? map;
+    if (decoded is Map<String, dynamic>) {
+      if (decoded['variation'] is Map<String, dynamic>) {
+        map = decoded['variation'] as Map<String, dynamic>;
+      } else {
+        map = decoded;
+      }
+    } else if (decoded is Map) {
+      final coerced = Map<String, dynamic>.from(decoded);
+      if (coerced['variation'] is Map) {
+        map = Map<String, dynamic>.from(coerced['variation'] as Map);
+      } else {
+        map = coerced;
+      }
+    } else if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+      map = Map<String, dynamic>.from(decoded.first as Map);
+    }
+
+    if (map == null) return null;
+    return _coerceVariationFromMap(map, 0, plan);
+  }
+
+  static List<WidgetVariation>? _parsePlannedVariationsJson(
+    String rawText,
+    AiExecutionPlan plan,
+  ) {
+    final decoded = _decodeRelaxedJson(rawText);
+    final rawItems = <Map<String, dynamic>>[];
+
+    if (decoded is List) {
+      for (final item in decoded) {
+        if (item is Map<String, dynamic>) {
+          rawItems.add(item);
+        } else if (item is Map) {
+          rawItems.add(Map<String, dynamic>.from(item));
+        }
+      }
+    } else if (decoded is Map) {
+      final map = decoded is Map<String, dynamic>
+          ? decoded
+          : Map<String, dynamic>.from(decoded);
+      if (map['variations'] is List) {
+        for (final item in map['variations'] as List) {
+          if (item is Map<String, dynamic>) {
+            rawItems.add(item);
+          } else if (item is Map) {
+            rawItems.add(Map<String, dynamic>.from(item));
+          }
+        }
+      } else {
+        rawItems.add(map);
+      }
+    }
+
+    if (rawItems.isEmpty) return null;
+
+    final results = <WidgetVariation>[];
+    for (var i = 0; i < rawItems.length; i++) {
+      final variation = _coerceVariationFromMap(rawItems[i], i, plan);
+      if (variation != null) {
+        results.add(variation);
+      }
+    }
+    return results.isNotEmpty ? results : null;
+  }
+
+  static WidgetVariation? _coerceVariationFromMap(
+    Map<String, dynamic> item,
+    int index,
+    AiExecutionPlan plan,
+  ) {
+    final rawDart = item['dartCode']?.toString() ?? '';
+    var dartCode = extractDartCode(rawDart);
+    final rawExtracted =
+        (item['extractedWidgetCode'] ?? item['extracted_widget_code'])
+                ?.toString() ??
+            '';
+    var extractedWidgetCode =
+        rawExtracted.trim().isNotEmpty ? extractDartCode(rawExtracted) : null;
+
+    if (dartCode.trim().isEmpty &&
+        extractedWidgetCode != null &&
+        extractedWidgetCode.trim().isNotEmpty) {
+      dartCode = extractedWidgetCode;
+    }
+    if (dartCode.trim().isEmpty) {
+      return null;
+    }
+
+    if (plan.architectureType == 'statefulWidgetClass' &&
+        extractedWidgetCode == null) {
+      extractedWidgetCode = dartCode;
+    }
+
+    final mergedImports = <String>[];
+    void addImport(String value) {
+      final clean = value.trim();
+      if (clean.isNotEmpty &&
+          clean != 'null' &&
+          !mergedImports.contains(clean)) {
+        mergedImports.add(clean);
+      }
+    }
+
+    for (final imp in plan.requiredImports) {
+      addImport(imp);
+    }
+    final rawImports = item['requiredImports'] ?? item['required_imports'];
+    if (rawImports is Iterable) {
+      for (final entry in rawImports) {
+        if (entry != null) addImport(entry.toString());
+      }
+    } else if (rawImports is String && rawImports.trim().isNotEmpty) {
+      for (final part in rawImports.split(RegExp(r'[\r\n,;]+'))) {
+        addImport(part);
+      }
+    }
+
+    final rawCallSite =
+        (item['callSiteSnippet'] ?? item['call_site_snippet'])
+            ?.toString()
+            .trim();
+    final callSiteSnippet = (rawCallSite != null && rawCallSite.isNotEmpty)
+        ? rawCallSite
+        : (plan.architectureType == 'statefulWidgetClass'
+            ? '${plan.sanitizedWidgetName}()'
+            : null);
+
+    final id = item['id']?.toString().trim();
+    final title = item['title']?.toString().trim();
+    final styleTag = item['styleTag']?.toString().trim();
+    final description = item['description']?.toString().trim();
+    final techApproach = item['techApproach']?.toString().trim();
+
+    return WidgetVariation(
+      id: (id != null && id.isNotEmpty) ? id : 'planned_var_${index + 1}',
+      title: (title != null && title.isNotEmpty)
+          ? title
+          : '${plan.sanitizedWidgetName} (${index + 1})',
+      styleTag: (styleTag != null && styleTag.isNotEmpty)
+          ? styleTag
+          : (index == 0
+              ? 'Primary Planned'
+              : index == 1
+                  ? 'Compact Variant'
+                  : 'Expressive Variant'),
+      description: (description != null && description.isNotEmpty)
+          ? description
+          : plan.goalSummary,
+      dartCode: dartCode,
+      techApproach: (techApproach != null && techApproach.isNotEmpty)
+          ? techApproach
+          : plan.architectureType,
+      icon: index == 0
+          ? Icons.auto_awesome_rounded
+          : index == 1
+              ? Icons.grid_view_rounded
+              : Icons.view_carousel_rounded,
+      requiredImports: mergedImports.isEmpty
+          ? const []
+          : List<String>.unmodifiable(mergedImports),
+      extractedWidgetCode: extractedWidgetCode,
+      callSiteSnippet: callSiteSnippet,
+      plan: plan,
+    );
+  }
 
   /// Analyzes an Android build, install, or runtime crash together with deep
   /// local project context (Dart, Kotlin/Java, C++/JNI, nested submodules such
@@ -3020,12 +3821,7 @@ class _${className}State extends State<$className> {
 
     final cappedLogs = _formatCappedCrashLogs(crashLogs);
 
-    final hasApiKey = apiKey != null &&
-        apiKey.trim().isNotEmpty &&
-        apiKey.trim() != 'null' &&
-        apiKey.trim() != 'undefined';
-
-    if (hasApiKey) {
+    if (_hasValidApiKey(apiKey)) {
       final client = httpClient ?? http.Client();
       try {
         const systemPrompt =
@@ -3072,7 +3868,7 @@ class _${className}State extends State<$className> {
 
         for (final modelId in _diagnosticModelCascade) {
           final uri = Uri.parse(
-            'https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=${apiKey.trim()}',
+            'https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=${apiKey!.trim()}',
           );
           final response = await client
               .post(

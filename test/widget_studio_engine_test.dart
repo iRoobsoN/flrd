@@ -295,9 +295,9 @@ class DashboardScreen extends StatelessWidget {
       expect(variations[0].techApproach, contains('CircleAvatar'));
     });
 
-    test('generateWidgetVariations calls Gemini 1.5 Flash API when apiKey is provided', () async {
+    test('generateWidgetVariations calls Gemini 2.5 Flash API when apiKey is provided', () async {
       final mockClient = _MockHttpClient((request) async {
-        expect(request.url.toString(), contains('gemini-1.5-flash'));
+        expect(request.url.toString(), contains('gemini-2.5-flash'));
         expect(request.url.queryParameters['key'], 'AIzaFakeKey123');
 
         final fakeResponse = {
