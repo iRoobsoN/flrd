@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 
 import 'package:flrd/features/ai/providers/ai_settings_provider.dart';
 import 'package:flrd/features/ai/services/gemini_ai_service.dart';
@@ -30,6 +31,23 @@ class _MockHttpClient extends http.BaseClient {
       reasonPhrase: response.reasonPhrase,
     );
   }
+}
+
+Future<void> _pumpThroughRealAsync(
+  WidgetTester tester, {
+  int maxSteps = 100,
+}) async {
+  await tester.pump();
+  for (var i = 0; i < maxSteps; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+      break;
+    }
+  }
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -485,7 +503,7 @@ class SimpleScreen extends StatelessWidget {
       routeCount: 1,
     );
 
-    testWidgets('asserts legacy palette chips are COMPLETELY GONE from ScreenMaterialsBuilder', (tester) async {
+    testWidgets('asserts legacy palette chips and fake Cloud/1.5 badges are COMPLETELY GONE from ScreenMaterialsBuilder', (tester) async {
       tester.view.physicalSize = const Size(1280, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -522,15 +540,23 @@ class SimpleScreen extends StatelessWidget {
       expect(find.text('+ Ícone'), findsNothing);
       expect(find.byKey(const ValueKey('screen_materials_palette_scroll')), findsNothing);
       expect(find.byKey(const ValueKey('screen_materials_drop_target')), findsNothing);
+
+      // Assert fake cloud / legacy Gemini 1.5 badges are completely absent
+      expect(find.byKey(const ValueKey('widget_creator_provider_cloud')), findsNothing);
+      expect(find.byKey(const ValueKey('widget_creator_provider_byok')), findsNothing);
+      expect(find.text('⚡ FLRD Pro Cloud'), findsNothing);
+      expect(find.text('🟢 Gemini 1.5 Flash Ativo'), findsNothing);
+      expect(find.text('⚡ Motor Neural Local'), findsNothing);
     });
 
-    testWidgets('tests AI provider and API key toggle (Pro Cloud vs BYOK)', (tester) async {
+    testWidgets('tests Honest BYOK Gemini 2.5 controls, unconfigured blocking, and Flash/Pro switching', (tester) async {
       tester.view.physicalSize = const Size(1280, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
       final container = ProviderContainer();
+      addTearDown(container.dispose);
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -551,52 +577,229 @@ class SimpleScreen extends StatelessWidget {
       );
       await tester.pumpAndSettle();
 
-      // Initially in Pro Cloud mode
-      expect(find.byKey(const ValueKey('widget_creator_provider_cloud')), findsOneWidget);
-      expect(find.byKey(const ValueKey('widget_creator_provider_byok')), findsOneWidget);
-      expect(find.text('🟢 Gemini 1.5 Flash Ativo'), findsOneWidget);
-      expect(find.byKey(const ValueKey('widget_creator_api_key_input')), findsNothing);
+      // Initially unconfigured BYOK mode
+      expect(find.text('🔑 Chave Gemini (BYOK) necessária'), findsOneWidget);
+      expect(find.byKey(const ValueKey('widget_creator_api_key_input')), findsOneWidget);
+      expect(find.byKey(const ValueKey('widget_creator_api_key_save_button')), findsOneWidget);
+      expect(find.byKey(const ValueKey('widget_placement_prompt_input')), findsOneWidget);
 
-      // Switch to BYOK
-      await tester.tap(find.byKey(const ValueKey('widget_creator_provider_byok')));
+      // Clicking Plan without key warns and refuses to generate dummy cards
+      await tester.enterText(
+        find.byKey(const ValueKey('widget_creator_prompt_input')),
+        'Um relogio digital muito bonito',
+      );
+      await tester.tap(find.byKey(const ValueKey('generate_widget_variations_button')));
       await tester.pumpAndSettle();
 
-      // API key field visible and status indicates local neural engine when key is empty
-      expect(find.byKey(const ValueKey('widget_creator_api_key_input')), findsOneWidget);
-      expect(find.text('⚡ Motor Neural Local'), findsOneWidget);
+      expect(find.byKey(const ValueKey('widget_ai_error_banner')), findsOneWidget);
+      expect(find.byKey(const ValueKey('choose_variation_button_0')), findsNothing);
+      expect(find.textContaining('Relogio Digital Muito'), findsNothing);
 
-      // Enter key
-      await tester.enterText(find.byKey(const ValueKey('widget_creator_api_key_input')), 'AIzaCustomKey999');
+      // Save key inline
+      await tester.enterText(
+        find.byKey(const ValueKey('widget_creator_api_key_input')),
+        'AIzaCustomKey999',
+      );
+      await tester.tap(find.byKey(const ValueKey('widget_creator_api_key_save_button')));
       await tester.pumpAndSettle();
 
       expect(container.read(aiSettingsProvider).apiKey, 'AIzaCustomKey999');
-      expect(find.text('🟢 Gemini 1.5 Flash Ativo'), findsOneWidget);
+      expect(find.text('⚡ BYOK Ativo · Gemini 2.5 Flash'), findsOneWidget);
 
-      // Switch back to Pro Cloud
-      await tester.tap(find.byKey(const ValueKey('widget_creator_provider_cloud')));
+      // Switch model to Gemini 2.5 Pro
+      await tester.tap(find.byKey(const ValueKey('widget_creator_model_pro')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('widget_creator_api_key_input')), findsNothing);
-      expect(find.text('🟢 Gemini 1.5 Flash Ativo'), findsOneWidget);
+      expect(container.read(aiSettingsProvider).selectedModel, AiSettingsState.geminiProModel);
+      expect(find.text('⚡ BYOK Ativo · Gemini 2.5 Pro'), findsOneWidget);
     });
 
-    testWidgets('ensure [✅ Escolher este Widget / Inserir na Tela] correctly inserts into screen code', (tester) async {
-      tester.view.physicalSize = const Size(1280, 1200);
+    testWidgets('Plan -> Preview -> Execute creates DigitalClock StatefulWidget and inserts at natural-language anchor', (tester) async {
+      tester.view.physicalSize = const Size(1280, 1400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      String updatedCode = sampleScreenCode;
+      final tempDir = Directory.systemTemp.createTempSync('flrd_studio_test_plan_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      const welcomeScreenCode = '''import 'package:flutter/material.dart';
+
+class ProfileDashboardScreen extends StatelessWidget {
+  const ProfileDashboardScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Perfil')),
+      body: Column(
+        children: const [
+          Text('Welcome'),
+          SizedBox(height: 16),
+          ElevatedButton(onPressed: null, child: Text('Sair')),
+        ],
+      ),
+    );
+  }
+}
+''';
+
+      File(p.join(tempDir.path, 'pubspec.yaml'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+name: studio_v2_app
+version: 1.0.0+1
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+''');
+      File(p.join(tempDir.path, 'lib/features/profile/profile_screen.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(welcomeScreenCode);
+
+      final localProject = RegisteredProject(
+        id: 'proj_studio_v2_disk',
+        name: 'studio_v2_app',
+        orgId: 'com.studio.v2',
+        path: tempDir.path,
+        preset: PresetType.cleanLite,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: const {},
+        lastModified: DateTime.now(),
+        routeCount: 1,
+      );
+
+      const clockCode = '''import 'dart:async';
+import 'package:flutter/material.dart';
+
+class DigitalClock extends StatefulWidget {
+  const DigitalClock({super.key});
+
+  @override
+  State<DigitalClock> createState() => _DigitalClockState();
+}
+
+class _DigitalClockState extends State<DigitalClock> {
+  Timer? _timer;
+  int _styleIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {});
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => setState(() => _styleIndex = (_styleIndex + 1) % 3),
+      child: const Text('12:00:00'),
+    );
+  }
+}''';
+
+      var callIndex = 0;
+      final mockClient = _MockHttpClient((request) async {
+        callIndex++;
+        expect(request.url.toString(), contains('gemini-2.5-pro'));
+        if (callIndex == 1) {
+          return http.Response(
+            jsonEncode({
+              'candidates': [
+                {
+                  'content': {
+                    'parts': [
+                      {
+                        'text': jsonEncode({
+                          'goalSummary': 'Relógio digital interativo com estilos.',
+                          'widgetName': 'DigitalClock',
+                          'architectureType': 'statefulWidgetClass',
+                          'stateFields': ['Timer? _timer', 'int _styleIndex'],
+                          'interactions': ['onTap alterna estilos'],
+                          'requiredImports': ['dart:async', 'package:flutter/material.dart'],
+                          'requiredPackages': [],
+                          'placementStrategy': 'separateWidgetFile',
+                          'extractedWidgetFilePath': 'lib/features/profile/widgets/digital_clock.dart',
+                          'visualAnchorDescription': 'Logo abaixo do card Welcome',
+                          'insertionAnchorHint': 'after_text:Welcome',
+                        }),
+                      }
+                    ],
+                  },
+                }
+              ],
+            }),
+            200,
+          );
+        }
+
+        return http.Response(
+          jsonEncode({
+            'candidates': [
+              {
+                'content': {
+                  'parts': [
+                    {
+                      'text': jsonEncode({
+                        'id': 'clock_studio_1',
+                        'title': 'DigitalClock Interativo',
+                        'styleTag': 'Material 3 Clock',
+                        'description': 'Relógio com Timer.periodic e _styleIndex.',
+                        'techApproach': 'StatefulWidget + Timer.periodic',
+                        'requiredImports': ['dart:async', 'package:flutter/material.dart'],
+                        'extractedWidgetCode': clockCode,
+                        'callSiteSnippet': 'const DigitalClock()',
+                        'dartCode': clockCode,
+                      }),
+                    }
+                  ],
+                },
+              }
+            ],
+          }),
+          200,
+        );
+      });
+
+      final container = ProviderContainer(
+        overrides: [
+          aiSettingsProvider.overrideWith(
+            (ref) => AiSettingsNotifier.inMemory(
+              const AiSettingsState(
+                apiKey: 'AIzaProKey25',
+                selectedModel: AiSettingsState.geminiProModel,
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      String updatedCode = welcomeScreenCode;
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: ScreenMaterialsBuilder(
-                node: testNode,
-                project: dummyProject,
-                currentCode: updatedCode,
-                onCodeChanged: (code) => updatedCode = code,
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ScreenMaterialsBuilder(
+                  node: testNode,
+                  project: localProject,
+                  currentCode: updatedCode,
+                  aiHttpClient: mockClient,
+                  onCodeChanged: (code) => updatedCode = code,
+                ),
               ),
             ),
           ),
@@ -604,25 +807,54 @@ class SimpleScreen extends StatelessWidget {
       );
       await tester.pumpAndSettle();
 
-      // Enter custom idea
-      final input = find.byKey(const ValueKey('widget_creator_prompt_input'));
-      await tester.enterText(input, 'Uma bola que fica pingando');
-      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('widget_creator_prompt_input')),
+        'Relógio digital interativo',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('widget_placement_prompt_input')),
+        'logo abaixo do card Welcome',
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('generate_widget_variations_button')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('generate_widget_variations_button')),
+      );
+      await _pumpThroughRealAsync(tester);
 
-      // Generate variations
-      await tester.tap(find.byKey(const ValueKey('generate_widget_variations_button')));
-      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('widget_execution_plan_card')), findsOneWidget);
+      expect(find.text('Logo abaixo do card Welcome'), findsOneWidget);
+      expect(find.text('Timer? _timer'), findsOneWidget);
 
-      expect(find.text('Variações Geradas (3):'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('generate_from_plan_button')),
+      );
+      await tester.tap(find.byKey(const ValueKey('generate_from_plan_button')));
+      await _pumpThroughRealAsync(tester);
 
-      // Click choose variation 0
+      expect(find.text('✅ Plano Aprovado'), findsOneWidget);
+
       final chooseBtn = find.byKey(const ValueKey('choose_variation_button_0'));
       expect(chooseBtn, findsOneWidget);
+      await tester.ensureVisible(chooseBtn);
       await tester.tap(chooseBtn);
-      await tester.pumpAndSettle();
+      await _pumpThroughRealAsync(tester);
 
-      // Code inserted
-      expect(updatedCode, contains('Curves.bounceOut'));
+      final widgetFile = File(
+        p.join(tempDir.path, 'lib/features/profile/widgets/digital_clock.dart'),
+      );
+      expect(widgetFile.existsSync(), isTrue);
+      expect(widgetFile.readAsStringSync(), contains('Timer.periodic'));
+      expect(updatedCode, contains('const DigitalClock()'));
+      expect(
+        updatedCode.indexOf('const DigitalClock()'),
+        greaterThan(updatedCode.indexOf("Text('Welcome')")),
+      );
+      expect(
+        updatedCode.indexOf('const DigitalClock()'),
+        lessThan(updatedCode.indexOf("Text('Sair')")),
+      );
       expect(find.byType(SnackBar), findsOneWidget);
     });
   });
