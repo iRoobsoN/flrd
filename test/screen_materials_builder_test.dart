@@ -12,9 +12,23 @@ import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/presentation/app_studio_screen.dart';
 import 'package:flrd/features/studio/presentation/widgets/ai_screen_generator_dialog.dart';
 import 'package:flrd/features/studio/presentation/widgets/screen_materials_builder.dart';
+import 'package:flrd/features/studio/providers/android_debug_provider.dart';
 import 'package:flrd/features/studio/providers/studio_provider.dart';
+import 'package:flrd/features/studio/services/android_device_runner_service.dart';
 import 'package:flrd/features/ai/providers/ai_settings_provider.dart';
 import 'package:flrd/features/ai/services/gemini_ai_service.dart';
+
+class _TrackingAndroidDebugNotifier extends AndroidDebugNotifier {
+  final List<String> onCodeSavedPaths = [];
+
+  _TrackingAndroidDebugNotifier() : super(AndroidDeviceRunnerService());
+
+  @override
+  void onCodeSaved(String projectPath) {
+    onCodeSavedPaths.add(projectPath);
+    super.onCodeSaved(projectPath);
+  }
+}
 
 class _MockGeminiHttpClient extends http.BaseClient {
   final Future<http.Response> Function(http.Request request) handler;
@@ -1620,6 +1634,658 @@ class _DigitalClockState extends State<DigitalClock> {
       expect(find.byKey(const ValueKey('widget_ai_error_banner')), findsOneWidget);
       expect(find.byKey(const ValueKey('widget_injection_result_banner')), findsNothing);
       expect(find.byType(SnackBar), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('ScreenMaterialsBuilder Post-Injection Verification, Auto-Repair & Rollback', () {
+    testWidgets(
+        'runs flutter analyze after injection, renders ✅ Verificado badge, and triggers Hot Reload on pass',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final tempDir = Directory.systemTemp.createTempSync('flrd_verify_pass_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      const initialHomeCode = '''import 'package:flutter/material.dart';
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Dashboard')),
+      body: Column(
+        children: const [
+          Text('Welcome'),
+          ElevatedButton(onPressed: null, child: Text('Go')),
+        ],
+      ),
+    );
+  }
+}
+''';
+
+      File(p.join(tempDir.path, 'pubspec.yaml'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+name: verify_pass_app
+version: 1.0.0+1
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+''');
+      File(p.join(tempDir.path, 'lib/features/home/home_screen.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(initialHomeCode);
+
+      final project = RegisteredProject(
+        id: 'proj_verify_pass',
+        name: 'verify_pass_app',
+        orgId: 'com.verify.pass',
+        path: tempDir.path,
+        preset: PresetType.cleanLite,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: const {},
+        lastModified: DateTime.now(),
+        routeCount: 1,
+      );
+      const node = RouteNode(
+        id: 'home',
+        title: 'HomeScreen',
+        subtitle: 'Início',
+        path: '/home',
+        filePath: 'lib/features/home/home_screen.dart',
+        position: Offset(100, 100),
+        isProtected: false,
+        icon: Icons.home_rounded,
+      );
+
+      var requestCount = 0;
+      final mockClient = _MockGeminiHttpClient((request) async {
+        requestCount++;
+        if (requestCount == 1) {
+          return http.Response(
+            jsonEncode(
+              _geminiTextPayload(
+                jsonEncode({
+                  'goalSummary': 'Relógio simples em tempo real',
+                  'widgetName': 'SimpleClock',
+                  'architectureType': 'statelessSnippet',
+                  'requiredImports': ['package:flutter/material.dart'],
+                  'placementStrategy': 'inlineInScreen',
+                  'visualAnchorDescription': 'No topo da tela',
+                  'insertionAnchorHint': 'top_of_body',
+                }),
+              ),
+            ),
+            200,
+          );
+        }
+        return http.Response(
+          jsonEncode(
+            _geminiTextPayload(
+              jsonEncode({
+                'id': 'var_pass',
+                'title': 'Simple Clock',
+                'styleTag': 'Minimal',
+                'description': 'Clean clock widget',
+                'techApproach': 'StatelessWidget',
+                'dartCode': "const Text('12:00')",
+              }),
+            ),
+          ),
+          200,
+        );
+      });
+
+      final verifyCalls = <List<String>>[];
+      Future<ProcessResult> passingRunner(
+        String exe,
+        List<String> args, {
+        String? workingDirectory,
+      }) async {
+        verifyCalls.add(List<String>.from(args));
+        return ProcessResult(1, 0, 'No issues found!\n', '');
+      }
+
+      final debugNotifier = _TrackingAndroidDebugNotifier();
+      final container = ProviderContainer(
+        overrides: [
+          aiSettingsProvider.overrideWith(
+            (ref) => AiSettingsNotifier.inMemory(
+              const AiSettingsState(apiKey: 'AIzaVerifyPassKey'),
+            ),
+          ),
+          androidDebugProvider.overrideWith((ref) => debugNotifier),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      String liveCode = initialHomeCode;
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  return SingleChildScrollView(
+                    child: ScreenMaterialsBuilder(
+                      node: node,
+                      project: project,
+                      currentCode: liveCode,
+                      aiHttpClient: mockClient,
+                      verificationProcessRunner: passingRunner,
+                      onCodeChanged: (newCode) =>
+                          setState(() => liveCode = newCode),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('widget_creator_prompt_input')),
+        'Relógio simples',
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('generate_widget_variations_button')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('generate_widget_variations_button')),
+      );
+      await _pumpThroughRealAsync(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('generate_from_plan_button')),
+      );
+      await tester.tap(find.byKey(const ValueKey('generate_from_plan_button')));
+      await _pumpThroughRealAsync(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('choose_variation_button_0')),
+      );
+      await tester.tap(find.byKey(const ValueKey('choose_variation_button_0')));
+      await _pumpThroughRealAsync(tester);
+
+      expect(verifyCalls, hasLength(1));
+      expect(verifyCalls.single, contains('analyze'));
+      expect(verifyCalls.single, contains('lib/features/home/home_screen.dart'));
+      expect(debugNotifier.onCodeSavedPaths, equals([tempDir.path]));
+      expect(find.text('✅ Verificado (flutter analyze)'), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'auto-repairs analyzer error on injected screen, re-reads repaired code, renders ✅ Verificado, and triggers Hot Reload',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final tempDir = Directory.systemTemp.createTempSync('flrd_verify_repair_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      const initialHomeCode = '''import 'package:flutter/material.dart';
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Dashboard')),
+      body: Column(
+        children: const [
+          Text('Welcome'),
+        ],
+      ),
+    );
+  }
+}
+''';
+
+      File(p.join(tempDir.path, 'pubspec.yaml'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+name: verify_repair_app
+version: 1.0.0+1
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+''');
+      final screenFile =
+          File(p.join(tempDir.path, 'lib/features/home/home_screen.dart'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(initialHomeCode);
+
+      final project = RegisteredProject(
+        id: 'proj_verify_repair',
+        name: 'verify_repair_app',
+        orgId: 'com.verify.repair',
+        path: tempDir.path,
+        preset: PresetType.cleanLite,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: const {},
+        lastModified: DateTime.now(),
+        routeCount: 1,
+      );
+      const node = RouteNode(
+        id: 'home',
+        title: 'HomeScreen',
+        subtitle: 'Início',
+        path: '/home',
+        filePath: 'lib/features/home/home_screen.dart',
+        position: Offset(100, 100),
+        isProtected: false,
+        icon: Icons.home_rounded,
+      );
+
+      var requestCount = 0;
+      final mockClient = _MockGeminiHttpClient((request) async {
+        requestCount++;
+        if (requestCount == 1) {
+          return http.Response(
+            jsonEncode(
+              _geminiTextPayload(
+                jsonEncode({
+                  'goalSummary': 'Badge com cor primária',
+                  'widgetName': 'PrimaryBadge',
+                  'architectureType': 'statelessSnippet',
+                  'requiredImports': ['package:flutter/material.dart'],
+                  'placementStrategy': 'inlineInScreen',
+                  'visualAnchorDescription': 'No topo da tela',
+                  'insertionAnchorHint': 'top_of_body',
+                }),
+              ),
+            ),
+            200,
+          );
+        }
+        if (requestCount == 2) {
+          return http.Response(
+            jsonEncode(
+              _geminiTextPayload(
+                jsonEncode({
+                  'id': 'var_repair',
+                  'title': 'Primary Badge',
+                  'styleTag': 'Badge',
+                  'description': 'Badge widget',
+                  'techApproach': 'Container',
+                  'dartCode':
+                      "Container(color: AppColors.primary, child: const Text('VIP'))",
+                }),
+              ),
+            ),
+            200,
+          );
+        }
+        // Call 3: Gemini auto-repair patch replacing undefined AppColors.primary
+        final patchesJson = jsonEncode({
+          'patches': [
+            {
+              'relativePath': 'lib/features/home/home_screen.dart',
+              'description':
+                  'Substituir AppColors.primary por Theme.of(context).colorScheme.primary',
+              'searchText':
+                  "Container(color: AppColors.primary, child: const Text('VIP'))",
+              'replaceText':
+                  "Container(color: Theme.of(context).colorScheme.primary, child: const Text('VIP'))",
+            },
+          ],
+        });
+        return http.Response(
+          jsonEncode(
+            _geminiTextPayload(
+              '### Correção\n```json\n$patchesJson\n```',
+            ),
+          ),
+          200,
+        );
+      });
+
+      var analyzeAttempt = 0;
+      Future<ProcessResult> repairRunner(
+        String exe,
+        List<String> args, {
+        String? workingDirectory,
+      }) async {
+        analyzeAttempt++;
+        if (analyzeAttempt == 1) {
+          return ProcessResult(
+            201,
+            1,
+            "  error • Undefined name 'AppColors' • lib/features/home/home_screen.dart:12:30 • undefined_identifier\n",
+            '',
+          );
+        }
+        return ProcessResult(202, 0, 'No issues found!\n', '');
+      }
+
+      final debugNotifier = _TrackingAndroidDebugNotifier();
+      final container = ProviderContainer(
+        overrides: [
+          aiSettingsProvider.overrideWith(
+            (ref) => AiSettingsNotifier.inMemory(
+              const AiSettingsState(apiKey: 'AIzaRepairKey'),
+            ),
+          ),
+          androidDebugProvider.overrideWith((ref) => debugNotifier),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      String liveCode = initialHomeCode;
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  return SingleChildScrollView(
+                    child: ScreenMaterialsBuilder(
+                      node: node,
+                      project: project,
+                      currentCode: liveCode,
+                      aiHttpClient: mockClient,
+                      verificationProcessRunner: repairRunner,
+                      onCodeChanged: (newCode) =>
+                          setState(() => liveCode = newCode),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('widget_creator_prompt_input')),
+        'Badge VIP',
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('generate_widget_variations_button')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('generate_widget_variations_button')),
+      );
+      await _pumpThroughRealAsync(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('generate_from_plan_button')),
+      );
+      await tester.tap(find.byKey(const ValueKey('generate_from_plan_button')));
+      await _pumpThroughRealAsync(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('choose_variation_button_0')),
+      );
+      await tester.tap(find.byKey(const ValueKey('choose_variation_button_0')));
+      await _pumpThroughRealAsync(tester);
+
+      expect(analyzeAttempt, equals(2));
+      expect(requestCount, equals(3));
+      expect(liveCode, contains('Theme.of(context).colorScheme.primary'));
+      expect(liveCode, isNot(contains('AppColors.primary')));
+      expect(screenFile.readAsStringSync(), equals(liveCode));
+      expect(debugNotifier.onCodeSavedPaths, equals([tempDir.path]));
+      expect(find.text('✅ Verificado (flutter analyze)'), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'blocks Hot Reload and green toast on persistent analyzer error, shows ⚠️ badge and 1-click Reverter Alterações restoring backup',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final tempDir =
+          Directory.systemTemp.createTempSync('flrd_verify_rollback_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      const initialHomeCode = '''import 'package:flutter/material.dart';
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Dashboard')),
+      body: Column(
+        children: const [
+          Text('Welcome'),
+        ],
+      ),
+    );
+  }
+}
+''';
+
+      File(p.join(tempDir.path, 'pubspec.yaml'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+name: verify_rollback_app
+version: 1.0.0+1
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+''');
+      final screenFile =
+          File(p.join(tempDir.path, 'lib/features/home/home_screen.dart'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(initialHomeCode);
+
+      final project = RegisteredProject(
+        id: 'proj_verify_rollback',
+        name: 'verify_rollback_app',
+        orgId: 'com.verify.rollback',
+        path: tempDir.path,
+        preset: PresetType.cleanLite,
+        navigationStyle: NavigationStyle.tabs,
+        permissions: const {},
+        lastModified: DateTime.now(),
+        routeCount: 1,
+      );
+      const node = RouteNode(
+        id: 'home',
+        title: 'HomeScreen',
+        subtitle: 'Início',
+        path: '/home',
+        filePath: 'lib/features/home/home_screen.dart',
+        position: Offset(100, 100),
+        isProtected: false,
+        icon: Icons.home_rounded,
+      );
+
+      var requestCount = 0;
+      final mockClient = _MockGeminiHttpClient((request) async {
+        requestCount++;
+        if (requestCount == 1) {
+          return http.Response(
+            jsonEncode(
+              _geminiTextPayload(
+                jsonEncode({
+                  'goalSummary': 'Widget com erro não reparável',
+                  'widgetName': 'BrokenClockWidget',
+                  'architectureType': 'statefulWidgetClass',
+                  'requiredImports': ['package:flutter/material.dart'],
+                  'placementStrategy': 'separateWidgetFile',
+                  'extractedWidgetFilePath':
+                      'lib/features/home/widgets/broken_clock_widget.dart',
+                  'visualAnchorDescription': 'Logo abaixo de Welcome',
+                  'insertionAnchorHint': 'after_text:Welcome',
+                }),
+              ),
+            ),
+            200,
+          );
+        }
+        if (requestCount == 2) {
+          return http.Response(
+            jsonEncode(
+              _geminiTextPayload(
+                jsonEncode({
+                  'id': 'var_broken',
+                  'title': 'Broken Clock',
+                  'styleTag': 'Widget',
+                  'description': 'Clock widget',
+                  'techApproach': 'StatefulWidget',
+                  'extractedWidgetCode': '''import 'package:flutter/material.dart';
+
+class BrokenClockWidget extends StatelessWidget {
+  const BrokenClockWidget({super.key});
+  @override
+  Widget build(BuildContext context) => Text(UnknownBrokenSymbol.value);
+}''',
+                  'callSiteSnippet': 'const BrokenClockWidget()',
+                  'dartCode': 'const BrokenClockWidget()',
+                }),
+              ),
+            ),
+            200,
+          );
+        }
+        return http.Response(
+          jsonEncode(_geminiTextPayload('Não foi possível reparar.')),
+          200,
+        );
+      });
+
+      Future<ProcessResult> failingRunner(
+        String exe,
+        List<String> args, {
+        String? workingDirectory,
+      }) async {
+        return ProcessResult(
+          301,
+          1,
+          "  error • Undefined name 'UnknownBrokenSymbol' • lib/features/home/widgets/broken_clock_widget.dart:6:45 • undefined_identifier\n",
+          '',
+        );
+      }
+
+      final debugNotifier = _TrackingAndroidDebugNotifier();
+      final container = ProviderContainer(
+        overrides: [
+          aiSettingsProvider.overrideWith(
+            (ref) => AiSettingsNotifier.inMemory(
+              const AiSettingsState(apiKey: 'AIzaRollbackKey'),
+            ),
+          ),
+          androidDebugProvider.overrideWith((ref) => debugNotifier),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      String liveCode = initialHomeCode;
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  return SingleChildScrollView(
+                    child: ScreenMaterialsBuilder(
+                      node: node,
+                      project: project,
+                      currentCode: liveCode,
+                      aiHttpClient: mockClient,
+                      verificationProcessRunner: failingRunner,
+                      onCodeChanged: (newCode) =>
+                          setState(() => liveCode = newCode),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('widget_creator_prompt_input')),
+        'Relógio quebrado',
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('generate_widget_variations_button')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('generate_widget_variations_button')),
+      );
+      await _pumpThroughRealAsync(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('generate_from_plan_button')),
+      );
+      await tester.tap(find.byKey(const ValueKey('generate_from_plan_button')));
+      await _pumpThroughRealAsync(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('choose_variation_button_0')),
+      );
+      await tester.tap(find.byKey(const ValueKey('choose_variation_button_0')));
+      await _pumpThroughRealAsync(tester);
+
+      // Hot Reload MUST NOT fire and green toast MUST NOT appear when analyzer fails
+      expect(debugNotifier.onCodeSavedPaths, isEmpty);
+      expect(find.textContaining('inserido em'), findsNothing);
+      expect(find.text('✅ Verificado (flutter analyze)'), findsNothing);
+      expect(find.text('⚠️ Analyzer encontrou 1 erro(s)'), findsOneWidget);
+
+      final createdWidgetFile = File(
+        p.join(tempDir.path, 'lib/features/home/widgets/broken_clock_widget.dart'),
+      );
+      expect(createdWidgetFile.existsSync(), isTrue);
+
+      // Tap 1-click Rollback
+      final rollbackBtn = find.byKey(
+        const ValueKey('widget_verification_rollback_button'),
+      );
+      expect(rollbackBtn, findsOneWidget);
+      await tester.ensureVisible(rollbackBtn);
+      await tester.tap(rollbackBtn);
+      await _pumpThroughRealAsync(tester);
+
+      expect(screenFile.readAsStringSync(), equals(initialHomeCode));
+      expect(liveCode, equals(initialHomeCode));
+      expect(createdWidgetFile.existsSync(), isFalse);
+      expect(find.text('↩️ Alterações revertidas via backup'), findsOneWidget);
+      expect(debugNotifier.onCodeSavedPaths, isEmpty);
       expect(tester.takeException(), isNull);
     });
   });

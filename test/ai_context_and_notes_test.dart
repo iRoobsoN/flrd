@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 
+import 'package:flrd/features/ai/providers/ai_settings_provider.dart';
 import 'package:flrd/features/ai/services/gemini_ai_service.dart';
 import 'package:flrd/features/auth/domain/user_account.dart';
 import 'package:flrd/features/auth/providers/auth_provider.dart';
@@ -13,7 +17,43 @@ import 'package:flrd/features/studio/domain/screen_material.dart';
 import 'package:flrd/features/studio/models/route_node.dart';
 import 'package:flrd/features/studio/presentation/widgets/ai_screen_generator_dialog.dart';
 import 'package:flrd/features/studio/presentation/widgets/screen_materials_builder.dart';
+import 'package:flrd/features/studio/providers/studio_provider.dart';
 import 'package:flrd/features/wizard/models/project_config.dart';
+
+class _MockContextHttpClient extends http.BaseClient {
+  final Future<http.Response> Function(http.Request request) handler;
+
+  _MockContextHttpClient(this.handler);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final httpRequest = request as http.Request;
+    final response = await handler(httpRequest);
+    return http.StreamedResponse(
+      Stream.value(utf8.encode(response.body)),
+      response.statusCode,
+      headers: response.headers,
+      reasonPhrase: response.reasonPhrase,
+    );
+  }
+}
+
+Future<void> _pumpContextAsync(
+  WidgetTester tester, {
+  int maxSteps = 100,
+}) async {
+  await tester.pump();
+  for (var i = 0; i < maxSteps; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+      break;
+    }
+  }
+  await tester.pumpAndSettle();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -302,7 +342,7 @@ class CheckoutScreen extends StatelessWidget {
       );
     }
 
-    testWidgets('Displays current plan and available credits for Pro Cloud', (tester) async {
+    testWidgets('Displays current plan and honest BYOK status without Pro Cloud', (tester) async {
       const proUser = UserAccount(
         uid: 'user_pro_verifier',
         email: 'verifier@flrd.dev',
@@ -346,7 +386,9 @@ class CheckoutScreen extends StatelessWidget {
       await tester.pumpAndSettle();
 
       expect(find.text('⭐ FLRD Studio Pro'), findsOneWidget);
-      expect(find.text('⚡ 185 / 200 Créditos Disponíveis'), findsOneWidget);
+      expect(find.text('Cota Ilimitada / BYOK Livre'), findsOneWidget);
+      expect(find.text('🔑 Chave Gemini (BYOK) necessária'), findsOneWidget);
+      expect(find.text('⚡ FLRD Pro Cloud'), findsNothing);
       expect(find.text('⚡ Gerenciar Plano / Inscrição'), findsOneWidget);
     });
 
@@ -373,7 +415,7 @@ class CheckoutScreen extends StatelessWidget {
       expect(find.byType(SettingsAndBillingDialog), findsOneWidget);
     });
 
-    testWidgets('Consumes 1 credit on Pro Cloud generation', (tester) async {
+    testWidgets('Consumes 0 credits and shows error when BYOK key is unconfigured', (tester) async {
       const proUser = UserAccount(
         uid: 'user_pro_charge',
         email: 'charge@flrd.dev',
@@ -419,12 +461,160 @@ class CheckoutScreen extends StatelessWidget {
 
       expect(authNotifier.state.creditsRemaining, equals(185));
 
-      final generateBtn = find.text('Gerar e Injetar Tela');
+      final generateBtn = find.byKey(const Key('generate_screen_button'));
       await tester.ensureVisible(generateBtn);
       await tester.tap(generateBtn);
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      expect(authNotifier.state.creditsRemaining, equals(184));
+      expect(authNotifier.state.creditsRemaining, equals(185));
+      expect(find.byKey(const ValueKey('dialog_ai_error_banner')), findsOneWidget);
+      expect(
+        find.textContaining('Chave Gemini (BYOK) necessária'),
+        findsAtLeastNWidgets(2),
+      );
+    });
+
+    testWidgets(
+        'New Screen Plan-First exposes 1-click Rollback and blocks RouteNode when flutter analyze fails',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      File(p.join(tempDir.path, 'pubspec.yaml')).writeAsStringSync('''
+name: ai_notes_demo
+version: 1.0.0+1
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+''');
+
+      const brokenScreenCode = '''import 'package:flutter/material.dart';
+
+class PaymentScreen extends StatelessWidget {
+  const PaymentScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Text(UndefinedSymbol.value);
+}
+''';
+
+      final mockClient = _MockContextHttpClient((request) async {
+        final body = request.body;
+        if (body.contains('"patches"') || body.contains('UndefinedSymbol')) {
+          return http.Response(
+            jsonEncode({
+              'candidates': [
+                {
+                  'content': {
+                    'parts': [
+                      {'text': 'Sem correção automática possível.'},
+                    ],
+                  },
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'candidates': [
+              {
+                'content': {
+                  'parts': [
+                    {'text': '```dart\n$brokenScreenCode\n```'},
+                  ],
+                },
+              },
+            ],
+          }),
+          200,
+        );
+      });
+
+      Future<ProcessResult> failingRunner(
+        String exe,
+        List<String> args, {
+        String? workingDirectory,
+      }) async {
+        return ProcessResult(
+          1,
+          1,
+          "  error • Undefined name 'UndefinedSymbol' • lib/features/payment/presentation/paymentscreen.dart:6:41 • undefined_identifier\n",
+          '',
+        );
+      }
+
+      final container = ProviderContainer(
+        overrides: [
+          aiSettingsProvider.overrideWith(
+            (ref) => AiSettingsNotifier.inMemory(
+              const AiSettingsState(apiKey: 'AIzaContextVerifyKey'),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () => AiScreenGeneratorDialog.show(
+                    context,
+                    dummyProject,
+                    aiHttpClient: mockClient,
+                    verificationProcessRunner: failingRunner,
+                  ),
+                  child: const Text('Open Generator'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Generator'));
+      await tester.pumpAndSettle();
+
+      final initialNodes = container.read(studioProvider).nodes.length;
+
+      await tester.ensureVisible(find.byKey(const Key('generate_screen_button')));
+      await tester.tap(find.byKey(const Key('generate_screen_button')));
+      await _pumpContextAsync(tester);
+
+      expect(find.byKey(const ValueKey('dialog_plan_preview_card')), findsOneWidget);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('dialog_apply_and_verify_screen_button')),
+      );
+      await tester.tap(
+        find.byKey(const Key('dialog_apply_and_verify_screen_button')),
+      );
+      await _pumpContextAsync(tester);
+
+      // RouteNode must NOT be added when analyzer fails
+      expect(container.read(studioProvider).nodes.length, equals(initialNodes));
+      expect(find.text('⚠️ Analyzer encontrou 1 erro(s)'), findsOneWidget);
+
+      final rollbackBtn = find.byKey(const ValueKey('dialog_rollback_button'));
+      expect(rollbackBtn, findsOneWidget);
+      await tester.ensureVisible(rollbackBtn);
+      await tester.tap(rollbackBtn);
+      await _pumpContextAsync(tester);
+
+      expect(find.text('↩️ Alterações revertidas via backup'), findsOneWidget);
+      expect(
+        File(p.join(tempDir.path, 'lib/features/payment/presentation/paymentscreen.dart'))
+            .existsSync(),
+        isFalse,
+      );
     });
 
     testWidgets('Supports single-widget generation mode (targetMaterial)', (tester) async {

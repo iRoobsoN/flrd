@@ -529,15 +529,15 @@ class ContadorAnimadoWidget extends StatelessWidget {
       }
     });
 
-    testWidgets('Renders AiScreenGeneratorDialog with all options and allows configuration', (tester) async {
-      tester.view.physicalSize = const Size(1280, 800);
+    testWidgets('Renders AiScreenGeneratorDialog with honest BYOK Gemini 2.5 controls and allows configuration', (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
       final testProject = RegisteredProject(
         id: 'test_proj',
-        name: 'FLRD Pro Demo',
+        name: 'FLRD BYOK Demo',
         orgId: 'dev.flrd',
         path: tempDir.path,
         preset: PresetType.saas,
@@ -562,11 +562,13 @@ class ContadorAnimadoWidget extends StatelessWidget {
       );
       await tester.pumpAndSettle();
 
-      // Verify Dialog header and inputs
+      // Verify Dialog header, honest BYOK state (NO FLRD Pro Cloud), and inputs
       expect(find.text('Gerador de Telas com IA'), findsOneWidget);
-      expect(find.textContaining('FLRD Pro Cloud', skipOffstage: false), findsWidgets);
-      expect(find.textContaining('BYOK (Sua Chave)', skipOffstage: false), findsWidgets);
-      expect(find.byType(TextField), findsNWidgets(3)); // path, title, prompt
+      expect(find.textContaining('FLRD Pro Cloud', skipOffstage: false), findsNothing);
+      expect(find.text('🔑 Chave Gemini (BYOK) necessária'), findsOneWidget);
+      expect(find.text('Gemini 2.5 Flash'), findsOneWidget);
+      expect(find.text('Gemini 2.5 Pro'), findsOneWidget);
+      expect(find.byType(TextField), findsNWidgets(4)); // path, title, prompt, BYOK key
 
       // Verify default values
       expect(find.text('/checkout/payment'), findsOneWidget);
@@ -574,32 +576,38 @@ class ContadorAnimadoWidget extends StatelessWidget {
       expect(initialFields[0].controller?.text, '/checkout/payment');
       expect(initialFields[1].controller?.text, 'PaymentScreen');
 
-      // Switch to BYOK mode
-      await tester.tap(find.textContaining('BYOK (Sua Chave)', skipOffstage: false).first);
+      // Tapping generate without API key blocks and shows error banner (no dummy template)
+      await tester.ensureVisible(find.byKey(const Key('generate_screen_button')));
+      await tester.tap(find.byKey(const Key('generate_screen_button')));
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('dialog_ai_error_banner')), findsOneWidget);
 
-      // BYOK Gemini API Key field should now be visible
-      expect(find.text('Chave de API Google Gemini (BYOK)'), findsOneWidget);
-      expect(find.byType(TextField), findsNWidgets(4));
-
-      // Enter API key in BYOK input
-      final keyFinder = find.widgetWithText(TextField, 'Cole sua Gemini API Key (ex: AIzaSy...)');
+      // Enter API key in BYOK input and click Save
+      final keyFinder = find.byKey(const ValueKey('dialog_api_key_input'));
       expect(keyFinder, findsOneWidget);
       await tester.enterText(keyFinder, 'AIzaSyTestUserCustomKey');
+      await tester.ensureVisible(find.byKey(const ValueKey('dialog_api_key_save_button')));
+      await tester.tap(find.byKey(const ValueKey('dialog_api_key_save_button')));
       await tester.pumpAndSettle();
 
-      // Verify aiSettingsProvider updated
+      // Verify aiSettingsProvider updated and model toggle works
       expect(container.read(aiSettingsProvider).apiKey, 'AIzaSyTestUserCustomKey');
+      expect(find.text('⚡ BYOK Ativo · Gemini 2.5 Flash'), findsOneWidget);
 
-      // Verify buttons
+      await tester.tap(find.byKey(const ValueKey('dialog_model_pro')));
+      await tester.pumpAndSettle();
+      expect(container.read(aiSettingsProvider).selectedModel, AiSettingsState.geminiProModel);
+      expect(find.text('⚡ BYOK Ativo · Gemini 2.5 Pro'), findsOneWidget);
+
+      // Verify action buttons
       expect(find.text('Cancelar'), findsOneWidget);
       expect(find.text('Gerar e Injetar Tela'), findsOneWidget);
     });
 
-    testWidgets('AiScreenGeneratorDialog accepts initialMaterials and preserves apiKey in Pro Cloud mode', (tester) async {
+    testWidgets('AiScreenGeneratorDialog accepts initialMaterials and preserves stored BYOK apiKey', (tester) async {
       final testProject = RegisteredProject(
         id: 'proj_materials_test',
-        name: 'FLRD Pro Demo Materials',
+        name: 'FLRD BYOK Demo Materials',
         orgId: 'dev.flrd',
         path: tempDir.path,
         preset: PresetType.saas,
@@ -638,15 +646,15 @@ class ContadorAnimadoWidget extends StatelessWidget {
       await tester.pumpAndSettle();
 
       expect(find.text('Gerador de Telas com IA'), findsOneWidget);
+      expect(find.text('⚡ BYOK Ativo · Gemini 2.5 Flash'), findsOneWidget);
       final dialogFinder = find.byType(AiScreenGeneratorDialog);
       expect(dialogFinder, findsOneWidget);
       final dialogWidget = tester.widget<AiScreenGeneratorDialog>(dialogFinder);
       expect(dialogWidget.initialMaterials, equals(initialMaterials));
       expect(container.read(aiSettingsProvider).apiKey, 'AIzaSyDeviceSavedKey');
 
-      // Verify that in Pro Cloud mode, resolveActiveApiKey returns the stored key
+      // Verify resolveActiveApiKey returns the stored BYOK key
       final activeKey = AiScreenGeneratorDialog.resolveActiveApiKey(
-        selectedMode: 0,
         aiSettings: container.read(aiSettingsProvider),
         byokInputKey: '',
       );
@@ -832,40 +840,36 @@ Preset de Arquitetura: saas (SaaS Full-Stack).
       expect(code, contains('backgroundColor: _buttonColor'));
     });
 
-    test('AiScreenGeneratorDialog passes aiSettings.apiKey when in Pro Cloud mode if a key is stored', () {
-      // 1. Pro Cloud mode with stored key -> passes aiSettings.apiKey
-      const settingsWithKey = AiSettingsState(apiKey: 'AIzaSyProCloudStoredKey_987', isProActive: true);
-      final activeKeyProWithStored = AiScreenGeneratorDialog.resolveActiveApiKey(
-        selectedMode: 0,
+    test('AiScreenGeneratorDialog.resolveActiveApiKey resolves BYOK input or stored aiSettings.apiKey cleanly', () {
+      // 1. Stored key without typed input -> returns stored key
+      const settingsWithKey = AiSettingsState(apiKey: 'AIzaSyStoredByokKey_987', isProActive: true);
+      final activeStored = AiScreenGeneratorDialog.resolveActiveApiKey(
         aiSettings: settingsWithKey,
         byokInputKey: '',
       );
-      expect(activeKeyProWithStored, equals('AIzaSyProCloudStoredKey_987'));
+      expect(activeStored, equals('AIzaSyStoredByokKey_987'));
 
-      // 2. Pro Cloud mode without stored key -> returns null
+      // 2. Unconfigured stored key and empty input -> returns null
       const settingsWithoutKey = AiSettingsState(apiKey: null, isProActive: true);
-      final activeKeyProNoKey = AiScreenGeneratorDialog.resolveActiveApiKey(
-        selectedMode: 0,
+      final activeMissing = AiScreenGeneratorDialog.resolveActiveApiKey(
         aiSettings: settingsWithoutKey,
         byokInputKey: '',
       );
-      expect(activeKeyProNoKey, isNull);
+      expect(activeMissing, isNull);
 
-      // 3. BYOK mode with custom input -> passes input key
-      final activeKeyByokTyped = AiScreenGeneratorDialog.resolveActiveApiKey(
-        selectedMode: 1,
+      // 3. Custom typed BYOK input -> takes precedence
+      final activeByokTyped = AiScreenGeneratorDialog.resolveActiveApiKey(
         aiSettings: settingsWithKey,
         byokInputKey: 'AIzaSyCustomKey_123',
       );
-      expect(activeKeyByokTyped, equals('AIzaSyCustomKey_123'));
+      expect(activeByokTyped, equals('AIzaSyCustomKey_123'));
 
-      // 4. BYOK mode without custom input -> falls back to stored key
-      final activeKeyByokFallback = AiScreenGeneratorDialog.resolveActiveApiKey(
-        selectedMode: 1,
+      // 4. Whitespace typed BYOK input -> falls back to stored key
+      final activeByokFallback = AiScreenGeneratorDialog.resolveActiveApiKey(
         aiSettings: settingsWithKey,
         byokInputKey: '   ',
       );
-      expect(activeKeyByokFallback, equals('AIzaSyProCloudStoredKey_987'));
+      expect(activeByokFallback, equals('AIzaSyStoredByokKey_987'));
     });
   });
 }

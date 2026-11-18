@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -12,8 +13,10 @@ import '../../models/route_node.dart';
 import '../../providers/android_debug_provider.dart';
 import '../../providers/studio_provider.dart';
 import '../../services/dart_widget_injector_service.dart';
+import '../../services/diagnostic_code_fix_service.dart';
 import '../../../ai/models/ai_execution_plan.dart';
 import '../../../ai/providers/ai_settings_provider.dart';
+import '../../../ai/services/dart_verification_service.dart';
 import '../../../ai/services/gemini_ai_service.dart';
 import '../../../ai/services/project_context_snapshot_service.dart';
 import 'ai_screen_generator_dialog.dart';
@@ -31,6 +34,7 @@ class ScreenMaterialsBuilder extends StatefulWidget {
   final WidgetRef? ref;
   final http.Client? aiHttpClient;
   final ValueChanged<DartWidgetInjectionResult>? onWidgetInjected;
+  final VerificationProcessRunner? verificationProcessRunner;
 
   const ScreenMaterialsBuilder({
     super.key,
@@ -42,6 +46,7 @@ class ScreenMaterialsBuilder extends StatefulWidget {
     this.ref,
     this.aiHttpClient,
     this.onWidgetInjected,
+    this.verificationProcessRunner,
   });
 
   @override
@@ -64,6 +69,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
   bool _isPlanning = false;
   bool _isGeneratingFromPlan = false;
   bool _isInjecting = false;
+  bool _isRevertingBackup = false;
   bool _isEditingApiKey = false;
   bool _obscureApiKey = true;
 
@@ -76,6 +82,8 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
   String? _aiErrorBannerMessage;
   bool _aiErrorIsKeyWarning = false;
   DartWidgetInjectionResult? _lastInjectionResult;
+  DartVerificationResult? _lastVerificationResult;
+  bool _wasManuallyReverted = false;
 
   @override
   void initState() {
@@ -110,6 +118,9 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       _aiErrorBannerMessage = null;
       _aiErrorIsKeyWarning = false;
       _lastInjectionResult = null;
+      _lastVerificationResult = null;
+      _wasManuallyReverted = false;
+      _isRevertingBackup = false;
     }
   }
 
@@ -325,6 +336,8 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       _aiErrorBannerMessage = null;
       _aiErrorIsKeyWarning = false;
       _lastInjectionResult = null;
+      _lastVerificationResult = null;
+      _wasManuallyReverted = false;
     });
 
     final placementHint = _placementController.text.trim();
@@ -462,8 +475,36 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       _aiErrorBannerMessage = null;
       _aiErrorIsKeyWarning = false;
       _lastInjectionResult = null;
+      _lastVerificationResult = null;
+      _wasManuallyReverted = false;
     });
     _promptFocusNode.requestFocus();
+  }
+
+  bool get _shouldSkipLiveVerification {
+    if (widget.verificationProcessRunner != null) return false;
+    if (kIsWeb) return false;
+    try {
+      final value = Platform.environment['FLUTTER_TEST'];
+      return value != null && value.toLowerCase() != 'false' && value != '0';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _readScreenCodeFromDiskOrFallback(String fallback) {
+    final resolvedScreenPath = _resolvedScreenFilePath;
+    if (resolvedScreenPath.isEmpty) return fallback;
+    try {
+      final screenFile = File(resolvedScreenPath);
+      if (screenFile.existsSync()) {
+        final content = screenFile.readAsStringSync();
+        if (content.trim().isNotEmpty) {
+          return content;
+        }
+      }
+    } catch (_) {}
+    return fallback;
   }
 
   Future<void> _insertVariation(WidgetVariation variation) async {
@@ -473,6 +514,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       _isInjecting = true;
       _aiErrorBannerMessage = null;
       _aiErrorIsKeyWarning = false;
+      _wasManuallyReverted = false;
     });
 
     final resolvedScreenPath = _resolvedScreenFilePath;
@@ -498,31 +540,151 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       return;
     }
 
-    _saveAndNotify(result.updatedScreenCode!);
-    widget.onWidgetInjected?.call(result);
+    final aiSettings = _aiSettings;
+    final effectiveApiKey =
+        aiSettings.hasApiKey ? aiSettings.apiKey!.trim() : null;
+    final targetFiles = <String>[
+      ...result.createdFiles,
+      ...result.modifiedFiles,
+    ];
+
+    final DartVerificationResult verificationResult;
+    if (_shouldSkipLiveVerification) {
+      verificationResult = DartVerificationResult(
+        passed: false,
+        skipped: true,
+        backupDir: result.backupDir,
+      );
+    } else {
+      verificationResult =
+          await DartVerificationService.verifyAndAutoRepairOrRollback(
+        projectPath: widget.project.path,
+        targetFiles: targetFiles,
+        backupDir: result.backupDir,
+        apiKey: effectiveApiKey,
+        preferredModel: aiSettings.selectedModel,
+        processRunner: widget.verificationProcessRunner,
+        aiHttpClient: widget.aiHttpClient,
+      );
+    }
+
+    if (!mounted) return;
+
+    final latestScreenCode =
+        _readScreenCodeFromDiskOrFallback(result.updatedScreenCode!);
+    widget.onCodeChanged(latestScreenCode);
+
+    final effectiveResult = DartWidgetInjectionResult(
+      success: result.success,
+      backupDir: verificationResult.backupDir ?? result.backupDir,
+      modifiedFiles: result.modifiedFiles,
+      createdFiles: result.createdFiles,
+      resolvedAnchorDescription: result.resolvedAnchorDescription,
+      errorMessage: result.errorMessage,
+      updatedScreenCode: latestScreenCode,
+    );
+
+    final verificationClean =
+        !verificationResult.rolledBack && verificationResult.errors.isEmpty;
+    final canHotReloadAndToast =
+        verificationClean && (verificationResult.passed || verificationResult.skipped);
+
+    if (canHotReloadAndToast) {
+      _notifyAndroidHotReload();
+    }
+    widget.onWidgetInjected?.call(effectiveResult);
 
     setState(() {
       _isInjecting = false;
-      _lastInjectionResult = result;
+      _lastInjectionResult = effectiveResult;
+      _lastVerificationResult = verificationResult;
       _aiErrorBannerMessage = null;
       _aiErrorIsKeyWarning = false;
     });
 
-    final modifiedInfo = result.modifiedFiles.isNotEmpty
-        ? result.modifiedFiles.join(', ')
-        : widget.node.filePath;
-    final createdInfo = result.createdFiles.isNotEmpty
-        ? ' · Criado: ${result.createdFiles.join(', ')}'
-        : '';
-    final anchorInfo = (result.resolvedAnchorDescription != null &&
-            result.resolvedAnchorDescription!.isNotEmpty)
-        ? ' (${result.resolvedAnchorDescription})'
-        : '';
+    if (canHotReloadAndToast) {
+      final modifiedInfo = result.modifiedFiles.isNotEmpty
+          ? result.modifiedFiles.join(', ')
+          : widget.node.filePath;
+      final createdInfo = result.createdFiles.isNotEmpty
+          ? ' · Criado: ${result.createdFiles.join(', ')}'
+          : '';
+      final anchorInfo = (result.resolvedAnchorDescription != null &&
+              result.resolvedAnchorDescription!.isNotEmpty)
+          ? ' (${result.resolvedAnchorDescription})'
+          : '';
 
-    AppToast.success(
+      AppToast.success(
+        context,
+        'Widget "${variation.title}" inserido em $modifiedInfo$createdInfo$anchorInfo.',
+        duration: const Duration(seconds: 4),
+      );
+    } else if (verificationResult.rolledBack) {
+      AppToast.warning(
+        context,
+        'Alterações revertidas após erro de análise Dart.',
+        duration: const Duration(seconds: 4),
+      );
+    } else {
+      final errCount = verificationResult.errors.isNotEmpty
+          ? verificationResult.errors.length
+          : 1;
+      AppToast.warning(
+        context,
+        'Analyzer encontrou $errCount erro(s). Use "Reverter Alterações" se necessário.',
+        duration: const Duration(seconds: 4),
+      );
+    }
+  }
+
+  Future<void> _revertLastInjection() async {
+    final backupDir =
+        _lastVerificationResult?.backupDir ?? _lastInjectionResult?.backupDir;
+    if (backupDir == null || backupDir.trim().isEmpty || _isRevertingBackup) {
+      return;
+    }
+
+    setState(() => _isRevertingBackup = true);
+
+    final canonicalRoot = p.normalize(p.absolute(widget.project.path.trim()));
+    final restored = await DiagnosticCodeFixService.revertBackup(
+      projectPath: canonicalRoot,
+      backupDir: backupDir,
+    );
+
+    final restoredNormalized =
+        restored.map((item) => item.replaceAll('\\', '/').toLowerCase()).toSet();
+    final createdFiles = _lastInjectionResult?.createdFiles ?? const <String>[];
+    for (final rawRel in createdFiles) {
+      final relPosix = rawRel.replaceAll('\\', '/').trim();
+      if (relPosix.isEmpty || restoredNormalized.contains(relPosix.toLowerCase())) {
+        continue;
+      }
+      final candidateAbs = p.normalize(p.absolute(p.join(canonicalRoot, relPosix)));
+      if (!p.isWithin(canonicalRoot, candidateAbs)) continue;
+      try {
+        final createdFile = File(candidateAbs);
+        if (createdFile.existsSync()) {
+          createdFile.deleteSync();
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+
+    final restoredCode = _readScreenCodeFromDiskOrFallback(_effectiveCode);
+    widget.onCodeChanged(restoredCode);
+
+    setState(() {
+      _isRevertingBackup = false;
+      _wasManuallyReverted = true;
+      _lastVerificationResult = _lastVerificationResult?.copyWith(rolledBack: true);
+    });
+
+    AppToast.info(
       context,
-      'Widget "${variation.title}" inserido em $modifiedInfo$createdInfo$anchorInfo.',
-      duration: const Duration(seconds: 4),
+      'Alterações revertidas para o backup (${restored.length} arquivo(s) restaurado(s)).',
+      duration: const Duration(seconds: 3),
     );
   }
 
@@ -644,6 +806,11 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       initialRoutePath: widget.node.path,
       initialScreenTitle: widget.node.title,
       targetMaterial: targetMat,
+      targetScreenFilePath: widget.node.filePath,
+      currentScreenCode: _effectiveCode,
+      onCodeChanged: widget.onCodeChanged,
+      aiHttpClient: widget.aiHttpClient,
+      verificationProcessRunner: widget.verificationProcessRunner,
     );
   }
 
@@ -701,6 +868,11 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
       initialRoutePath: widget.node.path,
       initialScreenTitle: widget.node.title,
       initialMaterials: annotatedMaterials,
+      targetScreenFilePath: widget.node.filePath,
+      currentScreenCode: _effectiveCode,
+      onCodeChanged: widget.onCodeChanged,
+      aiHttpClient: widget.aiHttpClient,
+      verificationProcessRunner: widget.verificationProcessRunner,
     );
   }
 
@@ -2004,31 +2176,64 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
   }
 
   Widget _buildInjectionResultBanner(DartWidgetInjectionResult result) {
+    final verification = _lastVerificationResult;
+    final effectiveBackupDir = verification?.backupDir ?? result.backupDir;
+    final isReverted = _wasManuallyReverted || (verification?.rolledBack ?? false);
+    final hasAnalyzerFailure = !isReverted &&
+        verification != null &&
+        !verification.passed &&
+        !verification.skipped;
+    final isVerifiedPassed = !isReverted && (verification?.passed ?? false);
+    final isSkipped = !isReverted && (verification?.skipped ?? false);
+
+    final Color bannerColor;
+    final IconData bannerIcon;
+    final String bannerTitle;
+    if (isReverted) {
+      bannerColor = AppColors.warning;
+      bannerIcon = Icons.undo_rounded;
+      bannerTitle = 'Alterações revertidas com segurança';
+    } else if (hasAnalyzerFailure) {
+      bannerColor = AppColors.warning;
+      bannerIcon = Icons.warning_amber_rounded;
+      bannerTitle = 'Widget inserido com erros no analyzer';
+    } else {
+      bannerColor = AppColors.success;
+      bannerIcon = Icons.check_circle_rounded;
+      bannerTitle = 'Arquivos atualizados com segurança';
+    }
+
+    final int errorCount = verification != null
+        ? (verification.errors.isNotEmpty
+            ? verification.errors.length
+            : (hasAnalyzerFailure ? 1 : 0))
+        : 0;
+
     return Container(
       key: const ValueKey('widget_injection_result_banner'),
       width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: AppColors.success.withOpacity(0.1),
+        color: bannerColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.success.withOpacity(0.4)),
+        border: Border.all(color: bannerColor.withOpacity(0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(
-                Icons.check_circle_rounded,
+                bannerIcon,
                 size: 14,
-                color: AppColors.success,
+                color: bannerColor,
               ),
-              SizedBox(width: 6),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Arquivos atualizados com segurança',
+                  bannerTitle,
                   style: TextStyle(
-                    color: AppColors.success,
+                    color: bannerColor,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
@@ -2036,7 +2241,146 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
               ),
             ],
           ),
-          if (result.createdFiles.isNotEmpty) ...[
+          if (isVerifiedPassed) ...[
+            const SizedBox(height: 6),
+            Container(
+              key: const ValueKey('widget_verification_status_badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.success.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.success.withOpacity(0.45)),
+              ),
+              child: const Text(
+                '✅ Verificado (flutter analyze)',
+                style: TextStyle(
+                  color: AppColors.success,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if ((verification?.repairPatchesApplied ?? 0) > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                '🔧 Auto-reparo aplicou ${verification!.repairPatchesApplied} correção(ões)',
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ] else if (isReverted) ...[
+            const SizedBox(height: 6),
+            Container(
+              key: const ValueKey('widget_verification_status_badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.warning.withOpacity(0.45)),
+              ),
+              child: const Text(
+                '↩️ Alterações revertidas via backup',
+                style: TextStyle(
+                  color: AppColors.warning,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ] else if (verification != null && hasAnalyzerFailure) ...[
+            const SizedBox(height: 6),
+            Container(
+              key: const ValueKey('widget_verification_status_badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.danger.withOpacity(0.45)),
+              ),
+              child: Text(
+                '⚠️ Analyzer encontrou $errorCount erro(s)',
+                style: const TextStyle(
+                  color: AppColors.danger,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (verification.errors.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              for (final issue in verification.errors.take(3))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    '• ${issue.toDiagnosticLine()}',
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 10,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+            ] else if (verification.errorSummary != null &&
+                verification.errorSummary!.trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                verification.errorSummary!,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+            if (effectiveBackupDir != null && effectiveBackupDir.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                key: const ValueKey('widget_verification_rollback_button'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.warning,
+                  side: BorderSide(color: AppColors.warning.withOpacity(0.6)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                onPressed: _isRevertingBackup ? null : _revertLastInjection,
+                icon: _isRevertingBackup
+                    ? const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.warning,
+                        ),
+                      )
+                    : const Icon(Icons.undo_rounded, size: 13),
+                label: Text(
+                  _isRevertingBackup
+                      ? 'Revertendo...'
+                      : '↩️ Reverter Alterações',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ] else if (isSkipped) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'ℹ️ Verificação estática (flutter analyze) ignorada neste ambiente.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+          ],
+          if (!isReverted && result.createdFiles.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               'Criados: ${result.createdFiles.join(', ')}',
@@ -2047,7 +2391,7 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
               ),
             ),
           ],
-          if (result.modifiedFiles.isNotEmpty) ...[
+          if (!isReverted && result.modifiedFiles.isNotEmpty) ...[
             const SizedBox(height: 2),
             Text(
               'Modificados: ${result.modifiedFiles.join(', ')}',
@@ -2058,7 +2402,8 @@ class _ScreenMaterialsBuilderState extends State<ScreenMaterialsBuilder> {
               ),
             ),
           ],
-          if (result.resolvedAnchorDescription != null &&
+          if (!isReverted &&
+              result.resolvedAnchorDescription != null &&
               result.resolvedAnchorDescription!.isNotEmpty) ...[
             const SizedBox(height: 2),
             Text(

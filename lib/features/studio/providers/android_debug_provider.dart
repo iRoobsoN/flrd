@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import '../../ai/services/dart_verification_service.dart';
 import '../../ai/services/gemini_ai_service.dart';
 import '../models/connected_device.dart';
 import '../services/android_device_runner_service.dart';
@@ -114,6 +115,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
   final AndroidDeviceRunnerService _service;
   final Duration _buildHeartbeatInterval;
   final http.Client? _aiHttpClient;
+  final VerificationProcessRunner? _verificationProcessRunner;
 
   Process? _process;
   StreamSubscription<String>? _stdoutSub;
@@ -140,9 +142,45 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     this._service, {
     Duration buildHeartbeatInterval = const Duration(seconds: 20),
     http.Client? aiHttpClient,
+    VerificationProcessRunner? verificationProcessRunner,
   })  : _buildHeartbeatInterval = buildHeartbeatInterval,
         _aiHttpClient = aiHttpClient,
+        _verificationProcessRunner = verificationProcessRunner,
         super(const AndroidDebugState());
+
+  static bool get _isFlutterTestEnvironment {
+    if (kIsWeb) return false;
+    try {
+      final value = Platform.environment['FLUTTER_TEST'];
+      return value != null && value.toLowerCase() != 'false' && value != '0';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool get _shouldRunPostPatchDartVerification =>
+      _verificationProcessRunner != null || !_isFlutterTestEnvironment;
+
+  static String _formatPostPatchVerifyFailureLog(
+    DartVerificationResult verify,
+  ) {
+    final String firstSummary;
+    if (verify.errors.isNotEmpty) {
+      final first = verify.errors.first;
+      final path = first.filePath?.trim();
+      final loc = (path != null && path.isNotEmpty)
+          ? '$path${first.line != null ? ':${first.line}' : ''}: '
+          : '';
+      firstSummary = '$loc${first.message}'.trim();
+    } else {
+      final fallback = verify.errorSummary?.trim() ?? '';
+      firstSummary = fallback.isNotEmpty
+          ? fallback
+          : 'falha na análise estática Dart.';
+    }
+
+    return '⚠️ flutter analyze reportou ${verify.errors.length} erro(s) após o patch: $firstSummary — use Reverter Patches se necessário.';
+  }
 
   void _appendLog(
     String rawMessage, {
@@ -1353,6 +1391,31 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       );
     }
 
+    final modifiedDartFiles = result.modifiedFiles
+        .where((f) => f.toLowerCase().endsWith('.dart'))
+        .toList(growable: false);
+    if (modifiedDartFiles.isNotEmpty && _shouldRunPostPatchDartVerification) {
+      final verify = await DartVerificationService.verifyDartFiles(
+        projectPath: effectiveProject,
+        targetFiles: modifiedDartFiles,
+        processRunner: _verificationProcessRunner,
+      );
+      if (!mounted) return result;
+      if (verify.passed) {
+        _appendLog(
+          '✅ Verificação flutter analyze aprovada em ${modifiedDartFiles.length} arquivo(s) Dart.',
+          isSystem: true,
+          isResolution: true,
+        );
+      } else if (!verify.skipped) {
+        _appendLog(
+          _formatPostPatchVerifyFailureLog(verify),
+          isError: true,
+          isSystem: true,
+        );
+      }
+    }
+
     final remainingPatches = diagnostic.suggestedPatches
         .where((p) => !toApply.contains(p))
         .toList(growable: false);
@@ -1489,9 +1552,18 @@ final androidDeviceRunnerServiceProvider =
 
 final aiDiagnosticHttpClientProvider = Provider<http.Client?>((ref) => null);
 
+final diagnosticVerificationProcessRunnerProvider =
+    Provider<VerificationProcessRunner?>((ref) => null);
+
 final androidDebugProvider =
     StateNotifierProvider<AndroidDebugNotifier, AndroidDebugState>((ref) {
   final service = ref.watch(androidDeviceRunnerServiceProvider);
   final httpClient = ref.watch(aiDiagnosticHttpClientProvider);
-  return AndroidDebugNotifier(service, aiHttpClient: httpClient);
+  final verificationRunner =
+      ref.watch(diagnosticVerificationProcessRunnerProvider);
+  return AndroidDebugNotifier(
+    service,
+    aiHttpClient: httpClient,
+    verificationProcessRunner: verificationRunner,
+  );
 });
