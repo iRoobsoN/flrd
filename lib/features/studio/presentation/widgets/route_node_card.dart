@@ -6,6 +6,7 @@ import '../../models/route_node.dart';
 class RouteNodeCard extends StatefulWidget {
   final RouteNode node;
   final bool isSelected;
+  final bool isLiveOnDevice;
   final VoidCallback onTap;
   final Function(Offset newPos)? onDrag;
   final VoidCallback? onDragStart;
@@ -17,6 +18,7 @@ class RouteNodeCard extends StatefulWidget {
     super.key,
     required this.node,
     required this.isSelected,
+    this.isLiveOnDevice = false,
     required this.onTap,
     this.onDrag,
     this.onDragStart,
@@ -127,12 +129,16 @@ class _RouteNodeCardState extends State<RouteNodeCard> {
                   ? AppColors.primary
                   : (_isDragging
                       ? AppColors.secondary
-                      : (_isHovered
-                          ? AppColors.secondary.withOpacity(0.6)
-                          : (node.isAIGenerated
-                              ? AppColors.secondary.withOpacity(0.4)
-                              : AppColors.border))),
-              width: widget.isSelected || _isDragging ? 1.8 : 1.0,
+                      : (widget.isLiveOnDevice
+                          ? AppColors.success
+                          : (_isHovered
+                              ? AppColors.secondary.withOpacity(0.6)
+                              : (node.isAIGenerated
+                                  ? AppColors.secondary.withOpacity(0.4)
+                                  : AppColors.border)))),
+              width: widget.isSelected || _isDragging || widget.isLiveOnDevice
+                  ? 1.8
+                  : 1.0,
             ),
             boxShadow: _isDragging
                 ? [
@@ -156,14 +162,23 @@ class _RouteNodeCardState extends State<RouteNodeCard> {
                           offset: const Offset(0, 4),
                         ),
                       ]
-                    : (_isHovered
+                    : (widget.isLiveOnDevice
                         ? [
                             BoxShadow(
-                              color: AppColors.secondary.withOpacity(0.12),
-                              blurRadius: 12,
+                              color: AppColors.success.withOpacity(0.24),
+                              blurRadius: 14,
+                              spreadRadius: 1,
+                              offset: const Offset(0, 3),
                             ),
                           ]
-                        : [])),
+                        : (_isHovered
+                            ? [
+                                BoxShadow(
+                                  color: AppColors.secondary.withOpacity(0.12),
+                                  blurRadius: 12,
+                                ),
+                              ]
+                            : []))),
           ),
           child: isCollapsed
               ? _buildCollapsedRow(node)
@@ -266,6 +281,30 @@ class _RouteNodeCardState extends State<RouteNodeCard> {
         ),
         const SizedBox(width: 4),
 
+        if (widget.isLiveOnDevice) ...[
+          Tooltip(
+            message:
+                'Aberta agora no aparelho conectado (apenas indicação — você pode editar outras telas)',
+            child: Container(
+              key: ValueKey('live_device_badge_${node.id}'),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.success.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: AppColors.success.withOpacity(0.55),
+                ),
+              ),
+              child: const Icon(
+                Icons.smartphone_rounded,
+                size: 10,
+                color: AppColors.success,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+        ],
+
         // Expand Icon Button
         _buildCollapseButton(isExpand: true),
       ],
@@ -304,6 +343,46 @@ class _RouteNodeCardState extends State<RouteNodeCard> {
               ),
             ),
             const SizedBox(width: 6),
+            if (widget.isLiveOnDevice) ...[
+              Tooltip(
+                message:
+                    'Tela aberta agora no aparelho conectado (apenas indicação — você pode editar outras telas)',
+                child: Container(
+                  key: ValueKey('live_device_badge_${node.id}'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
+                  margin: const EdgeInsets.only(right: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: AppColors.success.withOpacity(0.55),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.smartphone_rounded,
+                        size: 10,
+                        color: AppColors.success,
+                      ),
+                      SizedBox(width: 3),
+                      Text(
+                        'No celular',
+                        style: TextStyle(
+                          color: AppColors.success,
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             if (node.isAIGenerated) ...[
               Container(
                 padding: const EdgeInsets.symmetric(

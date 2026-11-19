@@ -10,6 +10,9 @@ import '../../ai/services/gemini_ai_service.dart';
 import '../models/connected_device.dart';
 import '../services/android_device_runner_service.dart';
 import '../services/diagnostic_code_fix_service.dart';
+import '../services/live_device_screen_tracker_service.dart';
+
+typedef LiveScreenTrackerFactory = LiveDeviceScreenTrackerService Function();
 
 /// Sentinel marker to allow explicitly setting nullable fields in copyWith.
 const Object _unset = Object();
@@ -24,6 +27,7 @@ class AndroidDebugState {
   final String? projectPath;
   final String? vmServiceUri;
   final String? devToolsUri;
+  final LiveDeviceScreenSnapshot? liveDeviceScreen;
   final String? progressMessage;
   final String? errorMessage;
   final AndroidConnectionDiagnostic? lastDiagnostic;
@@ -39,6 +43,7 @@ class AndroidDebugState {
     this.projectPath,
     this.vmServiceUri,
     this.devToolsUri,
+    this.liveDeviceScreen,
     this.progressMessage,
     this.errorMessage,
     this.lastDiagnostic,
@@ -65,6 +70,7 @@ class AndroidDebugState {
     Object? projectPath = _unset,
     Object? vmServiceUri = _unset,
     Object? devToolsUri = _unset,
+    Object? liveDeviceScreen = _unset,
     Object? progressMessage = _unset,
     Object? errorMessage = _unset,
     Object? lastDiagnostic = _unset,
@@ -90,6 +96,9 @@ class AndroidDebugState {
       devToolsUri: identical(devToolsUri, _unset)
           ? this.devToolsUri
           : devToolsUri as String?,
+      liveDeviceScreen: identical(liveDeviceScreen, _unset)
+          ? this.liveDeviceScreen
+          : liveDeviceScreen as LiveDeviceScreenSnapshot?,
       progressMessage: identical(progressMessage, _unset)
           ? this.progressMessage
           : progressMessage as String?,
@@ -116,10 +125,13 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
   final Duration _buildHeartbeatInterval;
   final http.Client? _aiHttpClient;
   final VerificationProcessRunner? _verificationProcessRunner;
+  final LiveScreenTrackerFactory? _liveScreenTrackerFactory;
 
   Process? _process;
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
+  LiveDeviceScreenTrackerService? _liveScreenTracker;
+  StreamSubscription<LiveDeviceScreenSnapshot>? _liveScreenSub;
   Timer? _reloadDebounceTimer;
   Timer? _exitDrainTimer;
   Timer? _buildHeartbeatTimer;
@@ -143,9 +155,11 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     Duration buildHeartbeatInterval = const Duration(seconds: 20),
     http.Client? aiHttpClient,
     VerificationProcessRunner? verificationProcessRunner,
+    LiveScreenTrackerFactory? liveScreenTrackerFactory,
   })  : _buildHeartbeatInterval = buildHeartbeatInterval,
         _aiHttpClient = aiHttpClient,
         _verificationProcessRunner = verificationProcessRunner,
+        _liveScreenTrackerFactory = liveScreenTrackerFactory,
         super(const AndroidDebugState());
 
   static bool get _isFlutterTestEnvironment {
@@ -646,6 +660,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
       projectPath: normalizedProjectPath,
       vmServiceUri: null,
       devToolsUri: null,
+      liveDeviceScreen: null,
       progressMessage: 'Preparando build para ${targetDevice.name}...',
       errorMessage: null,
       buildDiagnostic: null,
@@ -750,6 +765,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           state = state.copyWith(
             status: DeviceRunStatus.error,
             activeAppId: null,
+            liveDeviceScreen: null,
             progressMessage: null,
             errorMessage: state.buildDiagnostic?.title ??
                 state.errorMessage ??
@@ -775,6 +791,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           state = state.copyWith(
             status: DeviceRunStatus.idle,
             activeAppId: null,
+            liveDeviceScreen: null,
             progressMessage: null,
           );
         }
@@ -873,6 +890,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         state = state.copyWith(vmServiceUri: wsUri);
         if (wsUri != null) {
           _appendLog('🔌 VM Service ativo: $wsUri', isSystem: true);
+          _startLiveScreenTracking(wsUri);
         }
         break;
 
@@ -895,6 +913,11 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           '✅ App em execução em tempo real no ${state.selectedDevice?.name ?? "Android"}! Edições salvas serão aplicadas via Hot Reload.',
           isSystem: true,
         );
+        if (_liveScreenTracker != null) {
+          unawaited(_liveScreenTracker!.refreshNow());
+        } else if (state.vmServiceUri != null) {
+          _startLiveScreenTracking(state.vmServiceUri!);
+        }
         break;
 
       case 'app.log':
@@ -908,6 +931,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
 
       case 'app.stop':
         _stopBuildHeartbeat();
+        _stopLiveScreenTracking();
         _runtimeCrashDebounceTimer?.cancel();
         _runtimeCrashDebounceTimer = null;
         final stopErr = params['error']?.toString();
@@ -915,6 +939,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           state = state.copyWith(
             status: DeviceRunStatus.idle,
             activeAppId: null,
+            liveDeviceScreen: null,
             progressMessage: null,
           );
           break;
@@ -927,6 +952,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           state = state.copyWith(
             status: DeviceRunStatus.error,
             activeAppId: null,
+            liveDeviceScreen: null,
             progressMessage: null,
             errorMessage: stopErr,
           );
@@ -945,6 +971,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           state = state.copyWith(
             status: DeviceRunStatus.error,
             activeAppId: null,
+            liveDeviceScreen: null,
             progressMessage: null,
             errorMessage: state.buildDiagnostic?.title ??
                 (_hasActiveAppStarted
@@ -964,6 +991,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           state = state.copyWith(
             status: DeviceRunStatus.idle,
             activeAppId: null,
+            liveDeviceScreen: null,
             progressMessage: null,
           );
         }
@@ -1093,6 +1121,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
         activeAppId: null,
         vmServiceUri: null,
         devToolsUri: null,
+        liveDeviceScreen: null,
         progressMessage: null,
       );
     }
@@ -1521,8 +1550,48 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
     );
   }
 
+  /// Forces an immediate refresh of the active screen visible on the device.
+  Future<void> refreshLiveDeviceScreen() async {
+    await _liveScreenTracker?.refreshNow();
+  }
+
+  void _startLiveScreenTracking(String wsUri) {
+    if (kIsWeb) return;
+    if (_liveScreenTrackerFactory == null && _isFlutterTestEnvironment) {
+      return;
+    }
+
+    _stopLiveScreenTracking();
+    final tracker =
+        _liveScreenTrackerFactory?.call() ?? LiveDeviceScreenTrackerService();
+    _liveScreenTracker = tracker;
+    _liveScreenSub = tracker.updates.listen((snapshot) {
+      if (!mounted) return;
+      if (!snapshot.sameScreenAs(state.liveDeviceScreen)) {
+        state = state.copyWith(liveDeviceScreen: snapshot);
+      }
+    });
+    unawaited(
+      tracker.start(
+        vmServiceUri: wsUri,
+        projectPath: state.projectPath,
+      ),
+    );
+  }
+
+  void _stopLiveScreenTracking() {
+    _liveScreenSub?.cancel();
+    _liveScreenSub = null;
+    final tracker = _liveScreenTracker;
+    _liveScreenTracker = null;
+    if (tracker != null) {
+      unawaited(tracker.dispose());
+    }
+  }
+
   void _cleanupSubscriptions() {
     _stopBuildHeartbeat();
+    _stopLiveScreenTracking();
     _runtimeCrashDebounceTimer?.cancel();
     _runtimeCrashDebounceTimer = null;
     _exitDrainTimer?.cancel();
@@ -1556,15 +1625,20 @@ final aiDiagnosticHttpClientProvider = Provider<http.Client?>((ref) => null);
 final diagnosticVerificationProcessRunnerProvider =
     Provider<VerificationProcessRunner?>((ref) => null);
 
+final liveScreenTrackerFactoryProvider =
+    Provider<LiveScreenTrackerFactory?>((ref) => null);
+
 final androidDebugProvider =
     StateNotifierProvider<AndroidDebugNotifier, AndroidDebugState>((ref) {
   final service = ref.watch(androidDeviceRunnerServiceProvider);
   final httpClient = ref.watch(aiDiagnosticHttpClientProvider);
   final verificationRunner =
       ref.watch(diagnosticVerificationProcessRunnerProvider);
+  final liveScreenTrackerFactory = ref.watch(liveScreenTrackerFactoryProvider);
   return AndroidDebugNotifier(
     service,
     aiHttpClient: httpClient,
     verificationProcessRunner: verificationRunner,
+    liveScreenTrackerFactory: liveScreenTrackerFactory,
   );
 });

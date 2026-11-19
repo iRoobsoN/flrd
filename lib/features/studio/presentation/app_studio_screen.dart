@@ -16,6 +16,7 @@ import '../models/route_node.dart';
 import '../providers/android_debug_provider.dart';
 import '../providers/studio_provider.dart';
 import '../providers/terminal_provider.dart';
+import '../services/live_device_screen_tracker_service.dart';
 import 'widgets/ai_screen_generator_dialog.dart';
 import 'widgets/android_debug_controls.dart';
 import 'widgets/embedded_code_viewer.dart';
@@ -306,6 +307,22 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     final studio = ref.watch(studioProvider);
     final studioNotifier = ref.read(studioProvider.notifier);
     final selectedNode = studio.selectedNode;
+    final liveDeviceInfo = ref.watch(
+      androidDebugProvider.select(
+        (s) => (
+          isRunning: s.isRunningOrReloading,
+          liveScreen: s.liveDeviceScreen,
+          deviceName: s.selectedDevice?.name,
+        ),
+      ),
+    );
+    final matchedLiveNode =
+        (liveDeviceInfo.isRunning && liveDeviceInfo.liveScreen != null)
+            ? LiveDeviceScreenTrackerService.matchRouteNode(
+                liveDeviceInfo.liveScreen!,
+                studio.nodes,
+              )
+            : null;
 
     ref.listen<AndroidDebugState>(androidDebugProvider, (prev, next) {
       if (!mounted) return;
@@ -347,6 +364,18 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
             // Studio Header & Project Bar with integrated compact view switcher
             _buildProjectHeader(studio, studioNotifier),
 
+            // Non-intrusive live indicator showing which screen is open on the phone
+            if (liveDeviceInfo.isRunning &&
+                liveDeviceInfo.liveScreen != null &&
+                liveDeviceInfo.liveScreen!.hasLocation)
+              _buildLiveDeviceScreenBar(
+                liveScreen: liveDeviceInfo.liveScreen!,
+                deviceName: liveDeviceInfo.deviceName,
+                matchedNode: matchedLiveNode,
+                selectedNodeId: studio.selectedNodeId,
+                studioNotifier: studioNotifier,
+              ),
+
             // Tab Views
             Expanded(
               child: TabBarView(
@@ -354,7 +383,13 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
                   // Tab 1: Interactive Route Flowchart
-                  _buildFlowchartTab(context, studio, studioNotifier, selectedNode),
+                  _buildFlowchartTab(
+                    context,
+                    studio,
+                    studioNotifier,
+                    selectedNode,
+                    liveDeviceNodeId: matchedLiveNode?.id,
+                  ),
 
                   // Tab 2: Unified Packages (pub.dev) & Native Permissions Hub
                   ProjectPackagesPermissionsHub(
@@ -789,12 +824,224 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
     );
   }
 
+  Widget _buildLiveDeviceScreenBar({
+    required LiveDeviceScreenSnapshot liveScreen,
+    required String? deviceName,
+    required RouteNode? matchedNode,
+    required String? selectedNodeId,
+    required StudioNotifier studioNotifier,
+  }) {
+    final isAlreadySelected =
+        matchedNode != null && matchedNode.id == selectedNodeId;
+    final screenLabel = matchedNode?.title ?? liveScreen.displayLabel;
+    final locationLabel = matchedNode?.filePath.isNotEmpty == true
+        ? matchedNode!.filePath
+        : (liveScreen.filePath ?? liveScreen.routeName ?? '');
+
+    void jumpToNode({required bool openCodeTab}) {
+      if (matchedNode == null) return;
+      if (_tabController.index != 0) {
+        _tabController.animateTo(0);
+      }
+      studioNotifier.selectNode(matchedNode.id);
+      setState(() {
+        _inspectorTabIndex = openCodeTab ? 1 : 0;
+      });
+    }
+
+    return Container(
+      key: const ValueKey('live_device_screen_banner'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.success.withValues(alpha: 0.08),
+        border: Border(
+          bottom: BorderSide(
+            color: AppColors.success.withValues(alpha: 0.28),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(
+              color: AppColors.success,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(
+            Icons.smartphone_rounded,
+            size: 14,
+            color: AppColors.success,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'No celular${deviceName != null && deviceName.isNotEmpty ? " ($deviceName)" : ""}:',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              screenLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (locationLabel.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: AppColors.borderSubtle),
+                ),
+                child: Text(
+                  locationLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    color: AppColors.secondary,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const Spacer(),
+          if (matchedNode != null && !isAlreadySelected) ...[
+            OutlinedButton.icon(
+              key: const ValueKey('jump_to_live_device_screen_button'),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                  color: AppColors.success.withValues(alpha: 0.55),
+                ),
+                backgroundColor: AppColors.success.withValues(alpha: 0.12),
+                foregroundColor: AppColors.success,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              onPressed: () => jumpToNode(openCodeTab: false),
+              icon: const Icon(Icons.my_location_rounded, size: 12),
+              label: const Text(
+                'Ir para tela',
+                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(width: 6),
+            OutlinedButton.icon(
+              key: const ValueKey('open_live_device_code_button'),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.border),
+                backgroundColor: AppColors.surface,
+                foregroundColor: AppColors.textPrimary,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              onPressed: () => jumpToNode(openCodeTab: true),
+              icon: const Icon(
+                Icons.code_rounded,
+                size: 12,
+                color: AppColors.secondary,
+              ),
+              label: const Text(
+                'Ver código',
+                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ] else if (isAlreadySelected) ...[
+            Container(
+              key: const ValueKey('live_device_matching_selection_badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: AppColors.success.withValues(alpha: 0.4),
+                ),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.check_circle_outline_rounded,
+                    size: 12,
+                    color: AppColors.success,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'Você está vendo esta tela',
+                    style: TextStyle(
+                      color: AppColors.success,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            const Text(
+              'Sugestão ao vivo (tela não mapeada no diagrama)',
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 10,
+              ),
+            ),
+          ],
+          const SizedBox(width: 6),
+          Tooltip(
+            message: 'Atualizar tela detectada no aparelho',
+            child: InkWell(
+              key: const ValueKey('refresh_live_device_screen_button'),
+              onTap: () => ref
+                  .read(androidDebugProvider.notifier)
+                  .refreshLiveDeviceScreen(),
+              borderRadius: BorderRadius.circular(4),
+              child: const Padding(
+                padding: EdgeInsets.all(4),
+                child: Icon(
+                  Icons.refresh_rounded,
+                  size: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFlowchartTab(
     BuildContext context,
     StudioState studio,
     StudioNotifier notifier,
-    RouteNode? selectedNode,
-  ) {
+    RouteNode? selectedNode, {
+    String? liveDeviceNodeId,
+  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isViewingCode = _inspectorTabIndex == 1;
@@ -874,6 +1121,7 @@ class _AppStudioScreenState extends ConsumerState<AppStudioScreen>
                                     child: RouteNodeCard(
                                       node: node,
                                       isSelected: node.id == studio.selectedNodeId,
+                                      isLiveOnDevice: node.id == liveDeviceNodeId,
                                       onTap: () => notifier.selectNode(node.id),
                                       onToggleCollapse: () =>
                                           notifier.toggleNodeCollapse(node.id),
