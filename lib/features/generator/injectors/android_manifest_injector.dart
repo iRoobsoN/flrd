@@ -11,9 +11,12 @@ class AndroidManifestInjector {
     required String projectRoot,
     required Set<DevicePermission> permissions,
   }) async {
+    final normalizedRoot = projectRoot.isEmpty
+        ? '.'
+        : projectRoot.replaceAll('\\', p.separator);
     final manifestPath = p.normalize(
       p.join(
-        projectRoot.isEmpty ? '.' : projectRoot,
+        normalizedRoot,
         'android',
         'app',
         'src',

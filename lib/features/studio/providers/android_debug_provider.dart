@@ -711,6 +711,7 @@ class AndroidDebugNotifier extends StateNotifier<AndroidDebugState> {
           );
 
       unawaited(proc.exitCode.then((code) async {
+        if (!mounted || _process != proc) return;
         // Allow buffered stdout/stderr chunks to flush through LineSplitter
         // before tearing down subscriptions and classifying build/runtime failures.
         if (!stdoutDone.isCompleted || !stderrDone.isCompleted) {

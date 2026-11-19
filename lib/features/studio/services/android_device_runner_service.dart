@@ -269,12 +269,19 @@ class AndroidDeviceRunnerService {
   }
 
   String _joinOsPath(String base, String child) {
-    final sep = _isWindows ? '\\' : '/';
-    final cleanBase = base.endsWith('\\') || base.endsWith('/')
-        ? base.substring(0, base.length - 1)
-        : base;
-    final cleanChild =
-        child.startsWith('\\') || child.startsWith('/') ? child.substring(1) : child;
+    final bool usePosix = base.startsWith('/') ||
+        (!_isWindows && !RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(base));
+    final sep = usePosix ? '/' : '\\';
+    final normalizedBase =
+        usePosix ? base.replaceAll('\\', '/') : base.replaceAll('/', '\\');
+    final normalizedChild =
+        usePosix ? child.replaceAll('\\', '/') : child.replaceAll('/', '\\');
+    final cleanBase = normalizedBase.endsWith(sep)
+        ? normalizedBase.substring(0, normalizedBase.length - 1)
+        : normalizedBase;
+    final cleanChild = normalizedChild.startsWith(sep)
+        ? normalizedChild.substring(1)
+        : normalizedChild;
     return '$cleanBase$sep$cleanChild';
   }
 
@@ -2393,25 +2400,26 @@ class AndroidDeviceRunnerService {
       final localAppData = env['LOCALAPPDATA'];
       final userProfile = env['USERPROFILE'];
       if (localAppData != null && localAppData.isNotEmpty) {
-        addSdkCandidate(p.join(localAppData, 'Android', 'Sdk'));
+        addSdkCandidate(_joinOsPath(_joinOsPath(localAppData, 'Android'), 'Sdk'));
       }
       addSdkCandidate(r'C:\Android\Sdk');
       addSdkCandidate(r'C:\Android');
       if (userProfile != null && userProfile.isNotEmpty) {
-        addSdkCandidate(p.join(userProfile, 'Android', 'Sdk'));
+        addSdkCandidate(_joinOsPath(_joinOsPath(userProfile, 'Android'), 'Sdk'));
       }
     } else {
       final home = env['HOME'];
       if (home != null && home.isNotEmpty) {
-        addSdkCandidate(p.join(home, 'Library', 'Android', 'sdk'));
-        addSdkCandidate(p.join(home, 'Android', 'Sdk'));
+        addSdkCandidate(_joinOsPath(home, 'Library/Android/sdk'));
+        addSdkCandidate(_joinOsPath(home, 'Android/Sdk'));
       }
     }
 
     for (final root in candidateSdkRoots) {
       if (_dirExists(root)) {
         sdkPath ??= root;
-        final candidateAdb = p.join(root, 'platform-tools', adbExe);
+        final candidateAdb =
+            _joinOsPath(_joinOsPath(root, 'platform-tools'), adbExe);
         if (_fileExists(candidateAdb)) {
           adbPath = candidateAdb;
           sdkPath = root;
@@ -2438,9 +2446,10 @@ class AndroidDeviceRunnerService {
           if (firstLine.isNotEmpty) {
             adbPath = firstLine;
             if (sdkPath == null) {
-              final ptDir = p.dirname(firstLine);
-              if (p.basename(ptDir).toLowerCase() == 'platform-tools') {
-                sdkPath = p.dirname(ptDir);
+              final pathCtx = _isWindows ? p.windows : p.posix;
+              final ptDir = pathCtx.dirname(firstLine);
+              if (pathCtx.basename(ptDir).toLowerCase() == 'platform-tools') {
+                sdkPath = pathCtx.dirname(ptDir);
               }
             }
           }
@@ -2465,7 +2474,9 @@ class AndroidDeviceRunnerService {
     final javaHome = env['JAVA_HOME'];
     final javaExe = _isWindows ? 'java.exe' : 'java';
     if (javaHome != null && javaHome.isNotEmpty) {
-      if (_fileExists(p.join(javaHome, 'bin', javaExe))) return true;
+      if (_fileExists(_joinOsPath(_joinOsPath(javaHome, 'bin'), javaExe))) {
+        return true;
+      }
     }
 
     if (_isWindows) {
